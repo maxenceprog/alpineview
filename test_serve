@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Start the frontend dev server (static, no backend).
+# Usage: ./test_serve
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+
+cleanup() {
+    echo ""
+    echo "Stopping server…"
+    kill "$FRONTEND_PID" 2>/dev/null || true
+    wait "$FRONTEND_PID" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+echo "==> Starting frontend …"
+cd "$ROOT/webapp"
+npm run dev &
+FRONTEND_PID=$!
+
+echo ""
+echo "Frontend : http://localhost:5173"
+echo ""
+wait "$FRONTEND_PID"

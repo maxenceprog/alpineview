@@ -1,0 +1,9 @@
+[submodule "third-parties/PoissonRecon"]
+	path = third-parties/PoissonRecon
+	url = https://github.com/mkazhdan/PoissonRecon
+[submodule "alpineview_builder/extern/copc-lib"]
+	path = alpineview_builder/extern/copc-lib
+	url = https://github.com/RockRobotic/copc-lib.git
+[submodule "alpineview_builder/extern/laz-perf"]
+	path = alpineview_builder/extern/laz-perf
+	url = https://github.com/hobu/laz-perf.git

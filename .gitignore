@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+.venv/
+
+# Data and generated files (gitignored directories)
+resources/
+tmp/
+
+# Runtime-generated viewer page
+_viewer.html
+
+# IDE / tooling
+.claude/
+*.ply
+*.png
+
+#web
+webapp/dist
+webapp/node_modules
+webapp/public
+webapp/package-lock.json
+
+*.db
+*.log
+webapp/test-results
+
+.cache
+*.json
+!lidalp_tools/reconstruction/workflows/*.json
+*.joblib
+*.rdb
+
+data

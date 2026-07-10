@@ -1,0 +1,36 @@
+name: lidalp
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  # Build tools
+  - cmake
+  - cxx-compiler
+  - make
+
+  # Minimal Python runtime (no GUI deps)
+  - python=3.11
+  - numpy
+  - pip
+
+  # Proj (for coordinate transforms)
+  - proj
+
+  # PoissonRecon dependencies
+  - eigen
+  - zlib
+  - libpng
+  - libjpeg-turbo
+
+  # LidarTerrainMesh: Draco LOD web-tile compression (find_package(draco)),
+  # CGAL point-cloud normal estimation (find_package(CGAL)/Eigen3)
+  - draco
+  - cgal-cpp
+
+  # Python package itself (pyproject.toml), editable install so lidalp_tools
+  # changes are picked up without reinstalling. [cosia] pulls in the
+  # rasterio/shapely land-cover texture deps on top of the core dependencies.
+  - pip:
+      - "-e ."
+
+prefix: ~/miniconda3/envs/lidalp

@@ -1,0 +1,158 @@
+---
+- name: Deploy alpineview-api
+  hosts: api
+  become: true
+  vars_files:
+    - vars.yml
+
+  handlers:
+    - name: reload nginx
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded
+
+    - name: restart api
+      ansible.builtin.service:
+        name: alpineview-api
+        state: restarted
+
+  tasks:
+    - name: Install system packages
+      ansible.builtin.apt:
+        name:
+          - nginx
+          - certbot
+          - python3-venv
+          - git
+        state: present
+        update_cache: true
+
+    - name: Create app user
+      ansible.builtin.user:
+        name: "{{ app_user }}"
+        system: true
+        home: "{{ app_home }}"
+        create_home: false
+        shell: /usr/sbin/nologin
+
+    - name: Create app and data directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: "0755"
+      loop:
+        - "{{ app_home }}"
+        - "{{ data_dir }}"
+        - "{{ data_dir }}/tiles"
+        - "{{ data_dir }}/buildings"
+        - "{{ data_dir }}/vegetation"
+
+    - name: Create virtualenv
+      ansible.builtin.command:
+        cmd: python3 -m venv "{{ venv_dir }}"
+        creates: "{{ venv_dir }}/bin/pip"
+
+    - name: Install alpineviewapi from git
+      ansible.builtin.pip:
+        name: "git+{{ repo_url }}@{{ repo_version }}"
+        virtualenv: "{{ venv_dir }}"
+        state: forcereinstall
+      notify: restart api
+
+    - name: Install systemd unit
+      ansible.builtin.template:
+        src: templates/alpineview-api.service.j2
+        dest: /etc/systemd/system/alpineview-api.service
+        mode: "0644"
+      notify: restart api
+
+    - name: Enable and start api service
+      ansible.builtin.systemd:
+        name: alpineview-api
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Create certbot webroot
+      ansible.builtin.file:
+        path: /var/www/certbot
+        state: directory
+        mode: "0755"
+
+    - name: Install nginx rate limit config
+      ansible.builtin.template:
+        src: templates/ratelimit.conf.j2
+        dest: /etc/nginx/conf.d/alpineview-ratelimit.conf
+        mode: "0644"
+      notify: reload nginx
+
+    - name: Remove default nginx site
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: reload nginx
+
+    - name: Check if certificate already exists
+      ansible.builtin.stat:
+        path: /etc/letsencrypt/live/{{ api_domain }}/fullchain.pem
+      register: cert
+
+    - name: Install nginx site (HTTP only, for ACME challenge)
+      ansible.builtin.template:
+        src: templates/nginx-site.conf.j2
+        dest: /etc/nginx/sites-available/{{ api_domain }}.conf
+        mode: "0644"
+      vars:
+        ssl_ready: false
+      when: not cert.stat.exists
+
+    - name: Enable nginx site
+      ansible.builtin.file:
+        src: /etc/nginx/sites-available/{{ api_domain }}.conf
+        dest: /etc/nginx/sites-enabled/{{ api_domain }}.conf
+        state: link
+
+    - name: Reload nginx before ACME challenge
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded
+      when: not cert.stat.exists
+
+    - name: Obtain certificate
+      ansible.builtin.command:
+        cmd: >
+          certbot certonly --webroot -w /var/www/certbot
+          -d {{ api_domain }}
+          --email {{ certbot_email }}
+          --agree-tos --non-interactive
+        creates: /etc/letsencrypt/live/{{ api_domain }}/fullchain.pem
+
+    - name: Download recommended TLS options from certbot
+      ansible.builtin.get_url:
+        url: "https://raw.githubusercontent.com/certbot/certbot/master/certbot-nginx/src/certbot_nginx/_internal/tls_configs/options-ssl-nginx.conf"
+        dest: /etc/letsencrypt/options-ssl-nginx.conf
+        mode: "0644"
+
+    - name: Generate dhparams
+      ansible.builtin.command:
+        cmd: openssl dhparam -out /etc/letsencrypt/ssl-dhparams.pem 2048
+        creates: /etc/letsencrypt/ssl-dhparams.pem
+
+    - name: Install nginx site (HTTPS)
+      ansible.builtin.template:
+        src: templates/nginx-site.conf.j2
+        dest: /etc/nginx/sites-available/{{ api_domain }}.conf
+        mode: "0644"
+      vars:
+        ssl_ready: true
+      notify: reload nginx
+
+    - name: Install certbot renewal hook to reload nginx
+      ansible.builtin.copy:
+        dest: /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
+        content: |
+          #!/bin/sh
+          systemctl reload nginx
+        mode: "0755"

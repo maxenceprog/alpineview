@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "alpinveview"
+version = "0.2.0"
+description = "Terrain mesh processing: LAZ → Poisson reconstruction → LOD Draco tiles"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "scipy",
+    "laspy[lazrs]",
+    "requests",
+    "Pillow",
+    "urllib3",
+    "pyproj",
+    "open3d",
+    "DracoPy",
+    "psutil",
+    "pydantic",
+    "ewoks",
+    # fiona is shared by buildings.py (BDTOPO footprint GPKGs, core) and
+    # cosia.py (COSIA land-cover GPKGs, optional) — kept a core dependency.
+    "fiona",
+]
+
+[project.optional-dependencies]
+# COSIA land-cover texture step (rasterises GPKG polygons into per-tile
+# PNGs); not needed to build terrain/vegetation/building tiles.
+cosia = ["rasterio", "shapely"]
+# Standalone scripts outside the lidalp_tools package (scripts/download_alpes_rge_alti.py).
+scripts = ["py7zr"]
+test = ["pytest"]
+dev  = ["ruff"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["alpineview*"]
+
+[tool.ruff]
+exclude = ["third-parties", "vendor"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+log_cli = true
+log_cli_level = "INFO"
+log_cli_format = "%(asctime)s  %(levelname)-8s  %(message)s"
+log_cli_date_format = "%H:%M:%S"
