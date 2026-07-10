@@ -22,7 +22,6 @@ _viewer.html
 webapp/dist
 webapp/node_modules
 webapp/public
-webapp/package-lock.json
 
 *.db
 *.log
@@ -31,6 +30,8 @@ webapp/test-results
 .cache
 *.json
 !lidalp_tools/reconstruction/workflows/*.json
+!webapp/package.json
+!webapp/package-lock.json
 *.joblib
 *.rdb
 

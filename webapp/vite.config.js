@@ -7,6 +7,7 @@ import { baseConfig, servePlugins } from "./vite.common.js";
 
 export default defineConfig({
   ...baseConfig,
+  base: process.env.GITHUB_PAGES ? "/alpineview/" : "/",
   plugins: servePlugins(),
   define: { __TEST_CONTROLS__: "false" },
 });
