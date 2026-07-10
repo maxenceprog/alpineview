@@ -23,7 +23,6 @@
           - nginx
           - certbot
           - python3-venv
-          - git
         state: present
         update_cache: true
 
@@ -44,19 +43,31 @@
         mode: "0755"
       loop:
         - "{{ app_home }}"
+        - "{{ src_dir }}"
         - "{{ data_dir }}"
         - "{{ data_dir }}/tiles"
         - "{{ data_dir }}/buildings"
         - "{{ data_dir }}/vegetation"
+
+    - name: Copy alpineview_api package to server
+      ansible.builtin.copy:
+        src: "{{ item }}"
+        dest: "{{ src_dir }}/"
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+      loop:
+        - "{{ playbook_dir }}/../pyproject.toml"
+        - "{{ playbook_dir }}/../alpineviewapi"
+      notify: restart api
 
     - name: Create virtualenv
       ansible.builtin.command:
         cmd: python3 -m venv "{{ venv_dir }}"
         creates: "{{ venv_dir }}/bin/pip"
 
-    - name: Install alpineviewapi from git
+    - name: Install alpineviewapi package
       ansible.builtin.pip:
-        name: "git+{{ repo_url }}@{{ repo_version }}"
+        name: "{{ src_dir }}"
         virtualenv: "{{ venv_dir }}"
         state: forcereinstall
       notify: restart api
