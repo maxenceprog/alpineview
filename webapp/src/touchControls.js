@@ -4,8 +4,8 @@
 //  - two-finger pinch (spread/pinch): zoom / dolly
 // Listens on the WebGL canvas itself (not a full-screen overlay) so taps that
 // land on UI panels/buttons drawn above the canvas never reach this logic —
-// it only ever fires over the actual 3D scene view. No-op on non-touch devices.
-const IS_TOUCH = navigator.maxTouchPoints > 0 || "ontouchstart" in window;
+// it only ever fires over the actual 3D scene view. No-op on non-mobile devices.
+import { IS_MOBILE } from "./deviceInfo.js";
 
 // Accumulated per-frame deltas (like mouse movementX / wheel deltaY), drained
 // once per render frame by camera.js rather than held as continuous state.
@@ -33,7 +33,7 @@ function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
 function mid(a, b) { return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; }
 
 export function initTouchControls(canvas) {
-  if (!IS_TOUCH) return;
+  if (!IS_MOBILE) return;
 
   canvas.style.touchAction = "none";
 

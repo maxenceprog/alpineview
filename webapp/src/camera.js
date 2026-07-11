@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { buildHeightmap, sampleHeight } from "./heightmap.js";
-import { consumePanDelta, consumeOrientDelta, consumeZoomDelta } from "./touchControls.js";
+import { consumeOrientDelta, consumePanDelta, consumeZoomDelta } from "./touchControls.js";
 
 // Scene units = km. Tile occupies roughly [913, 914]² in L93 km coords.
 const MOVE_SPEED = 0.03;  // 30 m/s
@@ -164,9 +164,10 @@ export function createFlyCamera(renderer, getGroundHeight) {
     // change) — up/down drag maps to forward/back, left/right to strafe.
     const panDelta = consumePanDelta();
     if (panDelta.x !== 0 || panDelta.y !== 0) {
+      const touchSpeed = PAN_SPEED * altitudeMultiplier;
       moveIfClear(() => {
-        camera.position.addScaledVector(_forwardFlat, -panDelta.y * PAN_SPEED);
-        camera.position.addScaledVector(_right, panDelta.x * PAN_SPEED);
+        camera.position.addScaledVector(_forwardFlat, panDelta.y * touchSpeed);
+        camera.position.addScaledVector(_right, panDelta.x * touchSpeed);
       });
     }
 
@@ -356,7 +357,7 @@ export function createWalkCamera(renderer, scene) {
       if (_keys.has("KeyS")) camera.position.addScaledVector(_forward, -d);
       if (_keys.has("KeyA")) camera.position.addScaledVector(_right, -d);
       if (_keys.has("KeyD")) camera.position.addScaledVector(_right, d);
-      camera.position.addScaledVector(_forward, -panDelta.y * PAN_SPEED);
+      camera.position.addScaledVector(_forward, panDelta.y * PAN_SPEED);
       camera.position.addScaledVector(_right, panDelta.x * PAN_SPEED);
     }
 
