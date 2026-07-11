@@ -3,6 +3,7 @@ import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { API_BASE_URL } from "./apiConfig.js";
 import { IS_MOBILE } from "./deviceInfo.js";
 import { buildHeightmap, sampleHeight } from "./heightmap.js";
+import { processGeometry } from "./geometryWorkerPool.js";
 import { applyLayer, disposeLayerMaterials } from "./layers.js";
 import { setSunDirection } from "./sunLighting.js";
 
@@ -220,9 +221,22 @@ async function loadDraco(tx, ty, z, layerId, signal, reload = false) {
       _loader.parse(buffer, resolve, reject)
     );
 
-    geometry.rotateX(-Math.PI / 2);
-    geometry.computeVertexNormals();
-    geometry.computeBoundingBox();
+    // Rotation, normals, and bbox are pure per-vertex/per-face array math
+    // with no dependency on the live scene — offload them to a worker so a
+    // burst of tile loads doesn't stall the render loop (see loadDraco perf
+    // notes in tileManager.js's module doc).
+    const posAttr = geometry.getAttribute("position");
+    const idxAttr = geometry.getIndex();
+    const { positions, normals, bbox } = await processGeometry(
+      posAttr.array,
+      idxAttr.array
+    );
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+    geometry.boundingBox = new THREE.Box3(
+      new THREE.Vector3(bbox[0], bbox[1], bbox[2]),
+      new THREE.Vector3(bbox[3], bbox[4], bbox[5])
+    );
   }
 
   const mesh = new THREE.Mesh(
@@ -260,8 +274,11 @@ async function loadVegetationTile(tx, ty, z) {
   const geometry = await new Promise((resolve, reject) =>
     _loader.parse(buffer, resolve, reject)
   );
-  geometry.rotateX(-Math.PI / 2);
-  geometry.computeVertexNormals();
+  const posAttr = geometry.getAttribute("position");
+  const idxAttr = geometry.getIndex();
+  const { positions, normals } = await processGeometry(posAttr.array, idxAttr.array);
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
 
   const mesh = new THREE.Mesh(
     geometry,
