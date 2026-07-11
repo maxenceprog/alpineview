@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { buildHeightmap, sampleHeight } from "./heightmap.js";
-import { consumeOrientDelta, consumePanDelta, consumeZoomDelta } from "./touchControls.js";
+import { consumeOrientDelta, consumeZoomDelta } from "./touchControls.js";
 
 // Scene units = km. Tile occupies roughly [913, 914]² in L93 km coords.
 const MOVE_SPEED = 0.03;  // 30 m/s
@@ -20,10 +20,9 @@ const FLY_MIN_ALTITUDE_KM = 4; // fallback floor where no terrain is loaded at a
 const ACCEL_SMOOTH = 0.15;  // 0-1 per-frame lerp toward desired WASD velocity — smooth accel/decel
 const WHEEL_FRICTION = 0.9; // per-frame decay of wheel-driven velocity — smooth coast instead of a jump-per-tick
 const WHEEL_IMPULSE = 0.03; // feel-tuned: scales one wheel tick into a velocity impulse
-// Ground-rejection runs on its own fixed-rate timer, not just inside update()
-// — update() only runs when the render loop calls it (rAF, so it can skip or
-// stall), which let the camera sit below ground for a stretch before the
-// next correction. A setInterval tick keeps enforcing the floor regardless.
+
+const NEAR_GROUND_BRAKE_HEIGHT_KM = 1;
+
 const PHYSICS_INTERVAL_MS = 20; // 50 Hz
 
 // Shared key state across both cameras
@@ -129,7 +128,6 @@ export function createFlyCamera(renderer, getGroundHeight) {
   }, { passive: false });
 
   const _forward = new THREE.Vector3();
-  const _forwardFlat = new THREE.Vector3(); // _forward with y zeroed — used for touch pan (ground-plane only)
   const _worldUp = new THREE.Vector3(0, 1, 0);
   const _velocity = new THREE.Vector3(); // WASD velocity, eased toward _desired each frame
   const _desired = new THREE.Vector3();
@@ -144,8 +142,6 @@ export function createFlyCamera(renderer, getGroundHeight) {
 
     camera.getWorldDirection(_forward);
     _right.crossVectors(_forward, _worldUp).normalize();
-    _forwardFlat.set(_forward.x, 0, _forward.z);
-    if (_forwardFlat.lengthSq() > 0) _forwardFlat.normalize();
 
     _desired.set(0, 0, 0);
     if (_keys.has("KeyW")) _desired.add(_forward);
@@ -160,18 +156,13 @@ export function createFlyCamera(renderer, getGroundHeight) {
     _velocity.lerp(_desired, ACCEL_SMOOTH);
     _wheelVelocity *= WHEEL_FRICTION;
 
-    // One-finger touch drag: move in the ground plane only (no altitude
-    // change) — up/down drag maps to forward/back, left/right to strafe.
-    const panDelta = consumePanDelta();
-    if (panDelta.x !== 0 || panDelta.y !== 0) {
-      const touchSpeed = PAN_SPEED * altitudeMultiplier;
-      moveIfClear(() => {
-        camera.position.addScaledVector(_forwardFlat, panDelta.y * touchSpeed);
-        camera.position.addScaledVector(_right, panDelta.x * touchSpeed);
-      });
-    }
+    // Floor cushion: brake any downward velocity as the ground gets close,
+    // regardless of where that velocity came from (WASD dive, wheel dolly).
+    const groundProximity = Math.min(1, Math.max(0, heightAboveGround() / NEAR_GROUND_BRAKE_HEIGHT_KM));
+    if (_velocity.y < 0) _velocity.y *= groundProximity;
+    if (_forward.y * _wheelVelocity < 0) _wheelVelocity *= groundProximity;
 
-    // Two-finger touch drag: orient the camera (delta-based, like the
+    // One-finger touch drag: orient the camera (delta-based, like the
     // right-click-drag handled in pointermove above).
     const orientDelta = consumeOrientDelta();
     if (orientDelta.x !== 0 || orientDelta.y !== 0) {
@@ -337,13 +328,7 @@ export function createWalkCamera(renderer, scene) {
   function update(dt) {
     if (!enabled) return;
 
-    // One-finger touch drag: move in the ground plane (XY only) — up/down
-    // drag maps to forward/back, left/right to strafe, same as WASD.
-    const panDelta = consumePanDelta();
-    const moving = _keys.has("KeyW") || _keys.has("KeyS") || _keys.has("KeyA") || _keys.has("KeyD")
-      || panDelta.x !== 0 || panDelta.y !== 0;
-
-    if (moving) {
+    if (_keys.has("KeyW") || _keys.has("KeyS") || _keys.has("KeyA") || _keys.has("KeyD")) {
       const sprint = _keys.has("KeyQ") ? SPRINT_MUL : 1;
       const speed = MOVE_SPEED * sprint;
       const d = speed * dt;
@@ -357,11 +342,9 @@ export function createWalkCamera(renderer, scene) {
       if (_keys.has("KeyS")) camera.position.addScaledVector(_forward, -d);
       if (_keys.has("KeyA")) camera.position.addScaledVector(_right, -d);
       if (_keys.has("KeyD")) camera.position.addScaledVector(_right, d);
-      camera.position.addScaledVector(_forward, panDelta.y * PAN_SPEED);
-      camera.position.addScaledVector(_right, panDelta.x * PAN_SPEED);
     }
 
-    // Two-finger touch drag: orient the camera, standing in for the
+    // One-finger touch drag: orient the camera, standing in for the
     // pointer-lock mouse-look above (Pointer Lock isn't available on touch).
     const orientDelta = consumeOrientDelta();
     if (orientDelta.x !== 0 || orientDelta.y !== 0) {

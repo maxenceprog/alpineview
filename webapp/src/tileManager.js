@@ -19,7 +19,7 @@ _loader.setDecoderPath(`${import.meta.env.BASE_URL}draco/`);
 // matters there, since flying high with a large radius is the worst case for
 // tile/imagery memory.
 const LOAD_RADIUS_MIN = 4;                  // km — floor, even at ground level
-const LOAD_RADIUS_MAX = IS_MOBILE ? 5 : 8;  // km — ceiling, at high altitude
+const LOAD_RADIUS_MAX = IS_MOBILE ? 6 : 8;  // km — ceiling, at high altitude
 const MAX_Z = 2;          // deepest zoom level available
 // Subdivide a tile at zoom z into z+1 children when its centre is within DETAIL_RADIUS[z].
 const DETAIL_RADIUS = [1.5, 0.6]; // z=0→z=1, z=1→z=2, km

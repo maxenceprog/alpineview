@@ -5,8 +5,8 @@ import {
   loadCosiaRgbTexture,
   loadCosiaTexture,
 } from "./cosia.js";
-import { getSunDirection, registerLitMaterial, unregisterLitMaterial } from "./sunLighting.js";
 import { IS_MOBILE } from "./deviceInfo.js";
+import { getSunDirection, registerLitMaterial, unregisterLitMaterial } from "./sunLighting.js";
 
 const L93_ORIGIN_X = 0;
 const L93_ORIGIN_Y = 12_000_000;
@@ -14,9 +14,9 @@ const L93_TILE_SIZE_M = {
   14: 256 * 45714.2857 * 0.00028,
   15: 256 * 22857.1429 * 0.00028,
   16: 256 * 11428.5714 * 0.00028,
-  17: 256 *  5714.2857 * 0.00028,
-  18: 256 *  2857.1429 * 0.00028,
-  19: 256 *  1428.5714 * 0.00028,
+  17: 256 * 5714.2857 * 0.00028,
+  18: 256 * 2857.1429 * 0.00028,
+  19: 256 * 1428.5714 * 0.00028,
 };
 // LOD0 (1km, farthest/coarsest tiles) uses one WMTS zoom level less than its
 // terrain LOD would suggest — full 10cm imagery isn't needed at that
@@ -32,7 +32,7 @@ const ignOrthoUrl = (col, row, level) =>
 
 export const LAYER_OPTIONS = [
   { id: "satellite", label: "Satellite" },
-  { id: "cosia",     label: "COSIA" },
+  { id: "cosia", label: "COSIA" },
 ];
 
 const IMAGE_TIMEOUT_MS = 10_000;
@@ -63,7 +63,7 @@ function loadImage(url) {
       IMAGE_TIMEOUT_MS,
     );
     img.crossOrigin = "anonymous";
-    img.onload  = () => { clearTimeout(timer); resolve(img); };
+    img.onload = () => { clearTimeout(timer); resolve(img); };
     img.onerror = () => { clearTimeout(timer); reject(new Error(`Failed to load tile: ${url}`)); };
     img.src = url;
   }).catch((err) => { _imageCache.delete(url); throw err; }); // don't cache failures
@@ -87,7 +87,7 @@ export async function buildCanvas(worldMinX, worldMaxX, worldMinZ, worldMaxZ, le
   const rowMax = Math.floor((L93_ORIGIN_Y - y0) / s);
 
   const canvas = document.createElement("canvas");
-  canvas.width  = (colMax - colMin + 1) * 256;
+  canvas.width = (colMax - colMin + 1) * 256;
   canvas.height = (rowMax - rowMin + 1) * 256;
   const ctx = canvas.getContext("2d");
 
@@ -195,12 +195,12 @@ function buildVerticalDiffuseMaterial(texture) {
 }
 
 export function bakeWorldUVs(geometry, meshPos, xMin, xMax, zMin, zMax) {
-  const pos  = geometry.attributes.position.array;
+  const pos = geometry.attributes.position.array;
   const count = pos.length / 3;
-  const uvs  = new Float32Array(count * 2);
+  const uvs = new Float32Array(count * 2);
   const xRange = xMax - xMin, zRange = zMax - zMin;
   for (let i = 0; i < count; i++) {
-    uvs[i * 2]     = (pos[i * 3]     + meshPos.x - xMin) / xRange;
+    uvs[i * 2] = (pos[i * 3] + meshPos.x - xMin) / xRange;
     uvs[i * 2 + 1] = (pos[i * 3 + 2] + meshPos.z - zMin) / zRange;
   }
   geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
