@@ -6,7 +6,7 @@ import { applyLayer, disposeLayerMaterials } from "./layers.js";
 import { setSunDirection } from "./sunLighting.js";
 
 const _loader = new DRACOLoader();
-_loader.setDecoderPath("/draco/");
+_loader.setDecoderPath(`${import.meta.env.BASE_URL}draco/`);
 
 // ── LOD config ──────────────────────────────────────────────────────────────
 // A cell is served by EITHER its own tile OR its four children one zoom deeper,
