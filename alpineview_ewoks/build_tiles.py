@@ -19,7 +19,6 @@ from .core.lidar_hd import TileInfo
 from .core.tiles import (
     DEFAULT_CACHE_DIR,
     DEFAULT_RESOLUTION,
-    cell_outputs_exist,
     download_cell_and_neighbours,
 )
 
@@ -92,9 +91,6 @@ def main(argv: list[str] | None = None) -> None:
     for i, tile in enumerate(tiles, 1):
         _wait(pendings)
         x, y = parse_km(tile.name)
-        if cell_outputs_exist(x, y):
-            print(f"⏭  skipped #{i}/{len(tiles)}  {tile.name} (already built)")
-            continue
         try:
             download_cell_and_neighbours(
                 x, y, args.cache, resolution=args.resolution, download_from_ign=True

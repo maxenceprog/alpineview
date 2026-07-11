@@ -8,6 +8,7 @@ from ..core.tiles import (
     DEFAULT_CACHE_DIR,
     DEFAULT_TILES_OUT,
     LOD_LEVEL,
+    cell_outputs_exist,
     run_alpineview_builder,
 )
 
@@ -20,16 +21,12 @@ class BuildTilesInputs(BaseInputModel):
     out_dir: str = Field(
         default=DEFAULT_TILES_OUT, description="Where .drc tiles are written"
     )
-    # Every default below is alpineview_builder's own default (see set_default_cfg()
-    # in third-parties/LidarTerrainMesh/src/alpineview_builder.cpp) and lives only
-    # here — run_alpineview_builder() itself takes all of these as required
-    # arguments, so this is their single source of truth.
     depth: int = Field(default=10, description="Poisson reconstruction octree depth")
-    weight: float = Field(default=4.0, description="Poisson point-weight parameter")
+    weight: float = Field(default=8.0, description="Poisson point-weight parameter")
     lod: int = Field(
         default=LOD_LEVEL, description="Highest Draco LOD level to write (0..lod)"
     )
-    trim: float = Field(default=0.0, description="Poisson mesh density trim threshold")
+    trim: float = Field(default=5.0, description="Poisson mesh density trim threshold")
     parallel: bool = Field(
         default=False, description="Run PoissonRecon with parallel octree construction"
     )
@@ -40,7 +37,7 @@ class BuildTilesInputs(BaseInputModel):
     encode: bool = Field(default=False, description="Write an encoded .bin mesh")
     skirt_depth: float = Field(default=50.0, description="LOD tile skirt depth, metres")
     aratio: float = Field(
-        default=0.005, description="Mesh simplification aspect-ratio threshold"
+        default=0.05, description="Mesh simplification aspect-ratio threshold"
     )
     clean: int = Field(
         default=2, description="Mesh cleanup level (small-component removal)"
@@ -53,10 +50,13 @@ class BuildTilesInputs(BaseInputModel):
         description="Thinning voxel size in metres; <= 0 = auto (2x estimated point-cloud scale)",
     )
     ds_cone: float = Field(
-        default=35.0, description="Thinning normal-cluster half-angle, degrees"
+        default=10.0, description="Thinning normal-cluster half-angle, degrees"
     )
     ds_min_pts: int = Field(
         default=0, description="Thinning density floor (points per voxel); <= 0 = auto"
+    )
+    force: bool = Field(
+        default=False, description="Rebuild even if the cell's tiles already exist"
     )
 
 
@@ -71,6 +71,14 @@ class BuildTiles(Task, input_model=BuildTilesInputs, output_model=BuildTilesOutp
     """Mesh one cell into Draco LOD tiles with alpineview_builder."""
 
     def run(self):
+        self.outputs.x_km = self.inputs.x_km
+        self.outputs.y_km = self.inputs.y_km
+        self.outputs.tiles_dir = self.inputs.out_dir
+        if not self.inputs.force and cell_outputs_exist(
+            self.inputs.x_km, self.inputs.y_km, self.inputs.out_dir, self.inputs.lod
+        ):
+            self.outputs.stdout = "skipped: tiles already built"
+            return
         self.outputs.stdout = run_alpineview_builder(
             self.inputs.x_km,
             self.inputs.y_km,
@@ -92,6 +100,3 @@ class BuildTiles(Task, input_model=BuildTilesInputs, output_model=BuildTilesOutp
             ds_cone=self.inputs.ds_cone,
             ds_min_pts=self.inputs.ds_min_pts,
         )
-        self.outputs.x_km = self.inputs.x_km
-        self.outputs.y_km = self.inputs.y_km
-        self.outputs.tiles_dir = self.inputs.out_dir

@@ -15,6 +15,7 @@ Each ``dalle`` feature is a 1×1 km tile carrying the authoritative download
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -53,7 +54,7 @@ def _wfs_dalles(
         "BBOX": f"{xmin},{ymin},{xmax},{ymax},EPSG:2154",
         "COUNT": str(count),
     }
-    resp = _make_session().get(_WFS_URL, params=params, timeout=30)
+    resp = _shared_session().get(_WFS_URL, params=params, timeout=30)
     resp.raise_for_status()
     features = resp.json().get("features", [])
 
@@ -149,6 +150,20 @@ def find_tiles(x_l93: float, y_l93: float, radius_m: float) -> list[TileInfo]:
     return tiles
 
 
+_shared: requests.Session | None = None
+_shared_lock = threading.Lock()
+
+
+def _shared_session() -> requests.Session:
+    """Process-wide session: keep-alive connections reused across WFS lookups
+    and tile downloads (urllib3's pool is thread-safe)."""
+    global _shared
+    with _shared_lock:
+        if _shared is None:
+            _shared = _make_session()
+        return _shared
+
+
 def _make_session():
     from requests.adapters import HTTPAdapter
     from urllib3.util.retry import Retry
@@ -170,8 +185,7 @@ def download_tile(
 ) -> Path:
     """Download a tile to *cache_dir*, skipping if already present.
 
-    Pass a shared *session* to reuse keep-alive connections across many
-    downloads; otherwise a one-shot session is created.
+    Pass a *session* to override the process-wide shared one.
     """
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -188,7 +202,7 @@ def download_tile(
     logger.debug("  to   %s", dest)
 
     if session is None:
-        session = _make_session()
+        session = _shared_session()
     resp = session.get(tile.url, stream=True, timeout=(10, 60))
     resp.raise_for_status()
     total = int(resp.headers.get("content-length", 0))

@@ -201,28 +201,70 @@ def trunk_mesh(
     return cyl
 
 
+def vegetation_outputs(
+    x_km: int, y_km: int, out_dir: str = DEFAULT_OUT
+) -> list[str]:
+    """Existing .veg.drc tile paths for cell (x_km, y_km); empty if none."""
+    y0 = y_km - 1
+    paths = []
+    for i in range(TILES_PER_SIDE):
+        for j in range(TILES_PER_SIDE):
+            tx = x_km * TILES_PER_SIDE + i
+            ty = y0 * TILES_PER_SIDE + j
+            path = Path(out_dir) / f"tile.{tx}.{ty}.{LOD_Z}.veg.drc"
+            if path.exists():
+                paths.append(str(path))
+    return paths
+
+
+def write_empty_tiles(x_km: int, y_km: int, out_dir: str = DEFAULT_OUT) -> list[str]:
+    """Mark cell (x_km, y_km) as built with no trees: 16 zero-byte .veg.drc.
+
+    The webapp rejects them at the DRACO magic-bytes check and silently skips
+    them, while vegetation_outputs() sees the cell as done.
+    """
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    y0 = y_km - 1
+    paths = []
+    for i in range(TILES_PER_SIDE):
+        for j in range(TILES_PER_SIDE):
+            tx = x_km * TILES_PER_SIDE + i
+            ty = y0 * TILES_PER_SIDE + j
+            path = out / f"tile.{tx}.{ty}.{LOD_Z}.veg.drc"
+            path.touch()
+            paths.append(str(path))
+    return paths
+
+
 def build_vegetation(
     laz_path: str,
     out_dir: str = DEFAULT_OUT,
     min_tree_height: float = DEFAULT_MIN_TREE_HEIGHT,
     min_tree_points: int = DEFAULT_MIN_TREE_POINTS,
 ) -> list[str]:
-    """Segment and mesh a cell's trees → LOD-2 .veg.drc tile paths."""
+    """Segment and mesh a cell's trees → LOD-2 .veg.drc tile paths.
+
+    A cell without exploitable vegetation still succeeds: it gets zero-byte
+    .veg.drc tiles so later runs see it as built.
+    """
+    name = Path(laz_path).name
+    cell_x_km, cell_y_km = (int(p) for p in name.split("_")[2:4])
+
     las = laspy.read(str(laz_path))
     veg = class_points(las, VEG_CLASSES)
     ground = class_points(las, (GROUND_CLASS,))
-    name = Path(laz_path).name
     if len(veg) == 0 or len(ground) == 0:
-        log.warning("%s: no vegetation or no ground points", name)
-        return []
+        log.info("%s: no vegetation or no ground points", name)
+        return write_empty_tiles(cell_x_km, cell_y_km, out_dir)
     log.info("%s: %d veg points, %d ground points", name, len(veg), len(ground))
 
     heights = height_above_ground(veg, ground)
     keep = heights >= MIN_HEIGHT_ABOVE_GROUND
     veg, heights = veg[keep], heights[keep]
     if len(veg) == 0:
-        log.warning("%s: nothing above %.1f m", name, MIN_HEIGHT_ABOVE_GROUND)
-        return []
+        log.info("%s: nothing above %.1f m", name, MIN_HEIGHT_ABOVE_GROUND)
+        return write_empty_tiles(cell_x_km, cell_y_km, out_dir)
 
     # Local metres relative to the 1 km cell origin: needed for Draco (float32)
     # and keeps every later step in small, well-conditioned coordinates.
@@ -276,8 +318,8 @@ def build_vegetation(
 
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    cell_x_km = int(cell_origin[0] // CELL_SIZE_M)
-    cell_y_km = int(cell_origin[1] // CELL_SIZE_M)
+    origin_x_km = int(cell_origin[0] // CELL_SIZE_M)
+    origin_y_km = int(cell_origin[1] // CELL_SIZE_M)
     paths = []
     for (i, j), mesh in sorted(tile_meshes.items()):
         mesh = postprocess_mesh(mesh)
@@ -286,10 +328,13 @@ def build_vegetation(
         colors = np.asarray(mesh.vertex_colors) * 255.0
         if len(faces) == 0:
             continue
-        tx = cell_x_km * TILES_PER_SIDE + i
-        ty = cell_y_km * TILES_PER_SIDE + j
+        tx = origin_x_km * TILES_PER_SIDE + i
+        ty = origin_y_km * TILES_PER_SIDE + j
         path = out / f"tile.{tx}.{ty}.{LOD_Z}.veg.drc"
         path.write_bytes(encode_mesh(vertices, faces, colors))
         paths.append(str(path))
+    if not paths:
+        log.info("%s: no crowns reconstructed", name)
+        return write_empty_tiles(cell_x_km, cell_y_km, out_dir)
     log.info("%s: wrote %d LOD-%d tiles", name, len(paths), LOD_Z)
     return paths

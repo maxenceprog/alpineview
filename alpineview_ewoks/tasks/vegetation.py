@@ -4,11 +4,14 @@ from ewoks import BaseInputModel, Task
 from ewokscore.model import BaseOutputModel
 from pydantic import Field
 
+from pathlib import Path
+
 from ..core.vegetation import (
     DEFAULT_MIN_TREE_HEIGHT,
     DEFAULT_MIN_TREE_POINTS,
     DEFAULT_OUT,
     build_vegetation,
+    vegetation_outputs,
 )
 
 
@@ -25,6 +28,9 @@ class BuildVegetationInputs(BaseInputModel):
         default=DEFAULT_MIN_TREE_POINTS,
         description="Discard crowns with fewer points than this",
     )
+    force: bool = Field(
+        default=False, description="Rebuild even if the cell's .veg.drc tiles exist"
+    )
 
 
 class BuildVegetationOutputs(BaseOutputModel):
@@ -39,6 +45,13 @@ class BuildVegetation(
     """Segment a cell's tree crowns and mesh them into LOD-2 Draco tiles."""
 
     def run(self):
+        if not self.inputs.force:
+            stem = Path(self.inputs.laz_path).name
+            x_km, y_km = (int(p) for p in stem.split("_")[2:4])
+            existing = vegetation_outputs(x_km, y_km, self.inputs.out_dir)
+            if existing:
+                self.outputs.veg_tiles = existing
+                return
         self.outputs.veg_tiles = build_vegetation(
             self.inputs.laz_path,
             self.inputs.out_dir,

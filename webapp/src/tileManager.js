@@ -260,7 +260,7 @@ async function loadDraco(tx, ty, z, layerId, signal, reload = false) {
 // x=east / y=north / z=altitude (see alpineview_ewoks/core/vegetation.py). Colors
 // are baked per vertex at build time from IGN satellite imagery.
 
-async function loadVegetationTile(tx, ty, z) {
+export async function loadVegetationTile(tx, ty, z) {
   const url = `${API_BASE_URL}/vegetation/tile.${tx}.${ty}.${z}.veg.drc`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`veg tile not found: ${url}`);

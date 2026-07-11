@@ -19,12 +19,7 @@ from alpineview_ewoks.core.lidar_hd import TileInfo, download_tile, find_tile_la
 
 _REPO = Path(__file__).resolve().parents[2]
 _ALPINEVIEW_BUILDER = str(
-    _REPO
-    / "alpineview_builder"
-    / "build"
-    / "release"
-    / "src"
-    / "alpineview_builder"
+    _REPO / "alpineview_builder" / "build" / "release" / "src" / "alpineview_builder"
 )
 _POISSONRECON_DIR = str(_REPO / "third-parties" / "PoissonRecon" / "Bin" / "Linux")
 DEFAULT_CACHE_DIR = str(Path.home() / ".cache" / "poissonrecon-ign")
