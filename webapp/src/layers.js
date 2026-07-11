@@ -30,6 +30,25 @@ const ignOrthoUrl = (col, row, level) =>
   `&LAYER=HR.ORTHOIMAGERY.ORTHOPHOTOS.L93&STYLE=normal&FORMAT=image%2Fjpeg` +
   `&TILEMATRIXSET=2154_10cm_10_20&TILEMATRIX=${level}&TILEROW=${row}&TILECOL=${col}`;
 
+const ignPlanUrl = (col, row, level) =>
+  `https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0` +
+  `&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2.L93&STYLE=normal&FORMAT=image%2Fjpeg` +
+  `&TILEMATRIXSET=2154_10cm_6_20&TILEMATRIX=${level}&TILEROW=${row}&TILECOL=${col}`;
+
+const MAP_SOURCE_URLS = { ortho: ignOrthoUrl, plan: ignPlanUrl };
+
+// Base map imagery draped on both DEM tiles (via applyLayer) and draco tile
+// meshes (via dracoLayer.js) — a single switch shared by both drape paths.
+let currentMapSource = "ortho";
+
+export function setMapSource(source) {
+  currentMapSource = source;
+}
+
+export function getMapSource() {
+  return currentMapSource;
+}
+
 export const LAYER_OPTIONS = [
   { id: "satellite", label: "Satellite" },
   { id: "cosia", label: "COSIA" },
@@ -91,10 +110,11 @@ export async function buildCanvas(worldMinX, worldMaxX, worldMinZ, worldMaxZ, le
   canvas.height = (rowMax - rowMin + 1) * 256;
   const ctx = canvas.getContext("2d");
 
+  const tileUrl = MAP_SOURCE_URLS[currentMapSource];
   const fetches = [];
   for (let r = rowMin; r <= rowMax; r++)
     for (let c = colMin; c <= colMax; c++)
-      fetches.push(loadImage(ignOrthoUrl(c, r, level)).then(img => ({ img, col: c - colMin, row: r - rowMin })));
+      fetches.push(loadImage(tileUrl(c, r, level)).then(img => ({ img, col: c - colMin, row: r - rowMin })));
 
   for (const { img, col, row } of await Promise.all(fetches))
     ctx.drawImage(img, col * 256, row * 256, 256, 256);
@@ -119,7 +139,13 @@ const TILE_DRAW = {
 
 // Vertical-diffuse material — texture * max(0, worldNormal.y), ignores scene lights
 let currentBrightness = 1.0;
+let currentLit = 1.0;
 const verticalDiffuseMaterials = new Set();
+
+export function setTerrainLightingEnabled(on) {
+  currentLit = on ? 1.0 : 0.0;
+  for (const mat of verticalDiffuseMaterials) mat.uniforms.uLit.value = currentLit;
+}
 
 export function setBrightness(value) {
   currentBrightness = value;
@@ -130,19 +156,21 @@ export function getBrightness() {
   return currentBrightness;
 }
 
-function buildVerticalDiffuseMaterial(texture) {
+export function buildVerticalDiffuseMaterial(texture) {
   const mat = new THREE.ShaderMaterial({
     uniforms: {
       ...THREE.UniformsLib.fog,
       ...THREE.UniformsLib.lights,
       map: { value: texture },
       uBrightness: { value: currentBrightness },
+      uLit: { value: currentLit },
       uSunDir: { value: getSunDirection().clone() },
     },
     vertexShader: `
       #include <common>
       #include <shadowmap_pars_vertex>
       #include <fog_pars_vertex>
+      #include <logdepthbuf_pars_vertex>
       varying vec2 vUv;
       varying vec3 vWorldNormal;
       void main() {
@@ -152,6 +180,7 @@ function buildVerticalDiffuseMaterial(texture) {
         vec3 transformedNormal = normalize(normalMatrix * normal);
         vec4 mvPosition = modelViewMatrix * vec4(transformed, 1.0);
         gl_Position = projectionMatrix * mvPosition;
+        #include <logdepthbuf_vertex>
         #include <worldpos_vertex>
         #include <shadowmap_vertex>
         #include <fog_vertex>
@@ -162,12 +191,15 @@ function buildVerticalDiffuseMaterial(texture) {
       #include <packing>
       #include <shadowmap_pars_fragment>
       #include <fog_pars_fragment>
+      #include <logdepthbuf_pars_fragment>
       uniform sampler2D map;
       uniform float uBrightness;
+      uniform float uLit;
       uniform vec3 uSunDir;
       varying vec2 vUv;
       varying vec3 vWorldNormal;
       void main() {
+        #include <logdepthbuf_fragment>
         vec4 c = texture2D(map, vUv);
         float ambient = 0.15;
         float direct = 0.85 * max(0.0, dot(vWorldNormal, uSunDir));
@@ -176,7 +208,7 @@ function buildVerticalDiffuseMaterial(texture) {
             directionalLightShadows[0].shadowIntensity, directionalLightShadows[0].shadowBias,
             directionalLightShadows[0].shadowRadius, vDirectionalShadowCoord[0]);
         #endif
-        float d = ambient + direct;
+        float d = mix(1.0, ambient + direct, uLit);
         // Screen-like lift: brightens dark pixels more than bright ones (reduces
         // contrast) instead of a flat multiply, which would blow out highlights.
         float amt = uBrightness - 1.0;
@@ -225,6 +257,12 @@ function disposeMeshMaterial(mat) {
   mat.dispose();
 }
 
+export function replaceMeshMaterial(mesh, newMaterial) {
+  const oldMaterial = mesh.material;
+  mesh.material = newMaterial;
+  disposeMeshMaterial(oldMaterial);
+}
+
 export async function applyLayer(mesh, layerId, tileZ = 2) {
   const ver = (mesh.userData._layerVer = ((mesh.userData._layerVer ?? 0) + 1));
 
@@ -268,9 +306,7 @@ export async function applyLayer(mesh, layerId, tileZ = 2) {
     mesh.userData.textureData = { canvas, xMin, xMax, zMin, zMax };
   }
 
-  const oldMaterial = mesh.material;
-  mesh.material = newMaterial;
-  disposeMeshMaterial(oldMaterial);
+  replaceMeshMaterial(mesh, newMaterial);
 }
 
 export function disposeLayerMaterials(mesh) {

@@ -2,7 +2,13 @@ import * as itowns from "itowns";
 import * as THREE from "three";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { API_BASE_URL } from "../apiConfig.js";
-import { buildCanvas, WMTS_ZOOM_FOR_LOD } from "../layers.js";
+import {
+  buildCanvas,
+  buildVerticalDiffuseMaterial,
+  disposeLayerMaterials,
+  replaceMeshMaterial,
+  WMTS_ZOOM_FOR_LOD,
+} from "../layers.js";
 
 export const DRACO_BASE_LEVEL = 10;
 export const DRACO_MAX_Z = 2;
@@ -21,6 +27,18 @@ function bakeUVs(geometry, ox, oy, { xMin, xMax, zMin, zMax }) {
   geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
 }
 
+async function loadTileTexture(tx, ty, z, geometry, ox, oy) {
+  const s = 1 / (1 << z);
+  const bounds = await buildCanvas(
+    tx * s, (tx + 1) * s, -(ty + 1) * s, -ty * s, WMTS_ZOOM_FOR_LOD[z],
+  );
+  bakeUVs(geometry, ox, oy, bounds);
+  const texture = new THREE.CanvasTexture(bounds.canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.flipY = false;
+  return texture;
+}
+
 async function loadTileMesh(tx, ty, z) {
   const url = `${API_BASE_URL}/tiles/tile.${tx}.${ty}.${z}.drc`;
   const res = await fetch(url);
@@ -35,20 +53,15 @@ async function loadTileMesh(tx, ty, z) {
   const geometry = await new Promise((resolve, reject) =>
     _loader.parse(buffer, resolve, reject),
   );
-  // geometry.computeVertexNormals();
+  geometry.computeVertexNormals();
 
-  const s = 1 / (1 << z);
   const ox = Math.floor(tx / (1 << z));
   const oy = Math.floor(ty / (1 << z));
-  const bounds = await buildCanvas(
-    tx * s, (tx + 1) * s, -(ty + 1) * s, -ty * s, WMTS_ZOOM_FOR_LOD[z],
-  );
-  bakeUVs(geometry, ox, oy, bounds);
-  const texture = new THREE.CanvasTexture(bounds.canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.flipY = false;
+  const texture = await loadTileTexture(tx, ty, z, geometry, ox, oy);
 
-  const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ map: texture }));
+  const mesh = new THREE.Mesh(geometry, buildVerticalDiffuseMaterial(texture));
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
   mesh.name = `draco-${tx}-${ty}-${z}`;
   mesh.position.set(ox * 1000, oy * 1000, 0);
   mesh.scale.setScalar(1000);
@@ -88,25 +101,23 @@ export class DracoTileLayer extends itowns.Layer {
 
     let state = this._states.get(node.id);
     if (!state) {
-      state = { status: "loading", mesh: null, node };
+      const tx = Math.round((node.extent.west / 1000) * (1 << z));
+      const ty = Math.round((node.extent.south / 1000) * (1 << z));
+      state = { status: "loading", mesh: null, node, tx, ty, z };
       this._states.set(node.id, state);
       node.addEventListener("dispose", () => {
         if (state.mesh) {
           this.object3d.remove(state.mesh);
           state.mesh.geometry.dispose();
-          state.mesh.material.map?.dispose();
-          state.mesh.material.dispose();
+          disposeLayerMaterials(state.mesh);
         }
         this._states.delete(node.id);
       });
 
-      const tx = Math.round((node.extent.west / 1000) * (1 << z));
-      const ty = Math.round((node.extent.south / 1000) * (1 << z));
       loadTileMesh(tx, ty, z).then((mesh) => {
         if (!this._states.has(node.id)) {
           mesh.geometry.dispose();
-          mesh.material.map?.dispose();
-          mesh.material.dispose();
+          disposeLayerMaterials(mesh);
           return;
         }
         state.status = "done";
@@ -122,5 +133,24 @@ export class DracoTileLayer extends itowns.Layer {
       state.mesh.visible = node.visible && node.material.visible;
       if (state.mesh.visible) node.material.visible = false;
     }
+  }
+
+  // Re-fetches the drape texture for every loaded tile mesh, e.g. after the
+  // base map source (ortho/plan) changes.
+  async refreshTextures() {
+    const reloads = [];
+    for (const state of this._states.values()) {
+      if (state.status !== "done" || !state.mesh) continue;
+      const { mesh, tx, ty, z } = state;
+      const ox = Math.floor(tx / (1 << z));
+      const oy = Math.floor(ty / (1 << z));
+      reloads.push(
+        loadTileTexture(tx, ty, z, mesh.geometry, ox, oy).then((texture) => {
+          replaceMeshMaterial(mesh, buildVerticalDiffuseMaterial(texture));
+        }),
+      );
+    }
+    await Promise.all(reloads);
+    this.view.notifyChange(this.parent ?? this);
   }
 }

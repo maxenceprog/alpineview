@@ -1,5 +1,7 @@
 import * as itowns from "itowns";
+import { setBrightness, setMapSource } from "../layers.js";
 import { DracoTileLayer } from "./dracoLayer.js";
+import { initEnvironment, TileLightingLayer } from "./environment.js";
 
 itowns.CRS.defs(
   "EPSG:2154",
@@ -31,7 +33,19 @@ const orthoSource = new itowns.WMSSource({
   version: "1.3.0",
   format: "image/jpeg",
 });
-view.addLayer(new itowns.ColorLayer("ortho", { source: orthoSource }));
+const orthoLayer = new itowns.ColorLayer("ortho", { source: orthoSource });
+view.addLayer(orthoLayer);
+
+const planSource = new itowns.WMSSource({
+  url: "https://data.geopf.fr/wms-r/wms",
+  name: "GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2",
+  crs: "EPSG:2154",
+  extent,
+  version: "1.3.0",
+  format: "image/jpeg",
+});
+const planLayer = new itowns.ColorLayer("plan", { source: planSource, visible: false });
+view.addLayer(planLayer);
 
 const demSource = new itowns.WMSSource({
   url: "https://data.geopf.fr/wms-r/wms",
@@ -50,4 +64,69 @@ view.addLayer(
   }),
 );
 
-view.addLayer(new DracoTileLayer("draco", view));
+const dracoLayer = new DracoTileLayer("draco", view);
+view.addLayer(dracoLayer);
+view.addLayer(new TileLightingLayer("tile-lighting"));
+
+let planVisible = false;
+document.getElementById("layer-toggle").addEventListener("click", () => {
+  planVisible = !planVisible;
+  orthoLayer.visible = !planVisible;
+  planLayer.visible = planVisible;
+  setMapSource(planVisible ? "plan" : "ortho");
+  dracoLayer.refreshTextures();
+  view.notifyChange(view.tileLayer);
+});
+
+const { setSunDate, setEnabled } = initEnvironment(view);
+setBrightness(1.2);
+
+const envEnabledInput = document.getElementById("env-enabled");
+envEnabledInput.addEventListener("change", () => {
+  setEnabled(envEnabledInput.checked);
+});
+
+const envPanel = document.getElementById("env-panel");
+document.getElementById("env-toggle").addEventListener("click", () => {
+  envPanel.classList.toggle("hidden");
+});
+
+const sunDateInput = document.getElementById("sun-date");
+const sunTimeInput = document.getElementById("sun-time");
+const sunTimeValue = document.getElementById("sun-time-value");
+
+function minutesToHHMM(minutes) {
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+}
+
+function applySunInputs() {
+  const minutes = parseInt(sunTimeInput.value, 10);
+  sunTimeValue.textContent = minutesToHHMM(minutes);
+  const d = new Date(`${sunDateInput.value}T${minutesToHHMM(minutes)}:00`);
+  if (!isNaN(d)) setSunDate(d);
+}
+
+const noon = new Date();
+noon.setHours(12, 0, 0, 0);
+sunDateInput.value = `${noon.getFullYear()}-${String(noon.getMonth() + 1).padStart(2, "0")}-${String(noon.getDate()).padStart(2, "0")}`;
+applySunInputs();
+sunDateInput.addEventListener("change", applySunInputs);
+sunTimeInput.addEventListener("input", applySunInputs);
+
+const brightnessInput = document.getElementById("brightness");
+const brightnessValue = document.getElementById("brightness-value");
+brightnessInput.addEventListener("input", () => {
+  const v = parseFloat(brightnessInput.value);
+  setBrightness(v);
+  brightnessValue.textContent = v.toFixed(2);
+  view.notifyChange(view.camera3D);
+});
+
+const fogInput = document.getElementById("fog-density");
+const fogValue = document.getElementById("fog-density-value");
+fogInput.addEventListener("input", () => {
+  const v = parseFloat(fogInput.value);
+  view.scene.fog.density = v / 1000;
+  fogValue.textContent = v.toFixed(2);
+  view.notifyChange(view.camera3D);
+});
