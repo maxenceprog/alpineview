@@ -1,10 +1,10 @@
 import * as THREE from "three";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { API_BASE_URL } from "./apiConfig.js";
+import { IS_MOBILE } from "./deviceInfo.js";
 import { buildHeightmap, sampleHeight } from "./heightmap.js";
 import { applyLayer, disposeLayerMaterials } from "./layers.js";
 import { setSunDirection } from "./sunLighting.js";
-import { IS_MOBILE } from "./deviceInfo.js";
 
 const _loader = new DRACOLoader();
 _loader.setDecoderPath(`${import.meta.env.BASE_URL}draco/`);
@@ -18,11 +18,11 @@ _loader.setDecoderPath(`${import.meta.env.BASE_URL}draco/`);
 // needs a bigger radius. Capped lower on mobile — the ceiling is what mostly
 // matters there, since flying high with a large radius is the worst case for
 // tile/imagery memory.
-const LOAD_RADIUS_MIN = 3;                  // km — floor, even at ground level
+const LOAD_RADIUS_MIN = 4;                  // km — floor, even at ground level
 const LOAD_RADIUS_MAX = IS_MOBILE ? 5 : 8;  // km — ceiling, at high altitude
 const MAX_Z = 2;          // deepest zoom level available
 // Subdivide a tile at zoom z into z+1 children when its centre is within DETAIL_RADIUS[z].
-const DETAIL_RADIUS = IS_MOBILE ? [1.0, 0.4] : [1.5, 0.6]; // z=0→z=1, z=1→z=2, km
+const DETAIL_RADIUS = [1.5, 0.6]; // z=0→z=1, z=1→z=2, km
 // Radius within which terrain is at least at the medium (z=1, 500 m) LOD.
 // Proximity overlays (buildings, vegetation) key off this so they never render
 // fine detail on top of still-coarse (z=0) terrain.
