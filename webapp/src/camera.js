@@ -373,7 +373,6 @@ export function createWalkCamera(renderer, scene) {
 
     snapToGround();
 
-    // Smooth camera Y towards target height (exponential smoothing)
     camera.position.y += (_targetY - camera.position.y) * SMOOTH_FACTOR;
 
     enforceFloor();

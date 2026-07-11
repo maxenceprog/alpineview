@@ -35,9 +35,6 @@ export const LAYER_OPTIONS = [
   { id: "cosia",     label: "COSIA" },
 ];
 
-// ---------------------------------------------------------------------------
-// Tile fetching
-// ---------------------------------------------------------------------------
 const IMAGE_TIMEOUT_MS = 10_000;
 
 // In-memory cache of loaded orthophoto tiles, keyed by URL. The server does
@@ -120,10 +117,7 @@ const TILE_DRAW = {
   polygonOffsetUnits: 1,
 };
 
-// ---------------------------------------------------------------------------
 // Vertical-diffuse material — texture * max(0, worldNormal.y), ignores scene lights
-// ---------------------------------------------------------------------------
-
 let currentBrightness = 1.0;
 const verticalDiffuseMaterials = new Set();
 
@@ -200,10 +194,6 @@ function buildVerticalDiffuseMaterial(texture) {
   return mat;
 }
 
-// ---------------------------------------------------------------------------
-// Geometry helpers
-// ---------------------------------------------------------------------------
-
 export function bakeWorldUVs(geometry, meshPos, xMin, xMax, zMin, zMax) {
   const pos  = geometry.attributes.position.array;
   const count = pos.length / 3;
@@ -222,10 +212,6 @@ function magentaMaterial() {
     roughness: 0.95, metalness: 0.0, color: 0xff00ff, ...TILE_DRAW,
   });
 }
-
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
 
 function disposeMeshMaterial(mat) {
   if (!mat) return;

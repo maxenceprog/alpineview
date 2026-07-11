@@ -14,7 +14,6 @@ describe("Walk Camera", () => {
       removeEventListener: vi.fn(),
     };
 
-    // Mock renderer
     renderer = { domElement: canvas };
     walkCtrl = createWalkCamera(renderer, scene);
   });
@@ -23,7 +22,6 @@ describe("Walk Camera", () => {
     it("function exists and is callable", () => {
       expect(walkCtrl.snapToGround).toBeDefined();
       expect(typeof walkCtrl.snapToGround).toBe("function");
-      // Should not throw when no tiles present
       expect(() => walkCtrl.snapToGround?.()).not.toThrow();
     });
 
@@ -33,7 +31,6 @@ describe("Walk Camera", () => {
       walkCtrl.camera.position.set(x, 5, z);
       walkCtrl.snapToGround?.();
 
-      // XZ should not change
       expect(walkCtrl.camera.position.x).toBe(x);
       expect(walkCtrl.camera.position.z).toBe(z);
     });
@@ -46,14 +43,12 @@ describe("Walk Camera", () => {
       scene.add(phMesh);
 
       walkCtrl.camera.position.set(965, 0, -6430);
-      // Should not throw, and should not use placeholder
       expect(() => walkCtrl.snapToGround?.()).not.toThrow();
     });
   });
 
   describe("camera mode switching", () => {
     it("does not expose snapToGround on fly camera", () => {
-      // Fly camera should have snapToGround: undefined
       const flyCtrl = createFlyCamera(renderer);
       expect(flyCtrl.snapToGround).toBeUndefined();
     });
@@ -69,11 +64,9 @@ describe("Walk Camera", () => {
       const pos = new THREE.Vector3(965, 999, -6430);
       const target = new THREE.Vector3(965, 0, -6430);
 
-      // Initial Y should be different from target
       walkCtrl.camera.position.y = 100;
       walkCtrl.teleport(pos, target);
 
-      // XZ should be set from pos
       expect(walkCtrl.camera.position.x).toBe(965);
       expect(walkCtrl.camera.position.z).toBe(-6430);
 
@@ -91,25 +84,21 @@ describe("Walk Camera", () => {
 
       walkCtrl.enable?.();
 
-      // XZ should not change when enabling walk mode
       expect(walkCtrl.camera.position.x).toBe(initialX);
       expect(walkCtrl.camera.position.z).toBe(initialZ);
     });
 
     it("snapToGround is called when enabling walk mode", () => {
-      // Verify enable() completes without error
       expect(() => walkCtrl.enable?.()).not.toThrow();
     });
   });
 
   describe("update", () => {
     it("update() does not throw when walk mode disabled", () => {
-      // update() is safe to call even when not enabled
       expect(() => walkCtrl.update(0.016)).not.toThrow();
     });
 
     it("update() calls snapToGround", () => {
-      // We can verify that update exists and is callable
       expect(typeof walkCtrl.update).toBe("function");
       expect(() => walkCtrl.update(0.016)).not.toThrow();
     });

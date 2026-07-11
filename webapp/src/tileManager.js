@@ -9,7 +9,6 @@ import { IS_MOBILE } from "./deviceInfo.js";
 const _loader = new DRACOLoader();
 _loader.setDecoderPath(`${import.meta.env.BASE_URL}draco/`);
 
-// ── LOD config ──────────────────────────────────────────────────────────────
 // A cell is served by EITHER its own tile OR its four children one zoom deeper,
 // chosen by camera distance — never both, so no overlap / z-fighting.
 //   z=0 → 1 km, z=1 → 500 m, z=2 → 250 m
@@ -38,7 +37,6 @@ const DETAIL_HYSTERESIS = 1.35;
 // Keep low so you can get full-res tiles by being close horizontally
 // regardless of moderate fly altitude.
 const ALTITUDE_LOD_WEIGHT = 0.15;
-// ── Helpers ─────────────────────────────────────────────────────────────────
 
 function tileKey(tx, ty, z) { return `${tx}|${ty}|${z}`; }
 
@@ -276,8 +274,6 @@ async function loadVegetationTile(tx, ty, z) {
   return mesh;
 }
 
-// ── TileManager ──────────────────────────────────────────────────────────────
-
 export class TileManager {
   constructor(scene) {
     this._scene = scene;
@@ -343,7 +339,6 @@ export class TileManager {
    * with the entry on unload; used to drape placeholder quads over the
    * surrounding terrain.
    */
-  /** Public: terrain scene-Y height (km) at world (wx,wz), or null if not loaded. */
   getHeightAt(wx, wz) {
     return this._sampleLoadedHeight(wx, wz);
   }
@@ -516,7 +511,6 @@ export class TileManager {
     }
     this._needed = needed;
 
-    // Cancel in-flight fetches for tiles no longer needed
     for (const key of this._loading) {
       if (!needed.has(key)) {
         this._abortControllers.get(key)?.abort();
@@ -539,7 +533,6 @@ export class TileManager {
       if (this._replacementsReady(entry)) this._unload(key, entry);
     }
 
-    // Log counts only when they change
     const sig = `${this._tiles.size}|${this._loading.size}`;
     if (sig !== this._lastSig) {
       this._lastSig = sig;

@@ -5,7 +5,6 @@ export default defineConfig({
   testMatch: "**/*.spec.js",
   use: {
     baseURL: "http://localhost:5173",
-    // Capture console errors per test
     bypassCSP: true,
   },
   webServer: {

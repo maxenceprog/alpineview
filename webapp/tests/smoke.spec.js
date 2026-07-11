@@ -96,15 +96,12 @@ test("sidebar toggle does not throw", async ({ page }) => {
 });
 
 test("C key does not switch camera mode when search bar is focused", async ({ page }) => {
-  // Get initial camera mode
   const initialMode = await page.locator("#camera-mode").textContent();
 
-  // Focus search bar and press C
   await page.focus("#search-input");
   await page.press("#search-input", "KeyC");
   await page.waitForTimeout(100);
 
-  // Mode should not have changed
   const modeAfter = await page.locator("#camera-mode").textContent();
   expect(modeAfter).toBe(initialMode);
   assertNoErrors(page);
@@ -113,12 +110,10 @@ test("C key does not switch camera mode when search bar is focused", async ({ pa
 test("C key switches camera mode when canvas has focus", async ({ page }) => {
   const initialMode = await page.locator("#camera-mode").textContent();
 
-  // Click canvas to ensure it has focus
   await page.evaluate(() => document.querySelector("canvas").focus());
   await page.press("body", "KeyC");
   await page.waitForTimeout(100);
 
-  // Mode should have changed
   const modeAfter = await page.locator("#camera-mode").textContent();
   expect(modeAfter).not.toBe(initialMode);
   assertNoErrors(page);

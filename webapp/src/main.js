@@ -21,7 +21,6 @@ import { setBrightness, getBrightness } from "./layers.js";
 import MarkdownIt from "markdown-it";
 import DOMPurify from "dompurify";
 
-// --- Renderer ---
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 // Uncapped DPR on a 3x-retina phone triples fragment-shader/fill cost for no
 // visible gain at that screen size — cap harder on mobile than desktop.
@@ -43,7 +42,6 @@ labelRenderer.domElement.style.pointerEvents = "none";
 labelRenderer.domElement.style.transition = "opacity 0.35s ease";
 document.body.appendChild(labelRenderer.domElement);
 
-// --- Scene + Tile manager + Camera ---
 // tileManager is created before the cameras because flyCtrl's ground-clamp
 // callback captures it by reference — safe since the callback only ever
 // runs later (render loop / teleport calls), never during this setup.
@@ -106,7 +104,6 @@ window.addEventListener("keydown", (e) => {
   }
 });
 
-// --- DOM refs ---
 const status         = document.getElementById("status");
 const searchInput    = document.getElementById("search-input");
 const searchBtn      = document.getElementById("search-btn");
@@ -125,7 +122,7 @@ const fogDensityInput  = document.getElementById("fog-density");
 const fogDensityValue  = document.getElementById("fog-density-value");
 const sunTimeLabel     = document.getElementById("sun-time-label");
 
-// --- Slippy map (Leaflet/OpenTopoMap): manually toggled via #map-mode-btn,
+// Slippy map (Leaflet/OpenTopoMap): manually toggled via #map-mode-btn,
 // replaces the 3D view entirely while active. camera.position stays the
 // single source of truth for "where are we" in both modes — see
 // slippyMap.js for the altitude<->zoom heuristic used to keep the two views'
@@ -185,7 +182,6 @@ mapModeBtn.addEventListener("click", () => {
   if (inMapMode) exitMapMode(); else enterMapMode();
 });
 
-// --- Sidebar toggles ---
 toggleLeft.addEventListener("click", () => {
   sidebarLeft.classList.toggle("collapsed");
   toggleLeft.textContent = sidebarLeft.classList.contains("collapsed") ? "›" : "‹";
@@ -201,7 +197,6 @@ resizeRight.addEventListener("click", () => {
   resizeRight.textContent = sidebarRight.classList.contains("wide") ? "⤡" : "⤢";
 });
 
-// --- Search ---
 const SEARCH_RESULT_LIMIT = 5;
 
 function hideSearchResults() {
@@ -214,13 +209,12 @@ function goToSearchResult(result) {
   status.textContent = display_name.split(",").slice(0, 2).join(",");
   hideSearchResults();
 
-  // Convert WGS84 (lat/lon) to L93 (scene coordinates in km)
   const l93 = wgs84ToL93.forward([parseFloat(lon), parseFloat(lat)]);
   const x_km = l93[0] / 1000; // convert m to km
   const y_km = l93[1] / 1000;
 
   // Teleport camera to location (fly mode: at altitude; walk mode: will snap to ground)
-  const altitude = activeCtrl === flyCtrl ? 5 : 0; // fly at 5 km altitude, walk snaps to ground
+  const altitude = activeCtrl === flyCtrl ? 5 : 0;
   const target = new THREE.Vector3(x_km, altitude, -y_km); // negate Y for L93→scene conversion
   const lookAt = new THREE.Vector3(x_km, 0, -y_km);
   activeCtrl.teleport(target, lookAt);
@@ -281,7 +275,6 @@ document.addEventListener("click", (e) => {
   if (!e.target.closest("#search-form")) hideSearchResults();
 });
 
-// --- Layer selector ---
 function setActiveLayer(layerId) {
   layerBtns.forEach((b) => b.classList.toggle("active", b.dataset.layer === layerId));
   tileManager.setLayer(layerId);
@@ -299,7 +292,6 @@ layerBtns.forEach((btn) => {
 // Show right panel for the initial layer
 setActiveLayer(tileManager._layer);
 
-// --- Satellite texture brightness ---
 const brightnessValue = document.getElementById("brightness-value");
 const BRIGHTNESS_STEP = 0.15;
 const BRIGHTNESS_MAX = 1.75;
@@ -314,7 +306,7 @@ function adjustBrightness(delta) {
 document.getElementById("brightness-up").addEventListener("click", () => adjustBrightness(BRIGHTNESS_STEP));
 document.getElementById("brightness-down").addEventListener("click", () => adjustBrightness(-BRIGHTNESS_STEP));
 
-// --- COSIA palette: one colour picker per class ---
+// One colour picker per COSIA class.
 function buildPaletteUI(containerId, classInfo, paletteMap, setColor) {
   const container = document.getElementById(containerId);
   for (const { code, label } of classInfo) {
@@ -340,10 +332,9 @@ document.getElementById("cosia-sat").addEventListener("change", (e) => {
   tileManager.refreshLayer();
 });
 
-// --- Sun ---
 let currentSunDir = new THREE.Vector3(0.5, 1.0, 0.8).normalize();
 
-// --- POI info panel: populated when a peak/pass/hut/parking label is clicked ---
+// POI info panel: populated when a peak/pass/hut/parking label is clicked.
 const WAYPOINT_TYPE_LABEL = { summit: "Summit", pass: "Pass", hut: "Hut", access: "Parking / access" };
 // Camptocamp text is a markdown dialect with some raw inline HTML (e.g. <sup>) —
 // render it, then sanitize before inserting, since it's third-party wiki content.
@@ -444,7 +435,7 @@ function showPoiPanel(poi) {
   }).catch(() => { if (token === poiRequestToken) text.textContent = "Failed to load details."; });
 }
 
-// --- Proximity overlays: buildings auto-load near the camera; vegetation
+// Proximity overlays: buildings auto-load near the camera; vegetation
 // rides the z=2 terrain tiles inside the tile manager.
 const buildingsOverlay = createBuildingsOverlay(
   scene,
@@ -514,14 +505,13 @@ sunTimeInput.addEventListener("input", () => {
   applySunDate(now);
 })();
 
-// --- Fog ---
 fogDensityInput.addEventListener("input", (e) => {
   const density = parseFloat(e.target.value);
   scene.fog.density = density;
   fogDensityValue.textContent = density.toFixed(2);
 });
 
-// --- Buildings / Vegetation: toggle the proximity overlays on/off ---
+// Toggle the buildings/vegetation/POI proximity overlays on/off.
 function wireOverlayToggle(selector, overlay) {
   document.querySelectorAll(selector).forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -535,7 +525,6 @@ wireOverlayToggle(".buildings-btn", buildingsOverlay);
 wireOverlayToggle(".vegetation-btn", vegetationToggle);
 wireOverlayToggle(".poi-btn", poiOverlay);
 
-// --- Resize ---
 window.addEventListener("resize", () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
   labelRenderer.setSize(window.innerWidth, window.innerHeight);
@@ -543,7 +532,7 @@ window.addEventListener("resize", () => {
   walkCtrl.onResize();
 });
 
-// --- Test controls (shift+left-click COPC points, shift+right-click rebuild):
+// Test controls (shift+left-click COPC points, shift+right-click rebuild):
 // only under `npm run test_build_and_serve`, whose vite config defines
 // __TEST_CONTROLS__ and serves the /debug/* routes they need.
 if (__TEST_CONTROLS__) {
@@ -555,7 +544,6 @@ if (__TEST_CONTROLS__) {
   });
 }
 
-// --- Render loop ---
 const clock    = new THREE.Clock();
 const debugEl  = document.getElementById("debug-overlay");
 const skySphere  = scene.getObjectByName("sky");

@@ -5,9 +5,7 @@ const AMBIENT_NAME = "ambient-light";
 
 let _sunDir = new THREE.Vector3(0.5, 1.0, 0.8).normalize();
 
-// ---------------------------------------------------------------------------
 // Sky texture — rebuilt on sun change via updateSky()
-// ---------------------------------------------------------------------------
 const SKY_NIGHT = { zenith: [3, 8, 25], horizon: [10, 20, 55] };
 const SKY_SUNSET = { zenith: [40, 55, 140], horizon: [255, 120, 30] };
 const SKY_DAY = { zenith: [8, 50, 160], horizon: [120, 195, 250] };
@@ -52,9 +50,6 @@ function drawSky(sunY) {
   return horizon;
 }
 
-// ---------------------------------------------------------------------------
-// Scene
-// ---------------------------------------------------------------------------
 export function createScene() {
   const scene = new THREE.Scene();
 
@@ -83,7 +78,6 @@ export function createScene() {
   ambient.name = AMBIENT_NAME;
   scene.add(ambient);
 
-  // Sun directional light with shadow map
   const sun = new THREE.DirectionalLight(0xfff4e0, 1.2);
   sun.name = SUN_NAME;
   sun.castShadow = true;
@@ -128,10 +122,6 @@ export function createScene() {
 
   return scene;
 }
-
-// ---------------------------------------------------------------------------
-// Per-frame updates
-// ---------------------------------------------------------------------------
 
 /** Reposition shadow frustum to stay centred over the camera.
  *  Sun position and target are both kept relative to the camera so the

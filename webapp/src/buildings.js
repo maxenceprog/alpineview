@@ -13,10 +13,6 @@ import * as THREE from "three";
 import { Earcut } from "three/src/extras/Earcut.js";
 import { bakeWorldUVs, buildCanvas, WMTS_ZOOM_FOR_LOD } from "./layers.js";
 
-// ---------------------------------------------------------------------------
-// Coordinate helpers
-// ---------------------------------------------------------------------------
-
 /** L93 metres → Three.js scene km (x=east, y=alt, z=-north). */
 function l93ToScene(xm, ym, zm) {
   return [xm / 1000, zm / 1000, -ym / 1000];
@@ -43,9 +39,7 @@ function decodeVert(v, scale, translate) {
   ];
 }
 
-// ---------------------------------------------------------------------------
 // Triangulation — earcut (handles concave polygons and holes)
-// ---------------------------------------------------------------------------
 
 /**
  * Triangulate one surface (array of rings) and append to `out`.
@@ -55,10 +49,9 @@ function decodeVert(v, scale, translate) {
 function triangulateSurface(surface, featVerts, scale, translate, originXm, originYm, out) {
   if (!surface[0] || surface[0].length < 3) return;
 
-  // Project to the face's local 2-D plane so earcut works in 2-D.
-  // We use the 3-D positions but pass dim=3 to earcut — it triangulates
-  // using only x and y of the flat array, which means we need to project
-  // out the dominant normal axis so the polygon isn't edge-on.
+  // Project onto the 2-D plane most aligned with the face (drop the
+  // dominant-normal axis) so earcut, which triangulates flat 2-D polygons,
+  // doesn't see the polygon edge-on.
 
   // Collect 3-D scene coords for all rings, relative to (originXm, originYm).
   const rings3d = surface.map((ring) =>
@@ -120,10 +113,6 @@ function collectSurfaces(geom) {
   return [];
 }
 
-
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
 
 /**
  * Load a CityJSONL file and return a Three.js Mesh of all buildings.

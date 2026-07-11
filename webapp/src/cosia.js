@@ -2,7 +2,6 @@ import * as THREE from "three";
 import { API_BASE_URL } from "./apiConfig.js";
 import { getSunDirection, registerLitMaterial } from "./sunLighting.js";
 
-// ---------------------------------------------------------------------------
 // COSIA land-cover layer.
 //
 // Each tile ships a `tile.x.y.z.cosia.png`: a single-channel image where the
@@ -10,7 +9,6 @@ import { getSunDirection, registerLitMaterial } from "./sunLighting.js";
 // (one texture per LOD). The webapp samples it per fragment with world-XY UVs
 // and looks the colour up in an editable 256×1 palette LUT — crisp class
 // boundaries independent of mesh resolution.
-// ---------------------------------------------------------------------------
 
 // COSIA numero -> label + natural default colour.
 export const CLASS_INFO = [
@@ -73,10 +71,6 @@ export function setClassColor(code, hex) {
   paletteTexture.needsUpdate = true;
 }
 
-// ---------------------------------------------------------------------------
-// Texture loading
-// ---------------------------------------------------------------------------
-
 const _texLoader = new THREE.TextureLoader();
 
 // Colour source for the COSIA layer: false = editable class palette,
@@ -124,11 +118,8 @@ export async function loadCosiaRgbTexture(tx, ty, z, reload = false) {
   }
 }
 
-// ---------------------------------------------------------------------------
 // Material — class-id texture -> palette colour, shaded by the real sun
 // direction (matches the satellite layer and buildings/vegetation), with fog.
-// ---------------------------------------------------------------------------
-
 export function buildCosiaMaterial(classTexture) {
   const mat = new THREE.ShaderMaterial({
     uniforms: {
