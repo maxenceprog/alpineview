@@ -15,7 +15,12 @@ from pathlib import Path
 import laspy
 from laspy import CopcReader
 
-from alpineview_ewoks.core.lidar_hd import TileInfo, download_tile, find_tile_lamb
+from alpineview_ewoks.core.lidar_hd import (
+    TileInfo,
+    download_tile,
+    find_tile_lamb,
+    tile_size,
+)
 
 _REPO = Path(__file__).resolve().parents[2]
 _ALPINEVIEW_BUILDER = str(
@@ -36,6 +41,15 @@ DEFAULT_RESOLUTION = 1
 
 _NEIGHBOUR_OFFSETS = ((-1, 0), (1, 0), (0, -1), (0, 1))
 
+# Above this, a full download costs more than it saves: measured on a 570 MB
+# tile, full-file fetch took 12.8s vs 7.0s for a remote COPC range query at
+# resolution=1 (same point count); on typical 130-220 MB tiles the full
+# download wins or ties. 300 MB sits between the two. Heavy tiles are also
+# denser, so resolution is capped no finer than 2 to keep the range query
+# itself cheap (avoids the many-small-request 429 risk of finer levels).
+HEAVY_TILE_BYTES = 300_000_000
+HEAVY_TILE_MIN_RESOLUTION = 2
+
 log = logging.getLogger("reconstruction.tiles")
 
 
@@ -54,7 +68,13 @@ def _query_and_cache(
     min_elevation: float | None,
     download_from_ign: bool = False,
 ) -> Path:
-    """Query *tile* at *resolution* from a local COPC (downloaded whole if needed) → trimmed .laz.
+    """Query *tile* at *resolution* → trimmed .laz.
+
+    Small/typical tiles are downloaded whole (one request, best bandwidth) and
+    queried locally. Tiles above HEAVY_TILE_BYTES are queried remotely instead
+    (range requests, resolution floored to HEAVY_TILE_MIN_RESOLUTION): they
+    are also denser, so a full download would move far more data than the
+    requested resolution actually needs.
 
     Fields alpineview_builder does not consume (intensity, user_data) are
     zeroed so the cached .laz compresses well. A .copc.laz downloaded by this
@@ -70,28 +90,40 @@ def _query_and_cache(
             log.info("las read", exc_info=True)
             pass
     local_copc = Path(cache_dir) / tile.name
-    downloaded = False
-    if not local_copc.exists():
-        if not download_from_ign:
-            raise RuntimeError(f"{local_copc} is not in cache")
-        download_tile(tile, cache_dir)
-        downloaded = True
+    if local_copc.exists():
+        log.info("COPC query %s at %d m resolution …", tile.name, resolution)
+        return _query_copc(local_copc, dest, resolution, min_elevation)
+
+    if not download_from_ign:
+        raise RuntimeError(f"{local_copc} is not in cache")
+
+    size = tile_size(tile)
+    if size is not None and size >= HEAVY_TILE_BYTES:
+        resolution = max(resolution, HEAVY_TILE_MIN_RESOLUTION)
+        log.info(
+            "Heavy tile %s (%.0f MB) — remote COPC query at %d m resolution …",
+            tile.name,
+            size / 1e6,
+            resolution,
+        )
+        return _query_copc(tile.url, dest, resolution, min_elevation)
+
+    download_tile(tile, cache_dir)
     log.info("COPC query %s at %d m resolution …", tile.name, resolution)
-
     try:
-        return _query_local_copc(local_copc, dest, resolution, min_elevation)
+        return _query_copc(local_copc, dest, resolution, min_elevation)
     finally:
-        if downloaded:
-            local_copc.unlink(missing_ok=True)
+        local_copc.unlink(missing_ok=True)
 
 
-def _query_local_copc(
-    local_copc: Path, dest: Path, resolution: int, min_elevation: float | None
+def _query_copc(
+    source: Path | str, dest: Path, resolution: int, min_elevation: float | None
 ) -> Path:
-    with CopcReader.open(local_copc) as reader:
+    """Query a COPC *source* (local path or remote URL) at *resolution* → dest .laz."""
+    with CopcReader.open(source) as reader:
         if min_elevation is not None and reader.header.z_max < min_elevation:
             raise ElevationUnderThreshold(
-                f"Tile {local_copc.name} z_max={reader.header.z_max:.1f} m < threshold {min_elevation:.1f} m"
+                f"Tile {dest.name} z_max={reader.header.z_max:.1f} m < threshold {min_elevation:.1f} m"
             )
         elevation_diff = reader.header.z_max - reader.header.z_min
         if elevation_diff < 200:

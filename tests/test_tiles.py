@@ -75,6 +75,7 @@ def fake_ign(monkeypatch, tmp_path):
     monkeypatch.setattr(tiles, "CopcReader", FakeCopcReader)
     monkeypatch.setattr(tiles, "find_tile_lamb", fake_find_tile_lamb)
     monkeypatch.setattr(tiles, "download_tile", fake_download_tile)
+    monkeypatch.setattr(tiles, "tile_size", lambda tile, **_kw: 1_000_000)
     return downloads
 
 
@@ -133,6 +134,35 @@ def test_low_elevation_diff_lowers_resolution(fake_ign, tmp_path):
     FakeCopcReader.las = make_las(z_min=1000.0, z_max=1050.0)
     download_cell_laz(959, 6433, str(tmp_path), resolution=1, download_from_ign=True)
     assert FakeCopcReader.queried_resolutions == [2]
+
+
+def test_heavy_tile_queries_remotely_without_downloading(fake_ign, tmp_path, monkeypatch):
+    monkeypatch.setattr(tiles, "tile_size", lambda tile, **_kw: tiles.HEAVY_TILE_BYTES + 1)
+    sources = []
+    orig_open = tiles.CopcReader.open
+
+    @classmethod
+    def spying_open(cls, source, **kw):
+        sources.append(source)
+        return orig_open.__func__(cls, source, **kw)
+
+    monkeypatch.setattr(tiles.CopcReader, "open", spying_open)
+
+    path = download_cell_laz(959, 6433, str(tmp_path), resolution=1, download_from_ign=True)
+
+    assert fake_ign == []  # download_tile never called
+    assert not (tmp_path / TILE_NAME).exists()
+    assert sources == [f"https://example.invalid/{TILE_NAME}"]
+    # resolution floored to HEAVY_TILE_MIN_RESOLUTION even though 1 was requested
+    assert FakeCopcReader.queried_resolutions == [tiles.HEAVY_TILE_MIN_RESOLUTION]
+    assert laspy.read(path)
+
+
+def test_light_tile_below_threshold_downloads(fake_ign, tmp_path, monkeypatch):
+    monkeypatch.setattr(tiles, "tile_size", lambda tile, **_kw: tiles.HEAVY_TILE_BYTES - 1)
+    download_cell_laz(959, 6433, str(tmp_path), resolution=1, download_from_ign=True)
+    assert fake_ign == [TILE_NAME]
+    assert FakeCopcReader.queried_resolutions == [1]
 
 
 def test_neighbours_downloads_five_cells(fake_ign, tmp_path):

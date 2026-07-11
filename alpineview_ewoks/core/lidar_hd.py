@@ -173,11 +173,20 @@ def _make_session():
         total=4,
         backoff_factor=2,
         status_forcelist={429, 500, 502, 503, 504},
-        allowed_methods={"GET"},
+        allowed_methods={"GET", "HEAD"},
     )
     session.mount("https://", HTTPAdapter(max_retries=retry))
     session.mount("http://", HTTPAdapter(max_retries=retry))
     return session
+
+
+def tile_size(tile: TileInfo, session: requests.Session | None = None) -> int | None:
+    """Remote file size in bytes (HEAD request), or None if unavailable."""
+    session = session or _shared_session()
+    resp = session.head(tile.url, timeout=30, allow_redirects=True)
+    resp.raise_for_status()
+    total = resp.headers.get("content-length")
+    return int(total) if total is not None else None
 
 
 def download_tile(
