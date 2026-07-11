@@ -6,6 +6,7 @@ import {
   loadCosiaTexture,
 } from "./cosia.js";
 import { getSunDirection, registerLitMaterial, unregisterLitMaterial } from "./sunLighting.js";
+import { IS_MOBILE } from "./deviceInfo.js";
 
 const L93_ORIGIN_X = 0;
 const L93_ORIGIN_Y = 12_000_000;
@@ -20,7 +21,9 @@ const L93_TILE_SIZE_M = {
 // LOD0 (1km, farthest/coarsest tiles) uses one WMTS zoom level less than its
 // terrain LOD would suggest — full 10cm imagery isn't needed at that
 // distance, and it's fewer/larger-coverage tiles to fetch (faster, lighter).
-export const WMTS_ZOOM_FOR_LOD = [16, 18, 19];
+// Mobile drops one more zoom level across the board: fewer/coarser JPEG
+// tiles to fetch, decode, and hold as HTMLImageElements/canvases.
+export const WMTS_ZOOM_FOR_LOD = IS_MOBILE ? [15, 17, 18] : [16, 18, 19];
 
 const ignOrthoUrl = (col, row, level) =>
   `https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0` +
@@ -42,11 +45,19 @@ const IMAGE_TIMEOUT_MS = 10_000;
 // alone still costs a disk-cache lookup per request and doesn't dedupe two
 // concurrent loads of the same tile (e.g. two meshes needing it at once) —
 // this makes a repeat/duplicate load genuinely free within the session.
+// Bounded + LRU (re-insert on hit) like tileManager's geometryCache — left
+// unbounded this grows without limit as the camera roams, which is a prime
+// cause of mobile OOM crashes.
+const IMAGE_CACHE_MAX = IS_MOBILE ? 200 : 800;
 const _imageCache = new Map(); // url -> Promise<HTMLImageElement>
 
 function loadImage(url) {
   const cached = _imageCache.get(url);
-  if (cached) return cached;
+  if (cached) {
+    _imageCache.delete(url); // bump to most-recently-used
+    _imageCache.set(url, cached);
+    return cached;
+  }
 
   const promise = new Promise((resolve, reject) => {
     const img = new Image();
@@ -61,6 +72,10 @@ function loadImage(url) {
   }).catch((err) => { _imageCache.delete(url); throw err; }); // don't cache failures
 
   _imageCache.set(url, promise);
+  if (_imageCache.size > IMAGE_CACHE_MAX) {
+    const oldestKey = _imageCache.keys().next().value;
+    _imageCache.delete(oldestKey);
+  }
   return promise;
 }
 

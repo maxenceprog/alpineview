@@ -3,6 +3,7 @@ import { CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
 import { createScene, updateSunDirection, updateSky, updateShadowCamera } from "./scene.js";
 import { createFlyCamera, createWalkCamera } from "./camera.js";
 import { initTouchControls } from "./touchControls.js";
+import { IS_MOBILE } from "./deviceInfo.js";
 import { sunDirectionAt } from "./sun.js";
 import { TileManager } from "./tileManager.js";
 import { wgs84ToL93, l93ToWgs84 } from "./proj.js";
@@ -22,7 +23,9 @@ import DOMPurify from "dompurify";
 
 // --- Renderer ---
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(window.devicePixelRatio);
+// Uncapped DPR on a 3x-retina phone triples fragment-shader/fill cost for no
+// visible gain at that screen size — cap harder on mobile than desktop.
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, IS_MOBILE ? 1.5 : 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type    = THREE.PCFSoftShadowMap;

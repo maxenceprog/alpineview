@@ -4,6 +4,7 @@ import { API_BASE_URL } from "./apiConfig.js";
 import { buildHeightmap, sampleHeight } from "./heightmap.js";
 import { applyLayer, disposeLayerMaterials } from "./layers.js";
 import { setSunDirection } from "./sunLighting.js";
+import { IS_MOBILE } from "./deviceInfo.js";
 
 const _loader = new DRACOLoader();
 _loader.setDecoderPath(`${import.meta.env.BASE_URL}draco/`);
@@ -12,10 +13,17 @@ _loader.setDecoderPath(`${import.meta.env.BASE_URL}draco/`);
 // A cell is served by EITHER its own tile OR its four children one zoom deeper,
 // chosen by camera distance — never both, so no overlap / z-fighting.
 //   z=0 → 1 km, z=1 → 500 m, z=2 → 250 m
-const LOAD_RADIUS = 8;           // tiles — load z=0 footprints whose centre is within this
+// Load radius (km) scales with camera altitude: near the ground the horizon
+// is close anyway (terrain occludes it in the mountains), so there's no
+// point paying for far z=0 tiles; at high altitude the view opens up and
+// needs a bigger radius. Capped lower on mobile — the ceiling is what mostly
+// matters there, since flying high with a large radius is the worst case for
+// tile/imagery memory.
+const LOAD_RADIUS_MIN = 3;                  // km — floor, even at ground level
+const LOAD_RADIUS_MAX = IS_MOBILE ? 5 : 8;  // km — ceiling, at high altitude
 const MAX_Z = 2;          // deepest zoom level available
 // Subdivide a tile at zoom z into z+1 children when its centre is within DETAIL_RADIUS[z].
-const DETAIL_RADIUS = [1.5, 0.6]; // z=0→z=1 within 1.5 km, z=1→z=2 within 0.6 km
+const DETAIL_RADIUS = IS_MOBILE ? [1.0, 0.4] : [1.5, 0.6]; // z=0→z=1, z=1→z=2, km
 // Radius within which terrain is at least at the medium (z=1, 500 m) LOD.
 // Proximity overlays (buildings, vegetation) key off this so they never render
 // fine detail on top of still-coarse (z=0) terrain.
@@ -73,6 +81,11 @@ function tileCenter(tx, ty, z) {
 function tileDist(cx, cy, tx, ty, z, ch = 0) {
   const c = tileCenter(tx, ty, z);
   return Math.hypot(cx - c.x, cy - c.y, ch);
+}
+
+/** z=0 load radius (km) for camera height `ch` (km above ground) — see LOAD_RADIUS_MIN/MAX. */
+function loadRadiusFor(ch) {
+  return Math.min(LOAD_RADIUS_MAX, Math.max(LOAD_RADIUS_MIN, LOAD_RADIUS_MIN + ch * 1.5));
 }
 
 
@@ -490,7 +503,7 @@ export class TileManager {
       }
       needed.add(tileKey(tx, ty, z));
     };
-    const loadRadius = LOAD_RADIUS;
+    const loadRadius = loadRadiusFor(ch);
     const r = Math.ceil(loadRadius);
     const tx0 = Math.floor(cx);
     const ty0 = Math.floor(cy);
