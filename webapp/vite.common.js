@@ -73,6 +73,14 @@ export const servePlugins = () => [
 ];
 
 export const baseConfig = {
+  build: {
+    rollupOptions: {
+      input: {
+        index: resolve(import.meta.dirname, "index.html"),
+        itowns: resolve(import.meta.dirname, "itowns.html"),
+      },
+    },
+  },
   server: {
     // Generated static tiles (thousands of .drc/.png/.gz files) don't need HMR
     // watching — watching them all exhausts the inotify limit (ENOSPC).
