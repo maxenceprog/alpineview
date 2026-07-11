@@ -21,7 +21,10 @@ _viewer.html
 #web
 webapp/dist
 webapp/node_modules
-webapp/public
+webapp/public/draco
+webapp/public/tiles
+webapp/public/buildings
+webapp/public/vegetation
 
 *.db
 *.log
@@ -36,3 +39,5 @@ webapp/test-results
 *.rdb
 
 data
+
+!webapp/public/credits/*.png
