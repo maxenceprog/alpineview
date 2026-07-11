@@ -21,7 +21,6 @@ _viewer.html
 #web
 webapp/dist
 webapp/node_modules
-webapp/public/draco
 webapp/public/tiles
 webapp/public/buildings
 webapp/public/vegetation

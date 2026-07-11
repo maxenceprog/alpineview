@@ -1,5 +1,6 @@
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
+import { viteStaticCopy } from "vite-plugin-static-copy";
 
 // Serve a public sub-directory at a given URL prefix, bypassing Vite's
 // snapshot (which misses files created after startup or excluded from watching).
@@ -52,7 +53,20 @@ function servePublicDir(urlPrefix, subDir) {
 export const repoRoot = resolve(import.meta.dirname, "..");
 export const py = "python3";
 
+// Serves (dev) / copies into dist/draco (build) the Draco decoder shipped
+// with three.js, so it doesn't need a manual pre-build copy step.
+const dracoCopyPlugin = () =>
+  viteStaticCopy({
+    targets: [
+      {
+        src: "node_modules/three/examples/jsm/libs/draco/{draco_decoder.js,draco_decoder.wasm,draco_wasm_wrapper.js}",
+        dest: "draco",
+      },
+    ],
+  });
+
 export const servePlugins = () => [
+  dracoCopyPlugin(),
   servePublicDir("/tiles", "tiles"),
   servePublicDir("/vegetation", "vegetation"),
   servePublicDir("/buildings", "buildings"),

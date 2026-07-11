@@ -3,11 +3,10 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "setup-draco": "mkdir -p public/draco && cp node_modules/three/examples/jsm/libs/draco/draco_decoder.js node_modules/three/examples/jsm/libs/draco/draco_decoder.wasm node_modules/three/examples/jsm/libs/draco/draco_wasm_wrapper.js public/draco/",
     "dev": "npm run test_serve",
-    "test_serve": "npm run setup-draco && vite",
-    "test_build_and_serve": "npm run setup-draco && vite --config vite.build_and_serve.config.js",
-    "build": "npm run setup-draco && vite build",
+    "test_serve": "vite",
+    "test_build_and_serve": "vite --config vite.build_and_serve.config.js",
+    "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
     "test:smoke": "playwright test"
@@ -29,6 +28,7 @@
     "@vitest/coverage-v8": "^4.1.9",
     "happy-dom": "^20.10.6",
     "vite": "^6.0.0",
+    "vite-plugin-static-copy": "^3.1.6",
     "vitest": "^4.1.9"
   }
 }
