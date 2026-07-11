@@ -101,7 +101,7 @@ def main(argv: list[str] | None = None) -> None:
             )
         except Exception as error:  # noqa: BLE001
             log.error("download failed for (%d, %d): %s", x, y, error)
-            break
+            continue
 
         print(f"⬇  downloaded #{i}/{len(tiles)}  {tile.name}")
         pendings[(x, y)] = client.submit_build_tile(x, y)

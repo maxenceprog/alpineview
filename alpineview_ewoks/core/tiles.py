@@ -15,7 +15,7 @@ from pathlib import Path
 import laspy
 from laspy import CopcReader
 
-from alpineview_ewoks.core.lidar_hd import TileInfo, find_tile_lamb
+from alpineview_ewoks.core.lidar_hd import TileInfo, download_tile, find_tile_lamb
 
 _REPO = Path(__file__).resolve().parents[2]
 _ALPINEVIEW_BUILDER = str(
@@ -59,7 +59,12 @@ def _query_and_cache(
     min_elevation: float | None,
     download_from_ign: bool = False,
 ) -> Path:
-    """Query *tile* at *resolution* (from a cached COPC if present, else the IGN URL) → compressed .laz."""
+    """Query *tile* at *resolution* from a local COPC (downloaded whole if needed) → trimmed .laz.
+
+    Fields alpineview_builder does not consume (intensity, user_data) are
+    zeroed so the cached .laz compresses well. A .copc.laz downloaded by this
+    call is deleted once the trimmed .laz is written.
+    """
     dest = Path(cache_dir) / (tile.name.removesuffix(".copc.laz") + ".laz")
     if dest.exists():
         try:
@@ -70,20 +75,28 @@ def _query_and_cache(
             log.info("las read", exc_info=True)
             pass
     local_copc = Path(cache_dir) / tile.name
-    if not local_copc.exists() and not download_from_ign:
-        raise RuntimeError(f"{local_copc} is not in cache")
-    source = str(local_copc) if local_copc.exists() else tile.url
-    log.info(
-        "COPC query %s at %d m resolution (%s) …",
-        tile.name,
-        resolution,
-        "cache" if local_copc.exists() else "remote",
-    )
+    downloaded = False
+    if not local_copc.exists():
+        if not download_from_ign:
+            raise RuntimeError(f"{local_copc} is not in cache")
+        download_tile(tile, cache_dir)
+        downloaded = True
+    log.info("COPC query %s at %d m resolution …", tile.name, resolution)
 
-    with CopcReader.open(source) as reader:
+    try:
+        return _query_local_copc(local_copc, dest, resolution, min_elevation)
+    finally:
+        if downloaded:
+            local_copc.unlink(missing_ok=True)
+
+
+def _query_local_copc(
+    local_copc: Path, dest: Path, resolution: int, min_elevation: float | None
+) -> Path:
+    with CopcReader.open(local_copc) as reader:
         if min_elevation is not None and reader.header.z_max < min_elevation:
             raise ElevationUnderThreshold(
-                f"Tile {tile.name} z_max={reader.header.z_max:.1f} m < threshold {min_elevation:.1f} m"
+                f"Tile {local_copc.name} z_max={reader.header.z_max:.1f} m < threshold {min_elevation:.1f} m"
             )
         elevation_diff = reader.header.z_max - reader.header.z_min
         if elevation_diff < 200:
@@ -95,7 +108,8 @@ def _query_and_cache(
         points = reader.query(resolution=resolution)
         src_header = reader.header
 
-    Path(cache_dir).mkdir(parents=True, exist_ok=True)
+    for unused in ("intensity", "user_data"):
+        points.array[unused] = 0
 
     # laspy cannot write COPC files, so build a plain LAS header from the COPC one.
     header = laspy.LasHeader(
@@ -104,7 +118,7 @@ def _query_and_cache(
     header.scales = src_header.scales
     header.offsets = src_header.offsets
 
-    tmp_dest = dest.with_name(f"{dest.name}.{os.getpid()}.tmp")
+    tmp_dest = dest.with_name(f"{dest.stem}.{os.getpid()}.tmp.laz")
     with laspy.open(tmp_dest, mode="w", header=header) as f:
         f.write_points(points)
     os.replace(tmp_dest, dest)
@@ -152,24 +166,33 @@ def download_cell_and_neighbours(
     the tile. Waits for every download to finish before raising, so a failure
     doesn't cut off downloads already in flight.
     """
-    centre_path = download_cell_laz(
-        x_km,
-        y_km,
-        cache_dir,
-        resolution=resolution,
-        min_elevation=min_elevation,
-        download_from_ign=download_from_ign,
-    )
-    for dx, dy in _NEIGHBOUR_OFFSETS:
-        download_cell_laz(
-            x_km + dx,
-            y_km + dy,
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        centre_future = pool.submit(
+            download_cell_laz,
+            x_km,
+            y_km,
             cache_dir,
             resolution=resolution,
+            min_elevation=min_elevation,
             download_from_ign=download_from_ign,
         )
-
-    return str(centre_path)
+        neighbour_futures = [
+            pool.submit(
+                download_cell_laz,
+                x_km + dx,
+                y_km + dy,
+                cache_dir,
+                resolution=resolution,
+                download_from_ign=download_from_ign,
+            )
+            for dx, dy in _NEIGHBOUR_OFFSETS
+        ]
+        centre_path = centre_future.result()
+        for fut in neighbour_futures:
+            fut.result()
+        return str(centre_path)
 
 
 def delete_cell_outputs(

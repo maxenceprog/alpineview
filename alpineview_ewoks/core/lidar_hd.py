@@ -1,39 +1,20 @@
 """IGN LiDAR HD tile lookup and cached download.
 
-Uses the Géoplateforme téléchargement API:
-  https://data.geopf.fr/telechargement/
+Tile lookup uses the official tableau d'assemblage exposed as WFS on the
+Géoplateforme:
 
-Key endpoints
--------------
-GetResource   GET /resource/LiDARHD-NUALID[?page=N]
-              Returns all ~206 LAMB93 collections.  Each entry carries a
-              ``gpf_dl:bbox="minLon minLat maxLon maxLat"`` attribute that
-              gives the exact geographic footprint of that collection.
+  GET https://data.geopf.fr/wfs/ows?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature
+      &TYPENAMES=IGNF_NUAGES-DE-POINTS-LIDAR-HD:dalle
+      &OUTPUTFORMAT=application/json&SRSNAME=EPSG:2154
+      &BBOX=<xmin>,<ymin>,<xmax>,<ymax>,EPSG:2154
 
-Download      GET /download/LiDARHD-NUALID/{collection}/{filename}
-              Direct file download.
-
-Tile filename convention (mainland France, Lambert 93)
-------------------------------------------------------
-  LHD_FXX_{tile_x:04d}_{tile_y:04d}_PTS_LAMB93_IGN69.copc.laz
-  where tile_x = floor(L93_x / 1000), tile_y = floor(L93_y / 1000)
-
-Collection lookup
------------------
-Each of the ~206 LAMB93 collections covers a ~50×50 km area of France.
-``find_tile`` works by:
-  1. Loading the bundled catalog JSON (lidalp_tools/lidar_hd_catalog.json).
-  2. Point-in-bbox to find the collection whose bbox contains (lon, lat).
-  3. Computing the tile filename deterministically from L93 grid coordinates.
-
-To refresh the bundled catalog, run ``_fetch_catalog()`` and overwrite the file.
+Each ``dalle`` feature is a 1×1 km tile carrying the authoritative download
+``url`` property, so no collection/bbox guessing is needed.
 """
 
 from __future__ import annotations
 
-import json
 import logging
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -43,9 +24,8 @@ from .geocode import l93_to_latlon, latlon_to_l93
 
 logger = logging.getLogger(__name__)
 
-_RESOURCE_URL = "https://data.geopf.fr/telechargement/resource/LiDARHD-NUALID"
-_DOWNLOAD_BASE = "https://data.geopf.fr/telechargement/download/LiDARHD-NUALID"
-_CATALOG_PATH = Path(__file__).parent / "lidar_hd_catalog.json"
+_WFS_URL = "https://data.geopf.fr/wfs/ows"
+_WFS_LAYER = "IGNF_NUAGES-DE-POINTS-LIDAR-HD:dalle"
 
 
 @dataclass
@@ -59,58 +39,30 @@ class TileInfo:
 # ---------------------------------------------------------------------------
 
 
-def _tile_filename(x_l93: float, y_l93: float) -> str:
-    """Build the LiDAR HD tile filename from Lambert 93 coordinates (metres)."""
-    tile_x = int(x_l93 // 1000)
-    tile_y = int(y_l93 // 1000) + 1  # north edge convention
-    return f"LHD_FXX_{tile_x:04d}_{tile_y:04d}_PTS_LAMB93_IGN69.copc.laz"
+def _wfs_dalles(
+    xmin: float, ymin: float, xmax: float, ymax: float, count: int = 1000
+) -> list[TileInfo]:
+    """Query the WFS tableau d'assemblage for dalles intersecting a L93 bbox."""
+    params = {
+        "SERVICE": "WFS",
+        "VERSION": "2.0.0",
+        "REQUEST": "GetFeature",
+        "TYPENAMES": _WFS_LAYER,
+        "OUTPUTFORMAT": "application/json",
+        "SRSNAME": "EPSG:2154",
+        "BBOX": f"{xmin},{ymin},{xmax},{ymax},EPSG:2154",
+        "COUNT": str(count),
+    }
+    resp = _make_session().get(_WFS_URL, params=params, timeout=30)
+    resp.raise_for_status()
+    features = resp.json().get("features", [])
 
-
-def _extract_collections(text: str) -> list[str]:
-    """Extract collection names from a GetResource response (Atom XML or JSON)."""
-    return list(set(re.findall(r"NUALHD_[A-Za-z0-9_-]+", text)))
-
-
-def _load_catalog() -> dict[str, tuple[float, float, float, float]]:
-    """Load the bundled catalog JSON."""
-    data = json.loads(_CATALOG_PATH.read_text())
-    return {k: tuple(v) for k, v in data.items()}  # type: ignore[misc]
-
-
-def _fetch_catalog() -> dict[str, tuple[float, float, float, float]]:
-    """Fetch all LAMB93 collection bboxes from the GetResource endpoint.
-
-    Use this to regenerate lidar_hd_catalog.json when the catalog changes.
-    """
-    catalog: dict[str, tuple[float, float, float, float]] = {}
-    page = 1
-    while True:
-        resp = requests.get(_RESOURCE_URL, params={"page": page}, timeout=30)
-        resp.raise_for_status()
-        text = resp.text
-
-        pagecount_m = re.search(r'gpf_dl:pagecount="(\d+)"', text)
-        pagecount = int(pagecount_m.group(1)) if pagecount_m else 1
-
-        for m in re.finditer(
-            r"<title>(NUALHD_1-0__LAZ_LAMB93_[^<]+)</title>"
-            r'.*?gpf_dl:bbox="([^"]+)"',
-            text,
-            re.DOTALL,
-        ):
-            title, bbox_str = m.group(1), m.group(2)
-            parts = tuple(float(v) for v in bbox_str.split())
-            if len(parts) == 4:
-                catalog[title] = parts  # type: ignore[assignment]
-
-        logger.debug(
-            "  Page %d/%d — %d collections so far", page, pagecount, len(catalog)
-        )
-        if page >= pagecount:
-            break
-        page += 1
-
-    return catalog
+    tiles = []
+    for feat in features:
+        url = feat["properties"]["url"]
+        name = url.split("/")[-1]
+        tiles.append(TileInfo(name=name, url=url))
+    return tiles
 
 
 # ---------------------------------------------------------------------------
@@ -158,30 +110,19 @@ def _find_tile(x: float, y: float, lon: float, lat: float) -> TileInfo:
         )
     logger.info("L93: x=%.0f  y=%.0f (lon=%.5f, lat=%.5f)", x, y, lon, lat)
 
-    catalog = _load_catalog()
-
-    matches = [
-        name
-        for name, (minLon, minLat, maxLon, maxLat) in catalog.items()
-        if minLon <= lon <= maxLon and minLat <= lat <= maxLat
-    ]
-    if not matches:
+    xc = x // 1000 * 1000 + 500
+    yc = y // 1000 * 1000 + 500
+    tiles = _wfs_dalles(xc - 1, yc - 1, xc + 1, yc + 1)
+    if not tiles:
         raise ValueError(
-            f"No LiDAR HD collection found for lon={lon:.5f}, lat={lat:.5f}. "
+            f"No LiDAR HD tile found for lon={lon:.5f}, lat={lat:.5f}. "
             "The area may not be covered by IGN LiDAR HD yet."
         )
 
-    collection = max(
-        matches,
-        key=lambda n: (re.search(r"\d{4}-\d{2}-\d{2}", n) or re.match("", "")).group(),
-    )
-    logger.info("  Collection: %s", collection)
-
-    filename = _tile_filename(x, y)
-    url = f"{_DOWNLOAD_BASE}/{collection}/{filename}"
-    logger.info("  Tile: %s", filename)
-    logger.debug("  URL: %s", url)
-    return TileInfo(name=filename, url=url)
+    tile = tiles[0]
+    logger.info("  Tile: %s", tile.name)
+    logger.debug("  URL: %s", tile.url)
+    return tile
 
 
 def find_tiles(x_l93: float, y_l93: float, radius_m: float) -> list[TileInfo]:
@@ -194,51 +135,11 @@ def find_tiles(x_l93: float, y_l93: float, radius_m: float) -> list[TileInfo]:
     radius_m :
         Half-side of the crop square in metres.
     """
-    from pyproj import Transformer
-
-    tr = Transformer.from_crs("EPSG:2154", "EPSG:4326", always_xy=True)
-
-    tx_min = int((x_l93 - radius_m) // 1000)
-    tx_max = int((x_l93 + radius_m) // 1000)
-    ty_min = int((y_l93 - radius_m) // 1000) + 1
-    ty_max = int((y_l93 + radius_m) // 1000) + 1
-
-    n_tiles = (tx_max - tx_min + 1) * (ty_max - ty_min + 1)
-    if n_tiles > 1:
-        logger.info(
-            "Crop radius %.0f m spans %d×%d tiles (%d total)",
-            radius_m,
-            tx_max - tx_min + 1,
-            ty_max - ty_min + 1,
-            n_tiles,
-        )
-
-    catalog = _load_catalog()
-
-    tiles: list[TileInfo] = []
-    for tx in range(tx_min, tx_max + 1):
-        for ty in range(ty_min, ty_max + 1):
-            lon, lat = tr.transform(tx * 1000 + 500.0, (ty - 1) * 1000 + 500.0)
-
-            matches = [
-                name
-                for name, (minLon, minLat, maxLon, maxLat) in catalog.items()
-                if minLon <= lon <= maxLon and minLat <= lat <= maxLat
-            ]
-            if not matches:
-                logger.debug("Tile (%d, %d): not in any collection — skipped", tx, ty)
-                continue
-
-            collection = max(
-                matches,
-                key=lambda n: (
-                    re.search(r"\d{4}-\d{2}-\d{2}", n) or re.match("", "")
-                ).group(),
-            )
-            filename = f"LHD_FXX_{tx:04d}_{ty:04d}_PTS_LAMB93_IGN69.copc.laz"
-            url = f"{_DOWNLOAD_BASE}/{collection}/{filename}"
-            tiles.append(TileInfo(name=filename, url=url))
-            logger.debug("  Tile (%d, %d) → %s", tx, ty, collection)
+    tiles = _wfs_dalles(
+        x_l93 - radius_m, y_l93 - radius_m, x_l93 + radius_m, y_l93 + radius_m
+    )
+    if len(tiles) > 1:
+        logger.info("Crop radius %.0f m covers %d tiles", radius_m, len(tiles))
 
     if not tiles:
         raise ValueError(
@@ -256,7 +157,7 @@ def _make_session():
     retry = Retry(
         total=4,
         backoff_factor=2,
-        status_forcelist={500, 502, 503, 504},
+        status_forcelist={429, 500, 502, 503, 504},
         allowed_methods={"GET"},
     )
     session.mount("https://", HTTPAdapter(max_retries=retry))

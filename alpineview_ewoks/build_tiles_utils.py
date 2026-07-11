@@ -12,6 +12,7 @@ import time
 
 _REDIS_PORT = 6379
 _STOP_GRACE_S = 5.0
+_EWOKSJOB_CMDLINE = "ewoksjob --config=alpineview_ewoks.config"
 
 
 def _redis_running() -> bool:
@@ -46,6 +47,56 @@ def _stop(procs: list[subprocess.Popen]) -> None:
             proc.wait()
 
 
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+
+
+def _stop_stale_ewoksjob() -> None:
+    """Kill ewoksjob monitors/workers left over from a previous session.
+
+    A stale worker keeps consuming jobs from the redis queue with the code it
+    imported at start-up, so it must go before we spawn a fresh one.
+    """
+    result = subprocess.run(
+        ["pgrep", "-f", _EWOKSJOB_CMDLINE], capture_output=True, text=True
+    )
+    pids = [int(p) for p in result.stdout.split()]
+    pids = [p for p in pids if p not in (os.getpid(), os.getppid())]
+    if not pids:
+        return
+    print(f"Stopping {len(pids)} stale ewoksjob process(es) ...", flush=True)
+    pgids = set()
+    for pid in pids:
+        try:
+            pgids.add(os.getpgid(pid))
+        except ProcessLookupError:
+            pass
+    pgids.discard(os.getpgid(0))
+    try:
+        pgids.discard(os.getpgid(os.getppid()))
+    except ProcessLookupError:
+        pass
+    for pgid in pgids:
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    deadline = time.monotonic() + _STOP_GRACE_S
+    while time.monotonic() < deadline:
+        if not any(_alive(pid) for pid in pids):
+            return
+        time.sleep(0.2)
+    for pgid in pgids:
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
 def run_servers(reload_code: bool = False) -> list[subprocess.Popen]:
     """Start redis-server, the ewoksjob monitor and one ewoksjob worker.
 
@@ -55,6 +106,7 @@ def run_servers(reload_code: bool = False) -> list[subprocess.Popen]:
     reload_code: fork a fresh pool process per job so alpineview code edits
     are picked up on the next build (dev server); pointless for batch runs.
     """
+    _stop_stale_ewoksjob()
     procs: list[subprocess.Popen] = []
     if not _redis_running():
         procs.append(_spawn(["redis-server"]))
