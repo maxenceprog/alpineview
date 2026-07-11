@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
-import { createScene, updateSunDirection, updateSky, updateShadowCamera } from "./scene.js";
+import { createScene, updateSunDirection, updateSky, updateShadowCamera, DEFAULT_FOG_DENSITY } from "./scene.js";
 import { createFlyCamera, createWalkCamera } from "./camera.js";
 import { initTouchControls } from "./touchControls.js";
 import { IS_MOBILE } from "./deviceInfo.js";
@@ -121,6 +121,11 @@ const cameraModeEl   = document.getElementById("camera-mode");
 const fogDensityInput  = document.getElementById("fog-density");
 const fogDensityValue  = document.getElementById("fog-density-value");
 const sunTimeLabel     = document.getElementById("sun-time-label");
+
+// Reflect the computed default (depends on LOAD_RADIUS_MAX, which differs on
+// mobile) rather than the static value baked into the slider's HTML markup.
+fogDensityInput.value = DEFAULT_FOG_DENSITY;
+fogDensityValue.textContent = DEFAULT_FOG_DENSITY.toFixed(2);
 
 // Slippy map (Leaflet/OpenTopoMap): manually toggled via #map-mode-btn,
 // replaces the 3D view entirely while active. camera.position stays the

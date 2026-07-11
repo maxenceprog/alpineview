@@ -1,7 +1,15 @@
 import * as THREE from "three";
+import { LOAD_RADIUS_MAX } from "./tileManager.js";
 
 const SUN_NAME = "sun-light";
 const AMBIENT_NAME = "ambient-light";
+
+// FogExp2's visibility factor is exp(-(density*dist)^2). Pick density so the
+// farthest tile the tile manager will ever load (LOAD_RADIUS_MAX) sits at
+// ~2% visibility — "almost disappears" rather than popping in/out sharply
+// at the load boundary. exp(-2^2) ≈ 0.018, so density*LOAD_RADIUS_MAX ≈ 2.
+const FOG_FAR_ATTENUATION = 2;
+export const DEFAULT_FOG_DENSITY = FOG_FAR_ATTENUATION / LOAD_RADIUS_MAX;
 
 let _sunDir = new THREE.Vector3(0.5, 1.0, 0.8).normalize();
 
@@ -63,7 +71,7 @@ export function createScene() {
     initialHorizon[0] / 255, initialHorizon[1] / 255, initialHorizon[2] / 255,
   );
   scene.background = horizonColor.clone();
-  scene.fog = new THREE.FogExp2(horizonColor, 0.1);
+  scene.fog = new THREE.FogExp2(horizonColor, DEFAULT_FOG_DENSITY);
 
   // Sky sphere — follows camera each frame (see main.js)
   const skySphere = new THREE.Mesh(
