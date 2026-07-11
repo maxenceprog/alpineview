@@ -10,7 +10,6 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
-from concurrent.futures import ThreadPoolExecutor, wait
 from pathlib import Path
 
 import laspy

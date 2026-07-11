@@ -39,7 +39,7 @@ where = ["."]
 include = ["alpineview*"]
 
 [tool.ruff]
-exclude = ["third-parties", "vendor"]
+exclude = ["third-parties", "vendor", "alpineview_builder/extern"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -9,7 +9,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:smoke": "playwright test"
+    "test:smoke": "playwright test",
+    "lint": "eslint ."
   },
   "dependencies": {
     "colorthief": "^3.3.1",
@@ -23,9 +24,12 @@
     "tilebelt": "^1.0.1"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.61.0",
     "@vitest/browser": "^4.1.9",
     "@vitest/coverage-v8": "^4.1.9",
+    "eslint": "^10.7.0",
+    "globals": "^17.7.0",
     "happy-dom": "^20.10.6",
     "vite": "^6.0.0",
     "vite-plugin-static-copy": "^3.1.6",
