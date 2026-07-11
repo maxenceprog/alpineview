@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { buildHeightmap, sampleHeight } from "./heightmap.js";
+import { consumePanDelta, consumeOrientDelta, consumeZoomDelta } from "./touchControls.js";
 
 // Scene units = km. Tile occupies roughly [913, 914]² in L93 km coords.
 const MOVE_SPEED = 0.03;  // 30 m/s
@@ -128,6 +129,7 @@ export function createFlyCamera(renderer, getGroundHeight) {
   }, { passive: false });
 
   const _forward = new THREE.Vector3();
+  const _forwardFlat = new THREE.Vector3(); // _forward with y zeroed — used for touch pan (ground-plane only)
   const _worldUp = new THREE.Vector3(0, 1, 0);
   const _velocity = new THREE.Vector3(); // WASD velocity, eased toward _desired each frame
   const _desired = new THREE.Vector3();
@@ -142,6 +144,8 @@ export function createFlyCamera(renderer, getGroundHeight) {
 
     camera.getWorldDirection(_forward);
     _right.crossVectors(_forward, _worldUp).normalize();
+    _forwardFlat.set(_forward.x, 0, _forward.z);
+    if (_forwardFlat.lengthSq() > 0) _forwardFlat.normalize();
 
     _desired.set(0, 0, 0);
     if (_keys.has("KeyW")) _desired.add(_forward);
@@ -155,6 +159,34 @@ export function createFlyCamera(renderer, getGroundHeight) {
     // per-frame-lerp smoothing style as walk mode's height easing below.
     _velocity.lerp(_desired, ACCEL_SMOOTH);
     _wheelVelocity *= WHEEL_FRICTION;
+
+    // One-finger touch drag: move in the ground plane only (no altitude
+    // change) — up/down drag maps to forward/back, left/right to strafe.
+    const panDelta = consumePanDelta();
+    if (panDelta.x !== 0 || panDelta.y !== 0) {
+      moveIfClear(() => {
+        camera.position.addScaledVector(_forwardFlat, -panDelta.y * PAN_SPEED);
+        camera.position.addScaledVector(_right, panDelta.x * PAN_SPEED);
+      });
+    }
+
+    // Two-finger touch drag: orient the camera (delta-based, like the
+    // right-click-drag handled in pointermove above).
+    const orientDelta = consumeOrientDelta();
+    if (orientDelta.x !== 0 || orientDelta.y !== 0) {
+      yaw -= orientDelta.x * SENSITIVITY;
+      pitch -= orientDelta.y * SENSITIVITY;
+      pitch = Math.max(-Math.PI / 2 * 0.98, Math.min(Math.PI / 2 * 0.98, pitch));
+      camera.rotation.set(pitch, yaw, 0, "YXZ");
+    }
+
+    // Two-finger pinch: zoom / dolly (mirrors wheel zoom).
+    const zoomDelta = consumeZoomDelta();
+    if (zoomDelta !== 0) {
+      const altitudeMultiplier = 1 + Math.max(0, heightAboveGround() - 0.1);
+      const sprintSpeed = MOVE_SPEED * SPRINT_MUL * altitudeMultiplier;
+      _wheelVelocity += zoomDelta * sprintSpeed * WHEEL_IMPULSE;
+    }
 
     moveIfClear(() => {
       camera.position.addScaledVector(_velocity, dt);
@@ -304,7 +336,11 @@ export function createWalkCamera(renderer, scene) {
   function update(dt) {
     if (!enabled) return;
 
-    const moving = _keys.has("KeyW") || _keys.has("KeyS") || _keys.has("KeyA") || _keys.has("KeyD");
+    // One-finger touch drag: move in the ground plane (XY only) — up/down
+    // drag maps to forward/back, left/right to strafe, same as WASD.
+    const panDelta = consumePanDelta();
+    const moving = _keys.has("KeyW") || _keys.has("KeyS") || _keys.has("KeyA") || _keys.has("KeyD")
+      || panDelta.x !== 0 || panDelta.y !== 0;
 
     if (moving) {
       const sprint = _keys.has("KeyQ") ? SPRINT_MUL : 1;
@@ -320,6 +356,18 @@ export function createWalkCamera(renderer, scene) {
       if (_keys.has("KeyS")) camera.position.addScaledVector(_forward, -d);
       if (_keys.has("KeyA")) camera.position.addScaledVector(_right, -d);
       if (_keys.has("KeyD")) camera.position.addScaledVector(_right, d);
+      camera.position.addScaledVector(_forward, -panDelta.y * PAN_SPEED);
+      camera.position.addScaledVector(_right, panDelta.x * PAN_SPEED);
+    }
+
+    // Two-finger touch drag: orient the camera, standing in for the
+    // pointer-lock mouse-look above (Pointer Lock isn't available on touch).
+    const orientDelta = consumeOrientDelta();
+    if (orientDelta.x !== 0 || orientDelta.y !== 0) {
+      yaw -= orientDelta.x * SENSITIVITY;
+      pitch -= orientDelta.y * SENSITIVITY;
+      pitch = Math.max(-Math.PI / 2 * 0.7, Math.min(Math.PI / 2 * 0.7, pitch));
+      camera.rotation.set(pitch, yaw, 0, "YXZ");
     }
 
     snapToGround();

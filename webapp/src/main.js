@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
 import { createScene, updateSunDirection, updateSky, updateShadowCamera } from "./scene.js";
 import { createFlyCamera, createWalkCamera } from "./camera.js";
+import { initTouchControls } from "./touchControls.js";
 import { sunDirectionAt } from "./sun.js";
 import { TileManager } from "./tileManager.js";
 import { wgs84ToL93, l93ToWgs84 } from "./proj.js";
@@ -27,6 +28,7 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
 renderer.domElement.style.transition = "opacity 0.35s ease";
 document.body.appendChild(renderer.domElement);
+initTouchControls(renderer.domElement);
 
 // CSS2D label renderer (POI text labels) — overlays the WebGL canvas.
 const labelRenderer = new CSS2DRenderer();
