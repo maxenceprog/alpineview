@@ -4,11 +4,8 @@ import { LOAD_RADIUS_MAX } from "./tileManager.js";
 const SUN_NAME = "sun-light";
 const AMBIENT_NAME = "ambient-light";
 
-// FogExp2's visibility factor is exp(-(density*dist)^2). Pick density so the
-// farthest tile the tile manager will ever load (LOAD_RADIUS_MAX) sits at
-// ~2% visibility — "almost disappears" rather than popping in/out sharply
-// at the load boundary. exp(-2^2) ≈ 0.018, so density*LOAD_RADIUS_MAX ≈ 2.
-const FOG_FAR_ATTENUATION = 2;
+
+const FOG_FAR_ATTENUATION = 1;
 export const DEFAULT_FOG_DENSITY = FOG_FAR_ATTENUATION / LOAD_RADIUS_MAX;
 
 let _sunDir = new THREE.Vector3(0.5, 1.0, 0.8).normalize();
