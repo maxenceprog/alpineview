@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { API_BASE_URL } from "./apiConfig.js";
 import { getSunDirection, registerLitMaterial } from "./sunLighting.js";
 
 // ---------------------------------------------------------------------------
@@ -91,7 +92,7 @@ export function setSatelliteColors(on) {
  * the raw R channel, so use NearestFilter and no colour-space conversion.
  */
 export async function loadCosiaTexture(tx, ty, z, reload = false) {
-  const url = `/tiles/tile.${tx}.${ty}.${z}.cosia.png${reload ? `?t=${Date.now()}` : ""}`;
+  const url = `${API_BASE_URL}/tiles/tile.${tx}.${ty}.${z}.cosia.png${reload ? `?t=${Date.now()}` : ""}`;
   try {
     const tex = await _texLoader.loadAsync(url);
     tex.magFilter = THREE.NearestFilter;
@@ -110,7 +111,7 @@ export async function loadCosiaTexture(tx, ty, z, reload = false) {
  * colours), or null if there is none. This is a normal sRGB colour image.
  */
 export async function loadCosiaRgbTexture(tx, ty, z, reload = false) {
-  const url = `/tiles/tile.${tx}.${ty}.${z}.cosia_rgb.png${reload ? `?t=${Date.now()}` : ""}`;
+  const url = `${API_BASE_URL}/tiles/tile.${tx}.${ty}.${z}.cosia_rgb.png${reload ? `?t=${Date.now()}` : ""}`;
   try {
     const tex = await _texLoader.loadAsync(url);
     tex.magFilter = THREE.NearestFilter;

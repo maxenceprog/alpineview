@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
+import { API_BASE_URL } from "./apiConfig.js";
 import { buildHeightmap, sampleHeight } from "./heightmap.js";
 import { applyLayer, disposeLayerMaterials } from "./layers.js";
 import { setSunDirection } from "./sunLighting.js";
@@ -191,7 +192,7 @@ async function loadDraco(tx, ty, z, layerId, signal, reload = false) {
     geometryCache.delete(key); // ownership transferred back to the live mesh
   } else {
     const cache = reload ? "reload" : "default";
-    const url = `/tiles/tile.${tx}.${ty}.${z}.drc`;
+    const url = `${API_BASE_URL}/tiles/tile.${tx}.${ty}.${z}.drc`;
     const res = await fetch(url, { signal, cache });
     if (!res.ok) throw new Error(`tile not found: ${url}`);
     const buffer = await res.arrayBuffer();
@@ -235,7 +236,7 @@ async function loadDraco(tx, ty, z, layerId, signal, reload = false) {
 // are baked per vertex at build time from IGN satellite imagery.
 
 async function loadVegetationTile(tx, ty, z) {
-  const url = `/vegetation/tile.${tx}.${ty}.${z}.veg.drc`;
+  const url = `${API_BASE_URL}/vegetation/tile.${tx}.${ty}.${z}.veg.drc`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`veg tile not found: ${url}`);
   const buffer = await res.arrayBuffer();

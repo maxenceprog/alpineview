@@ -10,6 +10,7 @@
  * is picked up on re-enable.
  */
 
+import { API_BASE_URL } from "./apiConfig.js";
 import { loadCityBuildings } from "./buildings.js";
 import { fetchCellPois, buildPoiGroup } from "./poi.js";
 import { MEDIUM_LOD_RADIUS_KM } from "./tileManager.js";
@@ -126,7 +127,7 @@ function makeCellOverlay(scene, { dir, ext, loader }) {
   return new CellOverlay(scene, {
     radiusKm: OVERLAY_RADIUS_KM,
     load: (x0, y0) =>
-      loader(`/${dir}/${cellLazStem(x0, y0)}.${ext}`).catch((err) => { console.error("[overlay] loader threw:", err); return null; }),
+      loader(`${API_BASE_URL}/${dir}/${cellLazStem(x0, y0)}.${ext}`).catch((err) => { console.error("[overlay] loader threw:", err); return null; }),
   });
 }
 
@@ -135,7 +136,7 @@ export function createBuildingsOverlay(scene, getSunDir, getTerrainCanvas) {
   return new CellOverlay(scene, {
     radiusKm: OVERLAY_RADIUS_KM,
     load: (x0, y0) =>
-      loadCityBuildings(`/buildings/${cellLazStem(x0, y0)}.city.jsonl`, {
+      loadCityBuildings(`${API_BASE_URL}/buildings/${cellLazStem(x0, y0)}.city.jsonl`, {
         x0, y0, sunDir: getSunDir?.(), getTerrainCanvas,
       }).catch((err) => { console.error("[overlay] loader threw:", err); return null; }),
   });

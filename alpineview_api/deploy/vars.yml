@@ -1,6 +1,6 @@
 ---
 # ---- Customize for your deployment ----
-api_domain: api.alpineview.example.com
+api_domain: vps121630.serveur-vps.net
 certbot_email: changeme@example.com
 allowed_origins: "https://maxenceprog.github.io"
 
