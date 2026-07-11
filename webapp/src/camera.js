@@ -3,28 +3,21 @@ import { buildHeightmap, sampleHeight } from "./heightmap.js";
 import { consumeOrientDelta, consumeZoomDelta } from "./touchControls.js";
 
 // Scene units = km. Tile occupies roughly [913, 914]² in L93 km coords.
-const MOVE_SPEED = 0.03;  // 30 m/s
+const MOVE_SPEED = 0.2;
 const SPRINT_MUL = 4;
 const SENSITIVITY = 0.002;
-const WHEEL_SPEED = 0.003; // ~3 m per scroll tick
 const PAN_SPEED = 0.003;
 const WALK_HEIGHT = 0.020; // 20 m above ground
 const GROUND_CLEARANCE = 0.002; // 2 m hard floor above sampled ground — smoothing
 // alone lags behind fast terrain changes (steep
 // slopes, LOD swaps) and can let the camera dip
 // under the mesh, so this clamps every frame.
-const FLY_GROUND_CLEARANCE_KM = 0.01; // 10 m hard floor above sampled ground in fly mode
+const FLY_GROUND_CLEARANCE_KM = 0.02; // 20 m hard floor above sampled ground in fly mode
 const FLY_MIN_ALTITUDE_KM = 4; // fallback floor where no terrain is loaded at all
 // (e.g. far outside the built tile area, or a
 // teleport target synced from the 2D map)
-const WHEEL_IMPULSE = 0.0002; // feel-tuned: scales one wheel/pinch tick into a velocity impulse
-// Every control (WASD, wheel, pinch) ultimately just nudges one velocity
-// vector, which eases toward its target (zero, unless a key is held) at
-// this rate — 0..1 per frame, higher = snappier. It's not a fixed constant:
-// see NEAR_GROUND_BRAKE_SMOOTH below.
 const ACCEL_SMOOTH = 0.15;
-const NEAR_GROUND_BRAKE_SMOOTH = 0.2; // easing rate right at the ground — a fast dive stops short instead of coasting into the terrain
-const NEAR_GROUND_BRAKE_HEIGHT_KM = 0.4; // height above ground over which easing ramps from ACCEL_SMOOTH up to NEAR_GROUND_BRAKE_SMOOTH
+const SPEED_ALTITUDE_EXPONENT = 1.5; // >1 widens the speed ratio between high altitude and near-ground
 
 const PHYSICS_INTERVAL_MS = 20; // 50 Hz
 
@@ -79,25 +72,35 @@ export function createFlyCamera(renderer, getGroundHeight) {
     return camera.position.y - (sampledGroundHeight() ?? 0);
   }
 
-  // Continuous movement (WASD, wheel-zoom, middle-click pan): after applying
-  // it, snap Y up to the floor if it ended up below ground.
-  function moveIfClear(applyFn) {
-    applyFn();
+  function clampToFloor() {
     const floor = groundFloor();
     if (camera.position.y < floor) camera.position.y = floor;
   }
 
-  // Fixed-rate safety net, independent of the render loop: enforces the
-  // floor even if update() didn't run this tick for any reason.
-  setInterval(() => {
-    const floor = groundFloor();
-    if (camera.position.y < floor) camera.position.y = floor;
-  }, PHYSICS_INTERVAL_MS);
-
   const _right = new THREE.Vector3();
   const _camUp = new THREE.Vector3();
+  const _cursor = new THREE.Vector2();
+  const _raycaster = new THREE.Raycaster();
+
+  // Straight-line distance from the camera to the terrain point hit by a ray
+  // through the cursor; null when the cursor points at the sky or off loaded tiles.
+  function distanceToCursorHitPoint() {
+    _raycaster.setFromCamera(_cursor, camera);
+    const o = _raycaster.ray.origin, d = _raycaster.ray.direction;
+    let t = 0;
+    for (let i = 0; i < 200 && t < 200; i++) {
+      const y = o.y + d.y * t;
+      const g = getGroundHeight?.(o.x + d.x * t, o.z + d.z * t);
+      if (g != null && y <= g) return t;
+      t += g != null ? Math.max(0.02, (y - g) * 0.5) : 0.5;
+    }
+    return null;
+  }
 
   canvas.addEventListener("pointermove", (e) => {
+    // Touch never moves the cursor: on mobile the speed raycast stays at the
+    // screen center, matching where pinch zoom actually flies (camera forward).
+    if (e.pointerType !== "touch") _cursor.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
     if (!enabled) return;
     if (rightClickActive) {
       yaw -= e.movementX * SENSITIVITY;
@@ -108,10 +111,9 @@ export function createFlyCamera(renderer, getGroundHeight) {
     if (middleClickActive) {
       _right.setFromMatrixColumn(camera.matrixWorld, 0);
       _camUp.setFromMatrixColumn(camera.matrixWorld, 1);
-      moveIfClear(() => {
-        camera.position.addScaledVector(_right, e.movementX * PAN_SPEED);
-        camera.position.addScaledVector(_camUp, -e.movementY * PAN_SPEED);
-      });
+      camera.position.addScaledVector(_right, e.movementX * PAN_SPEED);
+      camera.position.addScaledVector(_camUp, -e.movementY * PAN_SPEED);
+      clampToFloor();
     }
   });
 
@@ -120,54 +122,44 @@ export function createFlyCamera(renderer, getGroundHeight) {
   const _velocity = new THREE.Vector3(); // the one speed all controls feed into, eased toward _desired each frame
   const _desired = new THREE.Vector3();
 
-  // Every control just gives a speed along some direction; how far above the
-  // ground we are scales that speed the same way for all of them.
-  function speedForAltitude(base) {
-    return base * (1 + Math.max(0, heightAboveGround()));
+  // Wheel ticks and pinch deltas both arm a short "dolly forward/back" hold,
+  // equivalent to holding W/S + Q for DOLLY_HOLD_MS.
+  const DOLLY_HOLD_MS = 150;
+  let _dollyDir = 0;
+  let _dollyUntil = 0;
+  function armDolly(dir) {
+    _dollyDir = dir;
+    _dollyUntil = performance.now() + DOLLY_HOLD_MS;
   }
 
-  // Wheel ticks and pinch zoom (see consumeZoomDelta below) both nudge the
-  // shared velocity directly, along whichever way the camera currently faces
-  // — same _velocity that WASD eases toward _desired, so it decays exactly
-  // like WASD's does (see the ground-proximity easing in update() below).
   canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
     if (!enabled) return;
-    _velocity.addScaledVector(_forward, -e.deltaY * speedForAltitude(SPRINT_MUL) * WHEEL_IMPULSE);
+    armDolly(Math.sign(-e.deltaY));
   }, { passive: false });
 
   function update(dt) {
-    const sprint = _keys.has("KeyQ") ? SPRINT_MUL : 1;
-    const maxSpeed = speedForAltitude(MOVE_SPEED * sprint);
+    const zoomDelta = consumeZoomDelta();
+    if (zoomDelta !== 0) armDolly(Math.sign(zoomDelta));
+    const dollyActive = performance.now() < _dollyUntil;
+    const sprint = (_keys.has("KeyQ") || dollyActive) ? SPRINT_MUL : 1;
+    const h = distanceToCursorHitPoint() ?? heightAboveGround();
+    const maxSpeed = MOVE_SPEED * sprint * Math.max(0.5, h) ** SPEED_ALTITUDE_EXPONENT;
 
     camera.getWorldDirection(_forward);
     _right.crossVectors(_forward, _worldUp).normalize();
 
-    // Desired velocity: zero unless a key is held, in which case it's
-    // maxSpeed in the held direction(s). Whatever speed WASD, wheel or pinch
-    // already put into _velocity always eases toward this — coasting to a
-    // stop the same way once every control lets go.
     _desired.set(0, 0, 0);
     if (_keys.has("KeyW")) _desired.add(_forward);
     if (_keys.has("KeyS")) _desired.addScaledVector(_forward, -1);
     if (_keys.has("KeyA")) _desired.addScaledVector(_right, -1);
     if (_keys.has("KeyD")) _desired.add(_right);
+    if (dollyActive) _desired.addScaledVector(_forward, _dollyDir);
     if (_desired.lengthSq() > 0) _desired.normalize().multiplyScalar(maxSpeed);
 
-    const zoomDelta = consumeZoomDelta();
-    if (zoomDelta !== 0) _velocity.addScaledVector(_forward, zoomDelta * speedForAltitude(SPRINT_MUL) * WHEEL_IMPULSE);
+    _velocity.lerp(_desired, ACCEL_SMOOTH);
+    if (_velocity.length() > maxSpeed) _velocity.setLength(maxSpeed);
 
-    // Ease toward _desired: the same lerp drives acceleration (key just
-    // pressed) and deceleration (key/wheel/pinch let go) alike. Ramp the
-    // easing rate up as the ground gets close, so any speed still carried
-    // in from higher up — a fast dive, wheel-dolly coasting — comes to a
-    // stop quickly instead of carrying through the terrain.
-    const groundProximity = Math.min(1, Math.max(0, heightAboveGround() / NEAR_GROUND_BRAKE_HEIGHT_KM));
-    const easing = NEAR_GROUND_BRAKE_SMOOTH + (ACCEL_SMOOTH - NEAR_GROUND_BRAKE_SMOOTH) * groundProximity;
-    _velocity.lerp(_desired, easing);
-
-    // One-finger touch drag: orient the camera (delta-based, like the
-    // right-click-drag handled in pointermove above).
     const orientDelta = consumeOrientDelta();
     if (orientDelta.x !== 0 || orientDelta.y !== 0) {
       yaw -= orientDelta.x * SENSITIVITY;
@@ -176,9 +168,8 @@ export function createFlyCamera(renderer, getGroundHeight) {
       camera.rotation.set(pitch, yaw, 0, "YXZ");
     }
 
-    moveIfClear(() => {
-      camera.position.addScaledVector(_velocity, dt);
-    });
+    camera.position.addScaledVector(_velocity, dt);
+    clampToFloor();
   }
 
   function onResize() {

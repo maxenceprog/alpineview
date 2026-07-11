@@ -250,7 +250,9 @@ export async function applyLayer(mesh, layerId, tileZ = 2) {
   } else {
     // satellite: IGN orthophoto draped over the tile via world-XY UVs.
     const wmtsZoom = WMTS_ZOOM_FOR_LOD[tileZ] ?? WMTS_ZOOM_FOR_LOD[WMTS_ZOOM_FOR_LOD.length - 1];
-    mesh.geometry.computeBoundingBox();
+    // boundingBox is always set by the time a mesh reaches here — by
+    // tileManager's loadDraco (worker-computed) or, on a bare geometry from
+    // elsewhere, by BufferGeometry itself. No need to recompute.
     const { min, max } = mesh.geometry.boundingBox;
     const wx = mesh.position.x, wz = mesh.position.z;
     const { canvas, xMin, xMax, zMin, zMax } =
