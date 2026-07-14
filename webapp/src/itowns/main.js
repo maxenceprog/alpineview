@@ -87,6 +87,8 @@ const planLayer = new itowns.ColorLayer("plan", {
 });
 
 view.addLayer(orthoLayer);
+view.addLayer(planLayer);
+planLayer.visible = false;
 
 
 
@@ -129,18 +131,9 @@ let planVisible = false;
 document.getElementById("layer-toggle").addEventListener("click", () => {
   planVisible = !planVisible;
 
-  if (planVisible) {
-    console.log("hello")
-    view.removeLayer(orthoLayer);
-    view.addLayer(planLayer);
-    setMapSource("plan")
-  }
-  else {
-    view.removeLayer(planLayer);
-    view.addLayer(orthoLayer);
-    setMapSource("ortho")
-
-  }
+  planLayer.visible = planVisible;
+  orthoLayer.visible = !planVisible;
+  setMapSource(planVisible ? "plan" : "ortho");
   dracoLayer.refreshTextures();
   view.notifyChange(view.tileLayer);
 });
