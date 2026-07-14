@@ -21,10 +21,10 @@ const LABEL_HEIGHT_KM = 0.005; // 5 m above terrain
 // hut=refuge, access=parking/trailhead.
 const KIND_CLASS = { summit: "poi-peak", pass: "poi-pass", hut: "poi-hut", access: "poi-parking" };
 
-/** Web Mercator (EPSG:3857) bbox [xmin,ymin,xmax,ymax] covering L93 cell (x0,y0)..(x0+1,y0+1) km. */
-function cellBboxWebMercator(x0, y0) {
+/** Web Mercator (EPSG:3857) bbox [xmin,ymin,xmax,ymax] covering L93 block (x0,y0)..(x0+sizeKm,y0+sizeKm) km. */
+function cellBboxWebMercator(x0, y0, sizeKm = 1) {
   const corners = [
-    [x0, y0], [x0 + 1, y0], [x0, y0 + 1], [x0 + 1, y0 + 1],
+    [x0, y0], [x0 + sizeKm, y0], [x0, y0 + sizeKm], [x0 + sizeKm, y0 + sizeKm],
   ].map(([x, y]) => l93ToWebMercator.forward([x * 1000, y * 1000]));
   const xs = corners.map((c) => c[0]);
   const ys = corners.map((c) => c[1]);
@@ -33,9 +33,9 @@ function cellBboxWebMercator(x0, y0) {
 
 const PAGE_LIMIT = 100; // Camptocamp API's max page size — paginate past it, don't cap results.
 
-/** Fetch every named summit/pass/hut/access waypoint within an L93 cell's bbox. */
-export async function fetchCellPois(x0, y0) {
-  const bbox = cellBboxWebMercator(x0, y0).join(",");
+/** Fetch every named summit/pass/hut/access waypoint within a sizeKm-wide L93 block's bbox. */
+export async function fetchCellPois(x0, y0, sizeKm = 1) {
+  const bbox = cellBboxWebMercator(x0, y0, sizeKm).join(",");
   const wtyp = Object.keys(KIND_CLASS).join(",");
   const docs = [];
   let offset = 0;

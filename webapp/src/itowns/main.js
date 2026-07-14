@@ -4,6 +4,7 @@ import { setBrightness, setMapSource } from "../layers.js";
 import { DracoTileLayer } from "./dracoLayer.js";
 import { initEnvironment } from "./environment.js";
 import { BuildingsLayer } from "./overlays.js";
+import { initPoi } from "./poi.js";
 
 itowns.CRS.defs(
   "EPSG:2154",
@@ -55,13 +56,13 @@ const demSource = new itowns.TMSSource({
 });
 
 
-let layer = new itowns.ElevationLayer("dem", {
+const demLayer = new itowns.ElevationLayer("dem", {
   source: demSource,
   noDataValue: -99999,
   clampValues: { min: 0 },
 });
 
-view.addLayer(layer)
+view.addLayer(demLayer)
 
 // Beyond the draco levels (10-12) the terrain IS the DEM-displaced quadtree —
 // a 2.5D heightfield mesh — so it needs its own imagery: without a ColorLayer
@@ -129,6 +130,7 @@ document.getElementById("layer-toggle").addEventListener("click", () => {
   planVisible = !planVisible;
 
   if (planVisible) {
+    console.log("hello")
     view.removeLayer(orthoLayer);
     view.addLayer(planLayer);
     setMapSource("plan")
@@ -139,7 +141,6 @@ document.getElementById("layer-toggle").addEventListener("click", () => {
     setMapSource("ortho")
 
   }
-  orthoLayer.opacity = 0;
   dracoLayer.refreshTextures();
   view.notifyChange(view.tileLayer);
 });
@@ -148,6 +149,8 @@ const { setSunDate, setEnabled } = initEnvironment(view);
 setBrightness(1.2);
 
 view.addLayer(new BuildingsLayer("buildings", view));
+
+initPoi(view);
 
 const envEnabledInput = document.getElementById("env-enabled");
 envEnabledInput.addEventListener("change", () => {
