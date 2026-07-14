@@ -1,10 +1,4 @@
-// Off-main-thread tile post-processing: the LAZ Z-up -> three.js Y-up
-// rotation, vertex-normal computation, and bounding box, formerly done
-// synchronously in tileManager.js's loadDraco() right after Draco decode.
-// These are pure per-vertex/per-face array math with no dependency on the
-// live scene, so they run here instead of stalling the render loop.
 
-// geometry.rotateX(-Math.PI / 2) in closed form: (x, y, z) -> (x, z, -y).
 function rotateXMinus90(positions) {
   for (let i = 0; i < positions.length; i += 3) {
     const y = positions[i + 1];
@@ -14,7 +8,6 @@ function rotateXMinus90(positions) {
   }
 }
 
-// Mirrors three.js BufferGeometry.computeVertexNormals() for indexed geometry.
 function computeVertexNormals(positions, index) {
   const normals = new Float32Array(positions.length);
 
@@ -31,7 +24,6 @@ function computeVertexNormals(positions, index) {
     const cby = positions[vC + 1] - positions[vB + 1];
     const cbz = positions[vC + 2] - positions[vB + 2];
 
-    // cb x ab, matching three.js's cross(ab) applied to cb
     const nx = cby * abz - cbz * aby;
     const ny = cbz * abx - cbx * abz;
     const nz = cbx * aby - cby * abx;

@@ -1,7 +1,3 @@
-// Round-robin pool fronting geometryWorker.js. Workers are created lazily
-// (only once a tile actually needs processing) and reused for the life of
-// the page — mirrors the sizing rationale in tileManager.js's own knobs:
-// fewer workers on mobile where cores and memory are both tighter.
 import { IS_MOBILE } from "./deviceInfo.js";
 
 const POOL_SIZE = IS_MOBILE ? 1 : 2;
@@ -30,10 +26,6 @@ function getWorkers() {
   return workers;
 }
 
-// positions: Float32Array (transferred — do not reuse the caller's reference
-// after calling this). index: Uint32Array/Uint16Array, read-only, copied.
-// rotate: apply the legacy Z-up -> Y-up rotateX(-90°); itowns callers (already
-// Z-up) pass false.
 export function processGeometry(positions, index, rotate = true) {
   return new Promise((resolve) => {
     const id = nextId++;

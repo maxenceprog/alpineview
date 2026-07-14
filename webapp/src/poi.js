@@ -4,19 +4,8 @@ import MarkdownIt from "markdown-it";
 import * as THREE from "three";
 import { l93ToWebMercator, webMercatorToL93 } from "./proj.js";
 
-// POIs render as iTowns-native labels: a LabelLayer attached to the tile layer,
-// fed by a custom Source that fetches Camptocamp waypoints per 1 km L93 cell.
-// iTowns owns the projection (its built-in label2dRenderer), terrain clamping,
-// frustum/collision culling and the render loop — no separate CSS2DRenderer.
 const KIND_CLASS = { summit: "poi-peak", pass: "poi-pass", hut: "poi-hut", access: "poi-parking" };
-// Levels at which the POI layer loads (10=1 km, 11=500 m, 12=250 m tiles). The
-// lower bound is how far POIs appear; it's cheap to widen because fetches are
-// batched per BLOCK_KM block, not per tile (see PoiSource).
 const POI_ZOOM = { min: 10, max: 12 };
-// Camptocamp fetches are snapped to this L93 grid: every tile within one block
-// folds into a single paginated bbox request, decoupling request count from the
-// (finer) display tiling. A block ~= BLOCK_KM² km²; waypoints are sparse enough
-// that this is usually one page.
 const BLOCK_KM = 8;
 
 const ALPS_EXTENT = new itowns.Extent("EPSG:2154", 256000, 1280000, 5952000, 6976000);
@@ -24,10 +13,8 @@ const ALPS_EXTENT = new itowns.Extent("EPSG:2154", 256000, 1280000, 5952000, 697
 const WAYPOINTS_URL = "https://api.camptocamp.org/waypoints";
 const IMAGES_URL = "https://api.camptocamp.org/images";
 const MEDIA_BASE = "https://media.camptocamp.org/c2corg-active";
-// Camptocamp embeds photos as [img=<id> <modifiers...>]<caption>[/img] (a custom
-// wiki tag, not markdown) — resolved into real <img> URLs before rendering.
 const IMG_TAG_RE = /\[img=(\d+)[^\]]*\]([^[]*)\[\/img\]/g;
-const PAGE_LIMIT = 100; // Camptocamp API max page size — paginate past it, don't cap.
+const PAGE_LIMIT = 100;
 
 function cellBboxWebMercator(x0, y0, sizeKm = 1) {
   const corners = [
@@ -62,7 +49,6 @@ export async function fetchWaypointDetail(documentId) {
   return res.json();
 }
 
-// size: "SI" small, "MI" medium, "BI" big.
 export function imageUrl(filename, size = "MI") {
   return `${MEDIA_BASE}/${filename.replace(/\.([a-zA-Z0-9]+)$/, `${size}.$1`)}`;
 }
@@ -89,15 +75,12 @@ export async function resolveEmbeddedImages(rawText) {
   });
 }
 
-// Camptocamp docs -> a GeoJSON FeatureCollection of 3D points in EPSG:2154
-// (x, y, elevation). The z lets iTowns place each label at real altitude
-// without sampling the DEM.
 function poisToGeoJson(docs) {
   return {
     type: "FeatureCollection",
     crs: { type: "name", properties: { name: "urn:ogc:def:crs:EPSG::2154" } },
     features: docs.map((doc) => {
-      const geom = JSON.parse(doc.geometry.geom); // {type:"Point", coordinates:[x3857,y3857]}
+      const geom = JSON.parse(doc.geometry.geom);
       const [x, y] = webMercatorToL93.forward(geom.coordinates);
       return {
         type: "Feature",
@@ -119,8 +102,6 @@ class PoiSource extends itowns.Source {
       url: "poi",
       crs: "EPSG:2154",
       extent: ALPS_EXTENT,
-      // One Camptocamp request per BLOCK_KM block: every tile in a block maps to
-      // the same url, so this cache collapses them to a single paginated fetch.
       fetcher: (url) => {
         let p = this._blockCache.get(url);
         if (!p) {
@@ -137,9 +118,6 @@ class PoiSource extends itowns.Source {
   }
 
   urlFromExtent(extent) {
-    // iTowns passes a TMS Tile (zoom/row/col) here, not a spatial Extent —
-    // convert to L93 bounds and snap to the BLOCK_KM grid so every tile in a
-    // block shares one fetch. Points are still filtered to each tile downstream.
     const e = extent.isExtent ? extent : extent.toExtent(this.crs);
     const bx = Math.floor(e.west / 1000 / BLOCK_KM) * BLOCK_KM;
     const by = Math.floor(e.south / 1000 / BLOCK_KM) * BLOCK_KM;
@@ -147,17 +125,10 @@ class PoiSource extends itowns.Source {
   }
 
   extentInsideLimit(extent, zoom) {
-    // The source extent spans the whole view, so every tile intersects it;
-    // gate on zoom alone (the level range where 1 km cells are worth loading).
     return zoom >= this.zoom.min && zoom <= this.zoom.max;
   }
 }
 
-// Each label is a zero-size anchor (positioned by iTowns at the point) wrapping
-// an inner element offset up-and-centred via CSS. iTowns overwrites only the
-// anchor's transform each frame, so the inner transform survives; cloneNode
-// (Label clones the content) keeps the data-* attributes used for click
-// identity and the class used for per-type styling.
 function poiDomElement(props) {
   const anchor = document.createElement("div");
   const inner = document.createElement("span");
@@ -217,8 +188,6 @@ function renderPoiLinkList(sectionId, listId, items, urlBase, titleFn) {
   section.style.display = "";
 }
 
-// Guards a slower earlier detail fetch from overwriting the panel after a
-// second POI is clicked before the first one's load finishes.
 let poiRequestToken = 0;
 
 function showPoiPanel(poi) {
@@ -260,14 +229,10 @@ export function initPoi(view) {
     source: new PoiSource(),
     zoom: POI_ZOOM,
     domElement: poiDomElement,
-    // anchor only (domElement overrides all other text style); keep the point
-    // altitude that comes from the feature's z coordinate.
     style: { text: { anchor: "bottom" } },
   });
   view.addLayer(poiLayer, view.tileLayer);
 
-  // iTowns clones label DOM (stripping addEventListener handlers), so identify
-  // the clicked POI from its data-* attributes via one delegated listener.
   const labelRoot = view.mainLoop.gfxEngine.label2dRenderer.domElement;
   labelRoot.addEventListener("click", (e) => {
     const el = e.target.closest(".poi-label");
@@ -294,18 +259,11 @@ export function initPoi(view) {
   installLabelOcclusion(view, poiLayer);
 }
 
-// iTowns' planar label renderer only frustum-culls: a label on a summit behind
-// a nearer ridge still draws on top of it. Hide those by comparing each label's
-// camera-forward depth against the terrain depth sampled from the (DEM) depth
-// buffer at the label's pixel — the same buffer wheel-zoom picking reads, so
-// the draco layer's un-hide wrap makes it reflect the real surface.
 function installLabelOcclusion(view, poiLayer) {
   const g = view.mainLoop.gfxEngine;
   const camera = view.camera3D;
-  // Occlude only when the terrain is at least this much nearer than the label,
-  // so a label sitting exactly on its own summit never self-occludes.
   const MARGIN = 60;
-  const THROTTLE = 100; // ms between depth reads during continuous motion
+  const THROTTLE = 100;
 
   let buffer = null;
   let lastPass = 0;
@@ -332,7 +290,7 @@ function installLabelOcclusion(view, poiLayer) {
       label.getWorldPosition(world);
       ndc.copy(world).project(camera);
       if (ndc.x < -1 || ndc.x > 1 || ndc.y < -1 || ndc.y > 1 || ndc.z > 1) {
-        label._occluded = false; // off-screen: leave to frustum culling
+        label._occluded = false;
         return;
       }
       const sx = Math.min(w - 1, Math.max(0, Math.round((ndc.x * 0.5 + 0.5) * w)));
@@ -353,8 +311,6 @@ function installLabelOcclusion(view, poiLayer) {
       recompute();
     }
     eachLabel((label) => { if (label._occluded) label.visible = false; });
-    // Force one more render after motion settles so the final occlusion state
-    // is computed at the resting camera position.
     clearTimeout(trailer);
     trailer = setTimeout(() => view.notifyChange(camera), THROTTLE + 20);
   });

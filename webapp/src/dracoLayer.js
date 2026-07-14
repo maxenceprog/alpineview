@@ -17,7 +17,6 @@ export const DRACO_MIN_Z = 0;
 
 const CRS = "EPSG:2154";
 
-// buildCanvas only knows the WMTS matrices down to 14.
 const MIN_WMTS_ZOOM = 14;
 
 const _loader = new DRACOLoader();
@@ -27,10 +26,6 @@ const _extent = new itowns.Extent(CRS, 0, 0, 0, 0);
 
 const CULL_MARGIN = new THREE.Vector3(40, 40, 80);
 
-// The planar quadtree root is the view extent, so level 10 tiles are the 1 km
-// draco grid: level = 10 + z, tx = west_km * 2^z (z < 0 → tiles bigger than a
-// km, hence 2 ** z, not 1 << z). `.drc` vertices are relative to the enclosing
-// origin cell (ox, oy), in km.
 function tileKey(tile) {
   const z = tile.zoom - DRACO_BASE_LEVEL;
   const scale = 2 ** z;
@@ -40,8 +35,6 @@ function tileKey(tile) {
   return { tx, ty, z, ox: Math.floor(tx / scale), oy: Math.floor(ty / scale) };
 }
 
-// One WMTS zoom step per terrain LOD step: a coarse tile covers more ground and
-// is only ever seen from far away.
 function wmtsZoom(z) {
   return Math.max(MIN_WMTS_ZOOM, WMTS_ZOOM_FOR_LOD[Math.max(z, 0)] + Math.min(z, 0));
 }
@@ -57,7 +50,6 @@ function bakeUVs(geometry, ox, oy, { xMin, xMax, zMin, zMax }) {
   geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
 }
 
-// buildCanvas speaks the legacy km / z=-north frame.
 async function loadTileTexture(geometry, { tx, ty, z, ox, oy }) {
   const s = 2 ** -z;
   const bounds = await buildCanvas(
@@ -70,7 +62,6 @@ async function loadTileTexture(geometry, { tx, ty, z, ox, oy }) {
   return texture;
 }
 
-// The dev server answers missing tiles with index.html, so a 200 isn't enough.
 async function parseDraco(buffer) {
   if (
     buffer.byteLength < 5 ||
@@ -83,8 +74,6 @@ async function parseDraco(buffer) {
   const geometry = await new Promise((resolve, reject) =>
     _loader.parse(buffer, resolve, reject),
   );
-  // Normals + bbox off the main thread; the raw draco frame is already Z-up
-  // here, so no legacy rotation.
   const { positions, normals, bbox } = await processGeometry(
     geometry.getAttribute("position").array,
     geometry.getIndex().array,
@@ -99,9 +88,6 @@ async function parseDraco(buffer) {
   return geometry;
 }
 
-// Crown meshes on the same grid and in the same frame as the z=2 terrain tiles
-// (km, relative to the parent 1 km cell), vertex colours baked at build time.
-// Best-effort: most tiles have no vegetation, and a missing one is not an error.
 async function loadVegetationGeometry({ tx, ty, z }) {
   try {
     const res = await fetch(`${API_BASE_URL}/vegetation/tile.${tx}.${ty}.${z}.veg.drc`);
@@ -124,8 +110,6 @@ export class DracoTileSource extends itowns.Source {
       ...config,
     });
     this.isDracoTileSource = true;
-    // Decoded geometries are owned (and disposed) by the meshes; keeping them
-    // in Source's LRU would hand out disposed buffers on a second visit.
     this.isVectorSource = false;
     this.zoom = config.zoom ?? {
       min: DRACO_BASE_LEVEL + DRACO_MIN_Z,
@@ -143,8 +127,6 @@ export class DracoTileSource extends itowns.Source {
   }
 }
 
-// A node is worth finishing only while it is still in the tree and in the
-// frustum (TiledGeometryLayer re-culls node.visible every traversal).
 function isWanted(node) {
   return !!node.parent && node.visible;
 }
@@ -155,11 +137,6 @@ function cancelled() {
   return err;
 }
 
-// The stock DataSourceProvider only passes extents to the layer, so a command
-// can't tell whether its node is still wanted. Draping the imagery (buildCanvas
-// + canvas upload) is the expensive, main-thread half of the work: rotating a
-// far view queues a burst of tiles that leave the frustum before their turn
-// comes, and paying for their drape anyway is what locks up the page.
 const DracoProvider = {
   executeCommand(command) {
     const { layer, requester, extentsSource } = command;
@@ -174,8 +151,6 @@ const DracoProvider = {
   },
 };
 
-// LayerUpdateState isn't part of itowns' public entry point; this is the subset
-// of it we need (one try in flight, no retry once the tile is known missing).
 class TileState {
   constructor() {
     this.pending = false;
@@ -241,9 +216,6 @@ export class DracoTileLayer extends itowns.GeometryLayer {
     };
   }
 
-  // Depth picking (wheel zoom / smart travel target) re-renders only the DEM
-  // tile tree, where the tiles we cover are hidden — un-hide them for the read
-  // (DEM and lidar surfaces agree within metres).
   _patchDepthPicking(view) {
     const readDepthBuffer = view.readDepthBuffer.bind(view);
     view.readDepthBuffer = (...args) => {
@@ -271,7 +243,6 @@ export class DracoTileLayer extends itowns.GeometryLayer {
     mesh.layer = this;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
-    // update() turns it on once the DEM tile it covers is hidden.
     mesh.visible = false;
     mesh.position.set(key.ox * 1000, key.oy * 1000, 0);
     mesh.scale.setScalar(1000);
@@ -283,10 +254,6 @@ export class DracoTileLayer extends itowns.GeometryLayer {
     return mesh;
   }
 
-  // Vegetation rides the finest terrain LOD instead of being placed by camera
-  // proximity: as a child of the tile mesh it shares its frame (km, same origin
-  // cell), its visibility — so the LOD hold applies to it — and its disposal.
-  // Not awaited: the terrain must not wait on it to show.
   async addVegetation(tileMesh, key) {
     const geometry = await loadVegetationGeometry(key);
     if (!geometry) {
@@ -309,17 +276,6 @@ export class DracoTileLayer extends itowns.GeometryLayer {
     this.view?.notifyChange(this, true);
   }
 
-  // A tile is settled once nothing better is still on its way for the ground it
-  // covers: it is culled (we never load those, so waiting on one would hold the
-  // parent forever — the case of a foreground tile whose siblings are behind
-  // the camera), its mesh is in, its `.drc` is known missing, or its own
-  // subtree is settled.
-  //
-  // Culling is re-tested against the current camera rather than read from
-  // node.visible: TiledGeometryLayer only refreshes that flag when it reaches
-  // the node, which is after the parent has already decided. A child that comes
-  // back into the frustum would still look culled for one frame, and the parent
-  // would uncover it before its mesh is there — a one-frame flash of bare DEM.
   isSettled(node, camera) {
     if (this.parent.culling(node, camera)) {
       return true;
@@ -337,14 +293,9 @@ export class DracoTileLayer extends itowns.GeometryLayer {
   }
 
   update(context, layer, node) {
-    // iTowns hands us parents before children, so the ancestor's decision for
-    // this frame is already in.
     const coveredByAncestor = node.parent ? this._covered.get(node.parent) === true : false;
     const mesh = node.link[this.id];
 
-    // Hold the coarse mesh until every finer mesh under it has landed, then
-    // swap the whole quad at once — otherwise the DEM (or a half-filled level)
-    // shows through during the subdivision.
     const display = !!mesh && node.visible && !coveredByAncestor &&
       (node.material.visible || !this.subtreeSettled(node, context.camera));
 
@@ -352,8 +303,6 @@ export class DracoTileLayer extends itowns.GeometryLayer {
       mesh.visible = display;
     }
 
-    // The displayed mesh replaces the DEM tiles it covers, down the subtree.
-    // iTowns re-asserts tile visibility every frame, so nothing to restore.
     const covered = display || coveredByAncestor;
     this._covered.set(node, covered);
     if (covered) {
@@ -370,9 +319,6 @@ export class DracoTileLayer extends itowns.GeometryLayer {
     let state = node.layerUpdateState[this.id];
     if (!state) {
       state = node.layerUpdateState[this.id] = new TileState();
-      // A detached node is never handed to attached layers again (see
-      // GeometryLayer.getObjectToUpdateForAttachedLayers), but iTowns disposes
-      // it through ObjectRemovalHelper, which dispatches 'dispose'.
       node.addEventListener("dispose", () => this.removeNodeMesh(node));
     }
     if (!state.canTryUpdate()) {
@@ -391,9 +337,6 @@ export class DracoTileLayer extends itowns.GeometryLayer {
       view: context.view,
       requester: node,
       extentsSource: tiles,
-      // Tiles at the display level first — including the ones we hid because a
-      // coarser mesh still covers them, since the swap is waiting on those.
-      // For the same reason the drop test can't look at material.visible.
       priority: covered || node.material.visible ? 100 : 10,
       earlyDropFunction: (cmd) => !isWanted(cmd.requester),
     }).then(
@@ -433,18 +376,10 @@ export class DracoTileLayer extends itowns.GeometryLayer {
 
   disposeMesh(mesh) {
     this.object3d.remove(mesh);
-    // ObjectRemovalHelper only disposes textures held as direct properties of
-    // the material. buildVerticalDiffuseMaterial is a ShaderMaterial: its
-    // canvas texture hides in uniforms.map, and the material itself is held by
-    // two module-level registries (sun direction + brightness) that only
-    // disposeLayerMaterials clears — otherwise material, texture and the
-    // stitched imagery canvas all stay alive for the life of the page.
     disposeLayerMaterials(mesh);
     itowns.ObjectRemovalHelper.removeChildrenAndCleanupRecursively(this, mesh);
   }
 
-  // Re-drapes every loaded mesh, e.g. after the base map source (ortho/plan)
-  // changed.
   async refreshTextures() {
     await Promise.all(this.object3d.children.map(async (mesh) => {
       const texture = await loadTileTexture(mesh.geometry, mesh.userData.tile);

@@ -1,7 +1,6 @@
 import * as SunCalc from "suncalc";
 import * as THREE from "three";
 
-// Default location: geographic center of France
 const DEFAULT_LAT = 46.5;
 const DEFAULT_LON = 2.5;
 
@@ -23,9 +22,9 @@ export function sunDirection(altitudeDeg, azimuthDeg) {
   const azRad = azimuthDeg * DEG;
   const cosAlt = Math.cos(altRad);
   return new THREE.Vector3(
-    Math.sin(azRad) * cosAlt, // east (+X) component
-    Math.sin(altRad), // up (+Y) component
-    -Math.cos(azRad) * cosAlt // south (+Z) component
+    Math.sin(azRad) * cosAlt,
+    Math.sin(altRad),
+    -Math.cos(azRad) * cosAlt
   ).normalize();
 }
 

@@ -13,11 +13,6 @@ const L93_TILE_SIZE_M = {
   18: 256 * 2857.1429 * 0.00028,
   19: 256 * 1428.5714 * 0.00028,
 };
-// LOD0 (1km, farthest/coarsest tiles) uses one WMTS zoom level less than its
-// terrain LOD would suggest — full 10cm imagery isn't needed at that
-// distance, and it's fewer/larger-coverage tiles to fetch (faster, lighter).
-// Mobile drops one more zoom level across the board: fewer/coarser JPEG
-// tiles to fetch, decode, and hold as HTMLImageElements/canvases.
 export const WMTS_ZOOM_FOR_LOD = IS_MOBILE ? [15, 17, 18] : [16, 18, 19];
 
 const ignOrthoUrl = (col, row, level) =>
@@ -32,8 +27,6 @@ const ignPlanUrl = (col, row, level) =>
 
 const MAP_SOURCE_URLS = { ortho: ignOrthoUrl, plan: ignPlanUrl };
 
-// Base map imagery draped on both DEM tiles (via applyLayer) and draco tile
-// meshes (via dracoLayer.js) — a single switch shared by both drape paths.
 let currentMapSource = "ortho";
 
 export function setMapSource(source) {
@@ -47,21 +40,13 @@ export function getMapSource() {
 
 const IMAGE_TIMEOUT_MS = 10_000;
 
-// In-memory cache of loaded orthophoto tiles, keyed by URL. The server does
-// send a cacheable Cache-Control, but relying on the browser's HTTP cache
-// alone still costs a disk-cache lookup per request and doesn't dedupe two
-// concurrent loads of the same tile (e.g. two meshes needing it at once) —
-// this makes a repeat/duplicate load genuinely free within the session.
-// Bounded + LRU (re-insert on hit) like tileManager's geometryCache — left
-// unbounded this grows without limit as the camera roams, which is a prime
-// cause of mobile OOM crashes.
 const IMAGE_CACHE_MAX = IS_MOBILE ? 200 : 800;
-const _imageCache = new Map(); // url -> Promise<HTMLImageElement>
+const _imageCache = new Map();
 
 function loadImage(url) {
   const cached = _imageCache.get(url);
   if (cached) {
-    _imageCache.delete(url); // bump to most-recently-used
+    _imageCache.delete(url);
     _imageCache.set(url, cached);
     return cached;
   }
@@ -76,7 +61,7 @@ function loadImage(url) {
     img.onload = () => { clearTimeout(timer); resolve(img); };
     img.onerror = () => { clearTimeout(timer); reject(new Error(`Failed to load tile: ${url}`)); };
     img.src = url;
-  }).catch((err) => { _imageCache.delete(url); throw err; }); // don't cache failures
+  }).catch((err) => { _imageCache.delete(url); throw err; });
 
   _imageCache.set(url, promise);
   if (_imageCache.size > IMAGE_CACHE_MAX) {
@@ -119,8 +104,6 @@ export async function buildCanvas(worldMinX, worldMaxX, worldMinZ, worldMaxZ, le
   };
 }
 
-// Shared draw config: front-facing with a polygon offset so the draped texture
-// doesn't z-fight the terrain. Spread into each tile material.
 const TILE_DRAW = {
   side: THREE.FrontSide,
   polygonOffset: true,
@@ -128,7 +111,6 @@ const TILE_DRAW = {
   polygonOffsetUnits: 1,
 };
 
-// Vertical-diffuse material — texture * max(0, worldNormal.y), ignores scene lights
 let currentBrightness = 1.0;
 let currentLit = 1.0;
 const verticalDiffuseMaterials = new Set();

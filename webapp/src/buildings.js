@@ -39,7 +39,6 @@ function decodeVert(v, scale, translate) {
   ];
 }
 
-// Triangulation — earcut (handles concave polygons and holes)
 
 /**
  * Triangulate one surface (array of rings) and append to `out`.
@@ -49,19 +48,14 @@ function decodeVert(v, scale, translate) {
 function triangulateSurface(surface, featVerts, scale, translate, originXm, originYm, out) {
   if (!surface[0] || surface[0].length < 3) return;
 
-  // Project onto the 2-D plane most aligned with the face (drop the
-  // dominant-normal axis) so earcut, which triangulates flat 2-D polygons,
-  // doesn't see the polygon edge-on.
 
-  // Collect 3-D scene coords for all rings, relative to (originXm, originYm).
   const rings3d = surface.map((ring) =>
     ring.map((idx) => {
       const [xm, ym, zm] = decodeVert(featVerts[idx], scale, translate);
-      return l93ToSceneLocal(xm, ym, zm, originXm, originYm); // [sx, sy, sz]
+      return l93ToSceneLocal(xm, ym, zm, originXm, originYm);
     }),
   );
 
-  // Compute face normal from the exterior ring to pick the projection plane.
   const ext = rings3d[0];
   let nx = 0, ny = 0, nz = 0;
   for (let i = 0; i < ext.length; i++) {
@@ -72,13 +66,11 @@ function triangulateSurface(surface, featVerts, scale, translate, originXm, orig
   }
   const anx = Math.abs(nx), any = Math.abs(ny), anz = Math.abs(nz);
 
-  // Drop the dominant-normal axis, use the other two as earcut u/v.
   let u, v;
-  if (anx >= any && anx >= anz)      { u = 1; v = 2; } // drop x
-  else if (any >= anx && any >= anz) { u = 0; v = 2; } // drop y
-  else                               { u = 0; v = 1; } // drop z
+  if (anx >= any && anx >= anz)      { u = 1; v = 2; }
+  else if (any >= anx && any >= anz) { u = 0; v = 2; }
+  else                               { u = 0; v = 1; }
 
-  // Build flat [u0, v0, u1, v1, ...] for all rings plus hole start indices.
   const coords = [];
   const holeIndices = [];
   for (let r = 0; r < rings3d.length; r++) {
@@ -88,8 +80,6 @@ function triangulateSurface(surface, featVerts, scale, translate, originXm, orig
 
   const indices = Earcut.triangulate(coords, holeIndices);
 
-  // Map flat vertex indices back to 3-D positions and emit triangles.
-  // Enforce winding so the triangle normal aligns with the face normal (outward).
   const allPts = rings3d.flat();
   for (let i = 0; i < indices.length; i += 3) {
     const p0 = allPts[indices[i]], p1 = allPts[indices[i + 1]], p2 = allPts[indices[i + 2]];
@@ -145,8 +135,6 @@ export async function loadCityBuildings(url, opts = {}) {
   const header = JSON.parse(lines[0]);
   const { scale, translate } = header.transform;
 
-  // Cell's SW corner, in metres — subtracted from every vertex so the
-  // geometry stays cell-sized; the mesh carries the large offset instead.
   const originXm = (x0 ?? 0) * 1000;
   const originYm = (y0 ?? 0) * 1000;
   const meshPos  = { x: x0 ?? 0, z: -(y0 ?? 0) };
@@ -163,7 +151,6 @@ export async function loadCityBuildings(url, opts = {}) {
     for (const co of Object.values(cityObjs)) {
       const geoms = co.geometry ?? [];
 
-      // Prefer LOD 2.2, fall back to 1.2, skip footprint-only (LOD 0)
       const geom =
         geoms.find((g) => String(g.lod) === "2.2") ??
         geoms.find((g) => String(g.lod) === "1.2");
@@ -191,8 +178,6 @@ export async function loadCityBuildings(url, opts = {}) {
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.flipY = false;
     const sun = sunDir ? sunDir.clone().normalize() : new THREE.Vector3(0.5, 1.0, 0.8).normalize();
-    // "Up" in world space, for roof-vs-wall detection: (0,1,0) for the legacy
-    // Y-up scene, (0,0,1) when the mesh is wrapped for the Z-up iTowns scene.
     const up = upAxis ?? new THREE.Vector3(0, 1, 0);
     material = new THREE.ShaderMaterial({
       uniforms: {

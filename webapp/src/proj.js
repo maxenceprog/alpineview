@@ -1,7 +1,5 @@
 import proj4 from "proj4";
 
-// Lambert-93 (EPSG:2154) — French national projection. Defined once here and
-// shared so the definition can never drift between modules.
 proj4.defs(
   "EPSG:2154",
   "+proj=lcc +lat_0=46.5 +lon_0=3 +lat_1=49 +lat_2=44 " +
@@ -11,7 +9,6 @@ proj4.defs(
 export const l93ToWgs84 = proj4("EPSG:2154", "EPSG:4326");
 export const wgs84ToL93 = proj4("EPSG:4326", "EPSG:2154");
 
-// Web Mercator — used by the Camptocamp API (bbox filter and waypoint geometry).
 proj4.defs(
   "EPSG:3857",
   "+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 " +

@@ -20,19 +20,12 @@ const x = 1000 * (parseFloat(params.get("x")) || 965.5);
 const y = 1000 * (parseFloat(params.get("y")) || 6430.5);
 
 const PLANAR_CONTROLS = {
-  // Zenith angle counts from straight-down: iTowns' 82.5° default stops the
-  // tilt short of the horizon, so peaks above the camera can't be looked at.
   maxZenithAngle: 130,
   maxAltitude: 100000,
 };
 
 const view = new itowns.PlanarView(viewerDiv, extent, {
   maxSubdivisionLevel: 12,
-  // iTowns displaces the tile plane at its vertices only, so its 16x16 default
-  // grid samples the elevation every ~62 m at level 10 — narrow summits are
-  // simply flattened away, and depth picking (wheel zoom, smart travel) misses
-  // them. The DEM tiles are hidden wherever a draco mesh shows, so the extra
-  // vertices cost memory, not draw time.
   segments: 64,
   controls: PLANAR_CONTROLS,
   placement: {
@@ -46,9 +39,6 @@ const view = new itowns.PlanarView(viewerDiv, extent, {
 
 window.view = view;
 
-// Custom DEM built from the lidar meshes (scripts/build_dem_tiles.py), on the
-// view's own TMS grid — displaces the (hidden) quadtree planes so depth
-// picking, SSE subdivision and culling follow the real terrain.
 const demSource = new itowns.TMSSource({
   crs: "EPSG:2154",
   url: `${API_BASE_URL}/dem/\${z}/\${x}/\${y}.bil`,
@@ -65,10 +55,6 @@ const demLayer = new itowns.ElevationLayer("dem", {
 
 view.addLayer(demLayer)
 
-// Beyond the draco levels (10-12) the terrain IS the DEM-displaced quadtree —
-// a 2.5D heightfield mesh — so it needs its own imagery: without a ColorLayer
-// the distance renders plain grey. The draco tiles drape themselves (buildCanvas)
-// and hide the DEM tile underneath, so these two never show at once.
 const ignSource = (name) =>
   new itowns.WMSSource({
     url: "https://data.geopf.fr/wms-r/wms",
@@ -94,14 +80,7 @@ planLayer.visible = false;
 
 
 
-// Wheel zoom and middle-click smart travel aim at the depth-picked point on
-// the DEM-displaced planes. Where the heightmap isn't loaded yet (or has no
-// data) the pick lands on the z=0 plane, far below the terrain, and the
-// animated travel "gets lost" — discard those moves instead.
 {
-  // Middle-click calls initiateSmartTravel() without the event — capture the
-  // pointer position ourselves (window capture phase runs before the
-  // controls' own handler).
   let lastMouseEvent = null;
   window.addEventListener("mousedown", (e) => { lastMouseEvent = e; }, true);
   const pickIsUsable = (event) => {
@@ -118,10 +97,6 @@ planLayer.visible = false;
   };
 }
 
-// Draco tiles and the DEM share the tile server's host queue, and a draco
-// command holds its slot through fetch + decode + imagery drape. iTowns'
-// default of 6 in-flight commands per host starves it; the dev server (and the
-// API) speak HTTP/2, so a much wider queue is fine.
 view.mainLoop.scheduler.maxCommandsPerHost = 24;
 
 const dracoLayer = new DracoTileLayer("draco", { view });
@@ -156,8 +131,6 @@ document.getElementById("env-toggle").addEventListener("click", () => {
   envPanel.classList.toggle("hidden");
 });
 
-// Help panel: shown on a first visit, hidden once dismissed, always reachable
-// again through the "?" button.
 const helpPanel = document.getElementById("help-panel");
 const HELP_SEEN = "montagne3d.helpSeen";
 helpPanel.classList.toggle("hidden", localStorage.getItem(HELP_SEEN) === "1");
@@ -209,8 +182,6 @@ fogInput.addEventListener("input", () => {
   view.notifyChange(view.camera3D);
 });
 
-// Place search (Nominatim): animate the camera to the picked result's L93
-// position via iTowns' camera travel.
 const searchInput = document.getElementById("search-input");
 const searchBtn = document.getElementById("search-btn");
 const searchResultsEl = document.getElementById("search-results");
