@@ -25,6 +25,8 @@ _loader.setDecoderPath(`${import.meta.env.BASE_URL}draco/`);
 
 const _extent = new itowns.Extent(CRS, 0, 0, 0, 0);
 
+const CULL_MARGIN = new THREE.Vector3(40, 40, 80);
+
 // The planar quadtree root is the view extent, so level 10 tiles are the 1 km
 // draco grid: level = 10 + z, tx = west_km * 2^z (z < 0 → tiles bigger than a
 // km, hence 2 ** z, not 1 << z). `.drc` vertices are relative to the enclosing
@@ -225,7 +227,18 @@ export class DracoTileLayer extends itowns.GeometryLayer {
     if (view) {
       view.mainLoop.scheduler.addProtocolProvider(this.protocol, DracoProvider);
       this._patchDepthPicking(view);
+      this._patchCulling(view);
     }
+  }
+
+  _patchCulling(view) {
+    const tileLayer = view.tileLayer;
+    const box = new THREE.Box3();
+    tileLayer.culling = (node, camera) => {
+      box.copy(node.obb.box3D);
+      box.expandByVector(CULL_MARGIN);
+      return !camera.isBox3Visible(box, node.matrixWorld);
+    };
   }
 
   // Depth picking (wheel zoom / smart travel target) re-renders only the DEM
