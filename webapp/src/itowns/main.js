@@ -63,6 +63,32 @@ let layer = new itowns.ElevationLayer("dem", {
 
 view.addLayer(layer)
 
+// Beyond the draco levels (10-12) the terrain IS the DEM-displaced quadtree —
+// a 2.5D heightfield mesh — so it needs its own imagery: without a ColorLayer
+// the distance renders plain grey. The draco tiles drape themselves (buildCanvas)
+// and hide the DEM tile underneath, so these two never show at once.
+const ignSource = (name) =>
+  new itowns.WMSSource({
+    url: "https://data.geopf.fr/wms-r/wms",
+    name,
+    crs: "EPSG:2154",
+    extent,
+    version: "1.3.0",
+    format: "image/jpeg",
+  });
+
+const orthoLayer = new itowns.ColorLayer("ortho", {
+  source: ignSource("ORTHOIMAGERY.ORTHOPHOTOS"),
+});
+const planLayer = new itowns.ColorLayer("plan", {
+  source: ignSource("GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2"),
+
+});
+
+view.addLayer(orthoLayer);
+
+
+
 
 // Wheel zoom and middle-click smart travel aim at the depth-picked point on
 // the DEM-displaced planes. Where the heightmap isn't loaded yet (or has no
@@ -101,7 +127,19 @@ view.addLayer(dracoLayer);
 let planVisible = false;
 document.getElementById("layer-toggle").addEventListener("click", () => {
   planVisible = !planVisible;
-  setMapSource(planVisible ? "plan" : "ortho");
+
+  if (planVisible) {
+    view.removeLayer(orthoLayer);
+    view.addLayer(planLayer);
+    setMapSource("plan")
+  }
+  else {
+    view.removeLayer(planLayer);
+    view.addLayer(orthoLayer);
+    setMapSource("ortho")
+
+  }
+  orthoLayer.opacity = 0;
   dracoLayer.refreshTextures();
   view.notifyChange(view.tileLayer);
 });

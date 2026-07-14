@@ -44,6 +44,7 @@ BASE_LEVEL = 10  # 1 km tiles on the view grid
 RAY_ORIGIN_Z_KM = 10.0
 SUPERSAMPLE = 4  # rays per pixel side; the pixel keeps the highest hit
 
+
 def lod_re(z: int) -> re.Pattern:
     return re.compile(rf"^tile\.(\d+)\.(\d+)\.{z}\.drc$")
 
@@ -100,7 +101,9 @@ def rasterize_tile(
     return f"{out_path.relative_to(out_path.parents[2])}: {covered:.0f}% covered"
 
 
-def downsample(children: dict[tuple[int, int], np.ndarray], reduce: str = "max") -> np.ndarray:
+def downsample(
+    children: dict[tuple[int, int], np.ndarray], reduce: str = "max"
+) -> np.ndarray:
     """Mosaic 4 children into their parent, 2x2 reducing each block.
 
     `max` keeps summits: averaging shaves a bit off every peak at every level of
@@ -111,15 +114,20 @@ def downsample(children: dict[tuple[int, int], np.ndarray], reduce: str = "max")
     parent = np.full((DIM, DIM), NO_DATA, dtype=np.float32)
     half = DIM // 2
     for (dc, dr), grid in children.items():
-        blocks = grid.reshape(half, 2, half, 2).transpose(0, 2, 1, 3).reshape(half, half, 4)
-        valid = blocks != NO_DATA
-        counts = valid.sum(axis=2)
+        blocks = (
+            grid.reshape(half, 2, half, 2).transpose(0, 2, 1, 3).reshape(half, half, 4)
+        )
+
         if reduce == "max":
-            small = np.where(counts > 0, np.where(valid, blocks, -np.inf).max(axis=2), NO_DATA)
+            small = blocks.max(axis=2)
         else:
-            sums = np.where(valid, blocks, 0).sum(axis=2)
-            small = np.where(counts > 0, sums / np.maximum(counts, 1), NO_DATA)
-        parent[dr * half : (dr + 1) * half, dc * half : (dc + 1) * half] = small.astype(np.float32)
+            small = blocks.mean(axis=2)
+
+        small[small < 0] = 0
+
+        parent[dr * half : (dr + 1) * half, dc * half : (dc + 1) * half] = small.astype(
+            np.float32
+        )
     return parent
 
 
@@ -140,7 +148,9 @@ def build_pyramid(out_dir: Path, reduce: str) -> None:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("tiles_dir", nargs="?", default="webapp/public/tiles")
     ap.add_argument("--out", default="webapp/public/dem")
     ap.add_argument(
@@ -167,8 +177,15 @@ def main() -> None:
         action="store_true",
         help="rebuild levels below 10 from the existing tiles, skip rasterizing",
     )
-    ap.add_argument("--limit", type=int, default=None, help="rasterize at most N base tiles (testing)")
-    ap.add_argument("--workers", type=int, default=os.cpu_count(), help="parallel processes")
+    ap.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="rasterize at most N base tiles (testing)",
+    )
+    ap.add_argument(
+        "--workers", type=int, default=os.cpu_count(), help="parallel processes"
+    )
     args = ap.parse_args()
 
     tiles_dir = Path(args.tiles_dir)
@@ -194,8 +211,7 @@ def main() -> None:
             if not (0 <= col < 2**level and 0 <= row < 2**level):
                 print(f"skip {f.name}: outside view extent", file=sys.stderr)
                 continue
-            out = out_dir / str(level) / str(col) / f"{row}.bil"
-            jobs.append((f, out, tx, ty, z, args.supersample))
+            jobs.append((f, out_dir / str(level) / str(col) / f"{row}.bil", tx, ty, z))
             found += 1
         print(f"LOD {z} -> level {level}: {found} tiles")
     if not jobs:
@@ -203,7 +219,7 @@ def main() -> None:
         sys.exit(1)
     if args.limit:
         jobs = jobs[: args.limit]
-    print(f"rasterizing {len(jobs)} tiles, {args.supersample}x{args.supersample} rays per pixel")
+    print(f"rasterizing {len(jobs)} tiles")
 
     failed = 0
     # spawn: open3d's threads deadlock in fork()ed children

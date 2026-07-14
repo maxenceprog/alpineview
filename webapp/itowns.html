@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="fr">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -134,8 +134,8 @@
   </head>
   <body>
     <div id="viewerDiv"></div>
-    <button id="env-toggle" title="Sun / fog settings">🌤</button>
-    <button id="layer-toggle" title="Ortho / Plan IGN">🗺</button>
+    <button id="env-toggle" title="Soleil, lumière et brume">🌤</button>
+    <button id="layer-toggle" title="Photo aérienne / Plan IGN">🗺</button>
     <button id="help-toggle" title="Aide — commandes">?</button>
 
     <div id="help-panel">
@@ -166,19 +166,19 @@
       </dl>
     </div>
     <div id="env-panel">
-      <label for="env-enabled">Lighting</label>
+      <label for="env-enabled">Éclairage</label>
       <input type="checkbox" id="env-enabled" checked />
       <span></span>
       <label for="sun-date">Date</label>
       <input type="date" id="sun-date" />
       <span></span>
-      <label for="sun-time">Time</label>
+      <label for="sun-time">Heure</label>
       <input type="range" id="sun-time" min="0" max="1425" step="15" value="720" />
       <span id="sun-time-value">12:00</span>
-      <label for="brightness">Brightness</label>
+      <label for="brightness">Luminosité</label>
       <input type="range" id="brightness" min="0.5" max="2" step="0.05" value="1.2" />
       <span id="brightness-value">1.20</span>
-      <label for="fog-density">Fog</label>
+      <label for="fog-density">Brume</label>
       <input type="range" id="fog-density" min="0" max="0.5" step="0.01" value="0.05" />
       <span id="fog-density-value">0.05</span>
     </div>

@@ -13,8 +13,7 @@ import {
 
 export const DRACO_BASE_LEVEL = 10;
 export const DRACO_MAX_Z = 2;
-// Coarse LODs decimated from LOD 0 (scripts/build_lod_minus1.py): 2/4/8/16 km.
-export const DRACO_MIN_Z = -4;
+export const DRACO_MIN_Z = 0;
 
 const CRS = "EPSG:2154";
 

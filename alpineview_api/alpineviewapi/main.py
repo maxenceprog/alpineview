@@ -8,10 +8,12 @@ from fastapi.responses import FileResponse
 DATA_DIR = Path(os.environ.get("ALPINEVIEW_DATA_DIR", "/var/lib/alpineview"))
 ALLOWED_ORIGINS = [
     o.strip()
-    for o in os.environ.get("ALPINEVIEW_ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+    for o in os.environ.get(
+        "ALPINEVIEW_ALLOWED_ORIGINS", "http://localhost:5173"
+    ).split(",")
     if o.strip()
 ]
-LAYERS = frozenset({"tiles", "buildings", "vegetation"})
+LAYERS = frozenset({"tiles", "buildings", "vegetation", "dem"})
 CACHE_HEADERS = {"Cache-Control": "public, max-age=86400"}
 
 app = FastAPI(title="alpineview-api", docs_url=None, redoc_url=None, openapi_url=None)
