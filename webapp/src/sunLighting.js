@@ -1,7 +1,5 @@
 /**
- * Shared sun direction for terrain-tile shaders (satellite ortho + COSIA, both
- * palette and satellite-colour modes). Keeps every terrain material lit the
- * same way as buildings/vegetation instead of the old vertical-only hack.
+ * Shared sun direction for terrain-tile shaders (
  */
 
 import * as THREE from "three";

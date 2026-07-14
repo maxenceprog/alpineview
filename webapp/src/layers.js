@@ -1,10 +1,5 @@
 import * as THREE from "three";
-import {
-  buildCosiaMaterial,
-  isSatelliteColors,
-  loadCosiaRgbTexture,
-  loadCosiaTexture,
-} from "./cosia.js";
+
 import { IS_MOBILE } from "./deviceInfo.js";
 import { getSunDirection, registerLitMaterial, unregisterLitMaterial } from "./sunLighting.js";
 
@@ -49,10 +44,6 @@ export function getMapSource() {
   return currentMapSource;
 }
 
-export const LAYER_OPTIONS = [
-  { id: "satellite", label: "Satellite" },
-  { id: "cosia", label: "COSIA" },
-];
 
 const IMAGE_TIMEOUT_MS = 10_000;
 
@@ -238,19 +229,9 @@ export function bakeWorldUVs(geometry, meshPos, xMin, xMax, zMin, zMax) {
   geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
 }
 
-function magentaMaterial() {
-  // Distinctive fallback so a tile with no texture is obvious.
-  return new THREE.MeshStandardMaterial({
-    roughness: 0.95, metalness: 0.0, color: 0xff00ff, ...TILE_DRAW,
-  });
-}
-
 function disposeMeshMaterial(mat) {
   if (!mat) return;
-  // Per-tile textures live on uniforms.map (satellite / COSIA satellite) or
-  // uniforms.uClassMap (COSIA palette). The palette LUT (uPalette) is shared and
-  // must NOT be disposed.
-  const tex = mat.uniforms?.map?.value ?? mat.uniforms?.uClassMap?.value;
+  const tex = mat.uniforms?.map?.value;
   if (tex) tex.dispose();
   verticalDiffuseMaterials.delete(mat);
   unregisterLitMaterial(mat);
@@ -263,50 +244,24 @@ export function replaceMeshMaterial(mesh, newMaterial) {
   disposeMeshMaterial(oldMaterial);
 }
 
-export async function applyLayer(mesh, layerId, tileZ = 2) {
+export async function applyLayer(mesh, tileZ = 2) {
   const ver = (mesh.userData._layerVer = ((mesh.userData._layerVer ?? 0) + 1));
 
-  let newMaterial;
+  const wmtsZoom = WMTS_ZOOM_FOR_LOD[tileZ] ?? WMTS_ZOOM_FOR_LOD[WMTS_ZOOM_FOR_LOD.length - 1];
+  const { min, max } = mesh.geometry.boundingBox;
+  const wx = mesh.position.x, wz = mesh.position.z;
+  const { canvas, xMin, xMax, zMin, zMax } =
+    await buildCanvas(min.x + wx, max.x + wx, min.z + wz, max.z + wz, wmtsZoom);
+  if (mesh.userData._layerVer !== ver) return;
 
-  if (layerId === "cosia") {
-    // COSIA land cover over the tile footprint. Two colour sources:
-    //  • palette mode → class-id texture sampled into the editable palette LUT.
-    //  • satellite mode → baked per-polygon ortho colours (plain RGB texture).
-    const [, tx, ty, tz] = mesh.name.split("-").map(Number);
-    const sat = isSatelliteColors();
-    const tex = await (sat ? loadCosiaRgbTexture : loadCosiaTexture)(tx, ty, tz);
-    if (mesh.userData._layerVer !== ver) return;
-    if (tex) {
-      const s = 1 / (1 << tz); // tile side in km
-      bakeWorldUVs(mesh.geometry, mesh.position,
-        tx * s, (tx + 1) * s, -(ty + 1) * s, -ty * s);
-      newMaterial = sat ? buildVerticalDiffuseMaterial(tex) : buildCosiaMaterial(tex);
-    } else {
-      newMaterial = magentaMaterial();
-    }
+  bakeWorldUVs(mesh.geometry, mesh.position, xMin, xMax, zMin, zMax);
 
-  } else {
-    // satellite: IGN orthophoto draped over the tile via world-XY UVs.
-    const wmtsZoom = WMTS_ZOOM_FOR_LOD[tileZ] ?? WMTS_ZOOM_FOR_LOD[WMTS_ZOOM_FOR_LOD.length - 1];
-    // boundingBox is always set by the time a mesh reaches here — by
-    // tileManager's loadDraco (worker-computed) or, on a bare geometry from
-    // elsewhere, by BufferGeometry itself. No need to recompute.
-    const { min, max } = mesh.geometry.boundingBox;
-    const wx = mesh.position.x, wz = mesh.position.z;
-    const { canvas, xMin, xMax, zMin, zMax } =
-      await buildCanvas(min.x + wx, max.x + wx, min.z + wz, max.z + wz, wmtsZoom);
-    if (mesh.userData._layerVer !== ver) return;
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.flipY = false;
+  mesh.userData.textureData = { canvas, xMin, xMax, zMin, zMax };
 
-    bakeWorldUVs(mesh.geometry, mesh.position, xMin, xMax, zMin, zMax);
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.flipY = false;
-    newMaterial = buildVerticalDiffuseMaterial(texture);
-    mesh.userData.textureData = { canvas, xMin, xMax, zMin, zMax };
-  }
-
-  replaceMeshMaterial(mesh, newMaterial);
+  replaceMeshMaterial(mesh, buildVerticalDiffuseMaterial(texture));
 }
 
 export function disposeLayerMaterials(mesh) {
