@@ -39,6 +39,22 @@ Tests: `npm test` (vitest). Both entries are rollup inputs in `vite.common.js`.
 - Reused legacy modules: `layers.js` (WMTS imagery stitching `buildCanvas`, terrain shader
   `buildVerticalDiffuseMaterial`, `setBrightness`, `setTerrainLightingEnabled`, map source switch),
   `sun.js`, `sunLighting.js`, `apiConfig.js`.
+- `overlays.js` (itowns) — **buildings**, always on (no GUI toggle). Reuses `CellOverlay` +
+  `cellLazStem` + `loadCityBuildings` from the legacy `../overlays.js`/`../buildings.js` as-is
+  (no iTowns-native equivalent for this custom CityJSONL format) via a proxy camera converted
+  from `view.camera3D.position` each ~500 ms tick (same math as the draco-layer conversions).
+  Each loaded building mesh (still built in the **legacy Y-up/km frame**) is wrapped in a
+  `THREE.Group` (`rotation.x = Math.PI/2`, `scale = 1000`) to place it in the iTowns world —
+  the same conversion the old TileManager approach used for terrain (rejected there in favour of
+  iTowns' native tiling, but there's no such native alternative for buildings). `buildings.js`
+  gained an `opts.upAxis` uniform (default `(0,1,0)`, legacy-compatible) so its roof-vs-wall
+  shader test still works after the wrap rotates world-up to `(0,0,1)`; its shader also gained
+  the log-depth chunks. **Vegetation** is not a proximity overlay like buildings/POI — it "rides"
+  the finest terrain LOD — so it's handled inside `dracoLayer.js` instead: when a z=2 (level 12)
+  tile's terrain mesh finishes loading, a companion `/vegetation/tile.{tx}.{ty}.2.veg.drc` fetch
+  is kicked off best-effort (silently skipped if missing) and added/disposed alongside it. Both
+  vegetation (`MeshStandardMaterial`) and buildings shading come from the real scene lights set
+  up in `environment.js`, so the sun/lighting toggle affects them too.
 
 ## Coordinate frames (load-bearing)
 
@@ -83,6 +99,11 @@ the call site.
   three.js shadow maps (cast shadows appear on draco terrain only).
 - **Render on demand**: iTowns renders only on `view.notifyChange(source)` — call it after any
   async mutation (tile added, uniform changed) or nothing repaints.
+- **Depth picking doesn't see `view.scene` extras**: `readDepthBuffer` renders only
+  `tileLayer.object3d`. Objects added straight to `view.scene` — draco tiles (their own group is
+  added to `view.scene` directly by `View.addLayer`, not nested under `tileLayer.object3d`),
+  buildings, vegetation — are invisible to wheel-zoom/smart-travel picking; only the DEM tile
+  underneath is ever picked. Accepted limitation, not fixed.
 
 ## Gotchas / conventions
 
@@ -98,7 +119,7 @@ the call site.
 
 ## Port status / not yet ported
 
-Vegetation overlay, buildings (CityJSONL), COSIA layer, Camptocamp POI, fly/walk cameras +
-mobile touch controls, place search, URL position sync (write-back), 2D Leaflet map mode.
+COSIA layer, Camptocamp POI, fly/walk cameras + mobile touch controls, place search, URL position
+sync (write-back), 2D Leaflet map mode.
 Known perf point: `computeVertexNormals` + imagery stitching run on the main thread
 (legacy app used a worker pool — `geometryWorkerPool.js` exists if needed).

@@ -65,9 +65,9 @@ function computeBoundingBox(positions) {
 }
 
 self.onmessage = (e) => {
-  const { id, positions, index } = e.data;
+  const { id, positions, index, rotate } = e.data;
 
-  rotateXMinus90(positions);
+  if (rotate) rotateXMinus90(positions);
   const normals = computeVertexNormals(positions, index);
   const bbox = computeBoundingBox(positions);
 

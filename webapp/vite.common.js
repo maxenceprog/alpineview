@@ -1,5 +1,6 @@
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
+import basicSsl from "@vitejs/plugin-basic-ssl";
 import { viteStaticCopy } from "vite-plugin-static-copy";
 
 // Serve a public sub-directory at a given URL prefix, bypassing Vite's
@@ -66,10 +67,14 @@ const dracoCopyPlugin = () =>
   });
 
 export const servePlugins = () => [
+  // Self-signed TLS so the dev server speaks HTTP/2 — over plain HTTP the
+  // browser caps parallel tile fetches at ~6 connections per origin.
+  basicSsl(),
   dracoCopyPlugin(),
   servePublicDir("/tiles", "tiles"),
   servePublicDir("/vegetation", "vegetation"),
   servePublicDir("/buildings", "buildings"),
+  servePublicDir("/dem", "dem"),
 ];
 
 export const baseConfig = {
@@ -84,7 +89,7 @@ export const baseConfig = {
   server: {
     // Generated static tiles (thousands of .drc/.png/.gz files) don't need HMR
     // watching — watching them all exhausts the inotify limit (ENOSPC).
-    watch: { ignored: ["**/public/tiles*/**", "**/public/vegetation/**"] },
+    watch: { ignored: ["**/public/tiles*/**", "**/public/vegetation/**", "**/public/dem/**"] },
   },
   test: {
     environment: "happy-dom",

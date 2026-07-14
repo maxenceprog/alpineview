@@ -123,7 +123,7 @@ function collectSurfaces(geom) {
  * @returns {THREE.Mesh|null}
  */
 export async function loadCityBuildings(url, opts = {}) {
-  const { x0, y0, sunDir, getTerrainCanvas } = opts;
+  const { x0, y0, sunDir, getTerrainCanvas, upAxis } = opts;
 
   const canvasPromise = (x0 != null && y0 != null)
     ? (() => {
@@ -191,27 +191,38 @@ export async function loadCityBuildings(url, opts = {}) {
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.flipY = false;
     const sun = sunDir ? sunDir.clone().normalize() : new THREE.Vector3(0.5, 1.0, 0.8).normalize();
+    // "Up" in world space, for roof-vs-wall detection: (0,1,0) for the legacy
+    // Y-up scene, (0,0,1) when the mesh is wrapped for the Z-up iTowns scene.
+    const up = upAxis ?? new THREE.Vector3(0, 1, 0);
     material = new THREE.ShaderMaterial({
       uniforms: {
         map: { value: texture },
         uSunDir: { value: sun },
+        uUpAxis: { value: up },
       },
       vertexShader: /* glsl */ `
+        #include <common>
+        #include <logdepthbuf_pars_vertex>
         varying vec2 vUv;
         varying vec3 vWorldNormal;
         void main() {
           vUv = uv;
           vWorldNormal = normalize(mat3(modelMatrix) * normal);
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          #include <logdepthbuf_vertex>
         }
       `,
       fragmentShader: /* glsl */ `
+        #include <common>
+        #include <logdepthbuf_pars_fragment>
         uniform sampler2D map;
         uniform vec3 uSunDir;
+        uniform vec3 uUpAxis;
         varying vec2 vUv;
         varying vec3 vWorldNormal;
         void main() {
-          float roof = smoothstep(0.3, 0.7, vWorldNormal.y);
+          #include <logdepthbuf_fragment>
+          float roof = smoothstep(0.3, 0.7, dot(vWorldNormal, uUpAxis));
           float nDotL = max(0.0, dot(vWorldNormal, uSunDir));
           // Same ambient floor / sun scale as the terrain shader (layers.js)
           // so walls shade consistently with the ground instead of looking

@@ -32,12 +32,14 @@ function getWorkers() {
 
 // positions: Float32Array (transferred — do not reuse the caller's reference
 // after calling this). index: Uint32Array/Uint16Array, read-only, copied.
-export function processGeometry(positions, index) {
+// rotate: apply the legacy Z-up -> Y-up rotateX(-90°); itowns callers (already
+// Z-up) pass false.
+export function processGeometry(positions, index, rotate = true) {
   return new Promise((resolve) => {
     const id = nextId++;
     pending.set(id, resolve);
     const pool = getWorkers();
     const worker = pool[rrIndex++ % pool.length];
-    worker.postMessage({ id, positions, index }, [positions.buffer]);
+    worker.postMessage({ id, positions, index, rotate }, [positions.buffer]);
   });
 }

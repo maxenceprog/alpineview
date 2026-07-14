@@ -16,7 +16,8 @@
         height: 100%;
       }
       #env-toggle,
-      #layer-toggle {
+      #layer-toggle,
+      #help-toggle {
         position: fixed;
         top: 10px;
         left: 10px;
@@ -32,6 +33,81 @@
       }
       #layer-toggle {
         left: 52px;
+      }
+      #help-toggle {
+        left: 94px;
+        font-weight: 600;
+      }
+      #help-panel {
+        position: fixed;
+        top: 10px;
+        right: 10px;
+        z-index: 12;
+        width: 300px;
+        max-width: calc(100vw - 20px);
+        max-height: calc(100vh - 20px);
+        overflow-y: auto;
+        background: rgba(10, 20, 35, 0.88);
+        backdrop-filter: blur(6px);
+        color: #dde6f0;
+        font: 13px/1.45 system-ui, sans-serif;
+        padding: 14px 16px 16px;
+        border-radius: 10px;
+        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+      }
+      #help-panel.hidden {
+        display: none;
+      }
+      #help-panel h2 {
+        margin: 0 0 2px;
+        font-size: 15px;
+        font-weight: 600;
+      }
+      #help-panel p {
+        margin: 0 0 12px;
+        color: #9fb0c4;
+        font-size: 12px;
+      }
+      #help-close {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        width: 26px;
+        height: 26px;
+        border: none;
+        border-radius: 6px;
+        background: transparent;
+        color: #9fb0c4;
+        font-size: 17px;
+        line-height: 1;
+        cursor: pointer;
+      }
+      #help-close:hover {
+        background: rgba(255, 255, 255, 0.1);
+        color: #dde6f0;
+      }
+      #help-panel dl {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 7px 12px;
+        margin: 0;
+        align-items: baseline;
+      }
+      #help-panel dt {
+        white-space: nowrap;
+      }
+      #help-panel dd {
+        margin: 0;
+      }
+      #help-panel kbd {
+        display: inline-block;
+        padding: 1px 6px;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        border-bottom-width: 2px;
+        border-radius: 5px;
+        background: rgba(255, 255, 255, 0.08);
+        font: 11px/1.5 system-ui, sans-serif;
+        white-space: nowrap;
       }
       #env-panel {
         position: fixed;
@@ -60,6 +136,35 @@
     <div id="viewerDiv"></div>
     <button id="env-toggle" title="Sun / fog settings">🌤</button>
     <button id="layer-toggle" title="Ortho / Plan IGN">🗺</button>
+    <button id="help-toggle" title="Aide — commandes">?</button>
+
+    <div id="help-panel">
+      <button id="help-close" title="Fermer" aria-label="Fermer">×</button>
+      <h2>Se déplacer</h2>
+      <p>Le relief est en 3D : approchez-vous, tournez autour, levez les yeux.</p>
+      <dl>
+        <dt><kbd>Clic gauche</kbd> + glisser</dt>
+        <dd>Déplacer le terrain, comme une carte que l'on tire.</dd>
+
+        <dt><kbd>Molette</kbd></dt>
+        <dd>Zoomer vers le point sous le curseur.</dd>
+
+        <dt><kbd>Ctrl</kbd> + <kbd>clic gauche</kbd></dt>
+        <dd>Pivoter autour du point visé : changer l'angle de vue, se mettre au ras du sol.</dd>
+
+        <dt><kbd>Clic droit</kbd> + glisser</dt>
+        <dd>Faire un panoramique sans bouger de place.</dd>
+
+        <dt><kbd>Clic molette</kbd><br />ou <kbd>Espace</kbd></dt>
+        <dd>Voler jusqu'au point visé, par exemple un sommet.</dd>
+
+        <dt><kbd>T</kbd></dt>
+        <dd>Vue du dessus.</dd>
+
+        <dt><kbd>Y</kbd></dt>
+        <dd>Revenir à la vue de départ.</dd>
+      </dl>
+    </div>
     <div id="env-panel">
       <label for="env-enabled">Lighting</label>
       <input type="checkbox" id="env-enabled" checked />

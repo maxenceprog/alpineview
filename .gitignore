@@ -24,6 +24,7 @@ webapp/node_modules
 webapp/public/tiles
 webapp/public/buildings
 webapp/public/vegetation
+webapp/public/dem
 
 *.db
 *.log
