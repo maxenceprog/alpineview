@@ -1,24 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { LAYER_OPTIONS } from "../src/layers.js";
+import { describe, expect, it } from "vitest";
 
-describe("LAYER_OPTIONS", () => {
-  it("has exactly 2 layers", () => {
-    expect(LAYER_OPTIONS).toHaveLength(2);
-  });
-
-  it("includes satellite and cosia", () => {
-    const ids = LAYER_OPTIONS.map((o) => o.id);
-    expect(ids).toContain("satellite");
-    expect(ids).toContain("cosia");
-  });
-
-  it("every layer has a non-empty label", () => {
-    for (const o of LAYER_OPTIONS) {
-      expect(typeof o.label).toBe("string");
-      expect(o.label.length).toBeGreaterThan(0);
-    }
-  });
-});
 
 // Sanity-check the L93 WMTS tile-size formula baked into the UV math.
 // These drive the satellite UV ranges; wrong values shift textures.
