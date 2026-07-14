@@ -6,6 +6,8 @@ import { DracoTileLayer } from "./dracoLayer.js";
 import { initEnvironment } from "./environment.js";
 import { BuildingsLayer } from "./overlays.js";
 import { initPoi } from "./poi.js";
+import { initTouchControls } from "./touchControls.js";
+import { IS_MOBILE } from "./deviceInfo.js";
 
 itowns.CRS.defs(
   "EPSG:2154",
@@ -38,6 +40,8 @@ const view = new itowns.PlanarView(viewerDiv, extent, {
 
 
 window.view = view;
+
+initTouchControls(view);
 
 const demSource = new itowns.TMSSource({
   crs: "EPSG:2154",
@@ -127,6 +131,7 @@ envEnabledInput.addEventListener("change", () => {
 });
 
 const envPanel = document.getElementById("env-panel");
+if (IS_MOBILE) envPanel.classList.add("hidden");
 document.getElementById("env-toggle").addEventListener("click", () => {
   envPanel.classList.toggle("hidden");
 });

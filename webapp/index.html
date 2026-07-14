@@ -14,6 +14,7 @@
       #viewerDiv {
         width: 100%;
         height: 100%;
+        touch-action: none;
       }
       #env-toggle,
       #layer-toggle,
@@ -92,6 +93,9 @@
         gap: 7px 12px;
         margin: 0;
         align-items: baseline;
+      }
+      #help-panel #help-mobile {
+        display: none;
       }
       #help-panel dt {
         white-space: nowrap;
@@ -325,6 +329,58 @@
       #poi-panel .poi-link-list a {
         display: block;
       }
+
+      /* Mobile: bigger touch targets and a simple vertical stack so the
+         toggles, search bar and panels stop overlapping on narrow screens. */
+      @media (max-width: 640px) {
+        #env-toggle,
+        #layer-toggle,
+        #help-toggle {
+          width: 40px;
+          height: 40px;
+          font-size: 20px;
+        }
+        #layer-toggle {
+          left: 58px;
+        }
+        #help-toggle {
+          left: 106px;
+        }
+        #search-form {
+          top: 58px;
+          left: 10px;
+          right: 10px;
+          transform: none;
+        }
+        #search-input {
+          flex: 1;
+          width: auto;
+        }
+        #search-results {
+          left: 0;
+          right: 0;
+          width: auto;
+          max-width: none;
+        }
+        #env-panel,
+        #help-panel,
+        #poi-panel,
+        #poi-panel.maximized {
+          top: 104px;
+          left: 10px;
+          right: 10px;
+          width: auto;
+          max-width: none;
+          height: auto;
+          max-height: calc(100vh - 114px);
+        }
+        #help-panel #help-desktop {
+          display: none;
+        }
+        #help-panel #help-mobile {
+          display: grid;
+        }
+      }
     </style>
   </head>
   <body>
@@ -343,7 +399,7 @@
       <button id="help-close" title="Fermer" aria-label="Fermer">×</button>
       <h2>Se déplacer</h2>
       <p>Le relief est en 3D : approchez-vous, tournez autour, levez les yeux.</p>
-      <dl>
+      <dl id="help-desktop">
         <dt><kbd>Clic gauche</kbd> + glisser</dt>
         <dd>Déplacer le terrain, comme une carte que l'on tire.</dd>
 
@@ -364,6 +420,22 @@
 
         <dt><kbd>Y</kbd></dt>
         <dd>Revenir à la vue de départ.</dd>
+      </dl>
+      <dl id="help-mobile">
+        <dt><kbd>1 doigt</kbd> + glisser</dt>
+        <dd>Déplacer le terrain, comme une carte que l'on tire.</dd>
+
+        <dt><kbd>Pincer</kbd> à 2 doigts</dt>
+        <dd>Zoomer entre les deux doigts.</dd>
+
+        <dt><kbd>Tourner</kbd> à 2 doigts</dt>
+        <dd>Faire pivoter la vue autour du centre.</dd>
+
+        <dt><kbd>2 doigts</kbd> vers le haut/bas</dt>
+        <dd>Basculer l'angle de vue, se mettre au ras du sol.</dd>
+
+        <dt><kbd>Double-tap</kbd></dt>
+        <dd>Voler jusqu'au point visé, par exemple un sommet.</dd>
       </dl>
     </div>
     <div id="poi-panel" class="hidden">
