@@ -18,19 +18,21 @@ describe("index.html structure", () => {
     expect(document.getElementById("search-btn")).not.toBeNull();
   });
 
-  it("has the left sidebar", () => {
-    expect(document.getElementById("sidebar-left")).not.toBeNull();
+  it("has the iTowns viewer container", () => {
+    expect(document.getElementById("viewerDiv")).not.toBeNull();
   });
 
-  it("has layer buttons for satellite and cosia", () => {
-    const btns = [...document.querySelectorAll(".layer-btn")];
-    const layers = btns.map((b) => b.dataset.layer);
-    expect(layers).toContain("satellite");
-    expect(layers).toContain("cosia");
+  it("has the environment and layer toggles", () => {
+    expect(document.getElementById("env-toggle")).not.toBeNull();
+    expect(document.getElementById("layer-toggle")).not.toBeNull();
   });
 
-  it("has no build-btn or poi input", () => {
-    expect(document.getElementById("build-btn")).toBeNull();
-    expect(document.getElementById("poi")).toBeNull();
+  it("has the POI info panel", () => {
+    expect(document.getElementById("poi-panel")).not.toBeNull();
+  });
+
+  it("has no legacy sidebar or layer buttons", () => {
+    expect(document.getElementById("sidebar-left")).toBeNull();
+    expect(document.querySelector(".layer-btn")).toBeNull();
   });
 });

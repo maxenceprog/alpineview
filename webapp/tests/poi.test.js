@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { fetchCellPois, fetchWaypointDetail, buildPoiGroup, imageUrl, resolveEmbeddedImages } from "../src/poi.js";
+import { fetchCellPois, fetchWaypointDetail, imageUrl, resolveEmbeddedImages } from "../src/poi.js";
 
 describe("fetchCellPois", () => {
   it("GETs the Camptocamp waypoints endpoint with the cell's bbox and keeps only titled docs", async () => {
@@ -152,62 +152,5 @@ describe("resolveEmbeddedImages", () => {
     expect(out).toBe("Just plain text.");
     expect(fetchMock).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
-  });
-});
-
-describe("buildPoiGroup", () => {
-  const poi = (waypoint_type, coords = [708945, 5610203]) => ({
-    document_id: 1,
-    waypoint_type,
-    locales: [{ lang: "fr", title: "Test POI" }],
-    geometry: { geom: JSON.stringify({ type: "Point", coordinates: coords }) },
-  });
-
-  it("returns null when no POI has terrain height available and none has an elevation", () => {
-    const group = buildPoiGroup([poi("summit")], 965, 6430, () => null);
-    expect(group).toBeNull();
-  });
-
-  it("places a POI using its own elevation even when terrain height is unavailable", () => {
-    const p = { ...poi("summit"), elevation: 4102 };
-    const group = buildPoiGroup([p], 965, 6430, () => null); // terrain never loaded
-    expect(group).not.toBeNull();
-    expect(group.children).toHaveLength(1);
-    expect(group.children[0].position.y).toBeGreaterThan(4102 / 1000);
-    expect(group.children[0].position.y).toBeLessThan(4102 / 1000 + 0.01); // + label height offset
-  });
-
-  it("builds one label per placeable POI (no stick), classified by waypoint_type", () => {
-    const group = buildPoiGroup(
-      [poi("summit"), poi("pass"), poi("hut"), poi("access")],
-      965, 6430,
-      () => 2.5, // fixed terrain height (km)
-    );
-    expect(group).not.toBeNull();
-    expect(group.children).toHaveLength(4); // labels only, no stick meshes
-    expect(group.children.every((c) => c.element)).toBe(true);
-    expect(group.children.map((l) => l.element.className)).toEqual([
-      "poi-label poi-peak",
-      "poi-label poi-pass",
-      "poi-label poi-hut",
-      "poi-label poi-parking",
-    ]);
-    for (const l of group.children) expect(l.element.textContent).toBe("Test POI");
-  });
-
-  it("skips only the POIs without terrain height, keeps the rest", () => {
-    let calls = 0;
-    const getHeightAt = () => (calls++ === 0 ? null : 2.0);
-    const group = buildPoiGroup([poi("summit"), poi("summit")], 965, 6430, getHeightAt);
-    expect(group).not.toBeNull();
-    expect(group.children).toHaveLength(1);
-  });
-
-  it("calls onSelect with the poi when its label is clicked", () => {
-    const onSelect = vi.fn();
-    const p = poi("summit");
-    const group = buildPoiGroup([p], 965, 6430, () => 2.5, onSelect);
-    group.children[0].element.dispatchEvent(new Event("click"));
-    expect(onSelect).toHaveBeenCalledWith(p);
   });
 });

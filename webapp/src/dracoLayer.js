@@ -1,15 +1,15 @@
 import * as itowns from "itowns";
 import * as THREE from "three";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
-import { API_BASE_URL } from "../apiConfig.js";
-import { processGeometry } from "../geometryWorkerPool.js";
+import { API_BASE_URL } from "./apiConfig.js";
+import { processGeometry } from "./geometryWorkerPool.js";
 import {
   buildCanvas,
   buildVerticalDiffuseMaterial,
   disposeLayerMaterials,
   replaceMeshMaterial,
   WMTS_ZOOM_FOR_LOD,
-} from "../layers.js";
+} from "./layers.js";
 
 export const DRACO_BASE_LEVEL = 10;
 export const DRACO_MAX_Z = 2;

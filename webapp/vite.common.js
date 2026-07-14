@@ -82,7 +82,6 @@ export const baseConfig = {
     rollupOptions: {
       input: {
         index: resolve(import.meta.dirname, "index.html"),
-        itowns: resolve(import.meta.dirname, "itowns.html"),
       },
     },
   },

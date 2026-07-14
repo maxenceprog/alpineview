@@ -1,8 +1,8 @@
 import * as THREE from "three";
 import * as itowns from "itowns";
-import { setTerrainLightingEnabled } from "../layers.js";
-import { sunDirectionAt } from "../sun.js";
-import { setSunDirection } from "../sunLighting.js";
+import { setTerrainLightingEnabled } from "./layers.js";
+import { sunDirectionAt } from "./sun.js";
+import { setSunDirection } from "./sunLighting.js";
 
 export const DEFAULT_FOG_DENSITY_PER_KM = 0.05;
 

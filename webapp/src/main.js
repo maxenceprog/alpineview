@@ -1,208 +1,223 @@
-import * as THREE from "three";
-import { CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
-import { createScene, updateSunDirection, updateSky, updateShadowCamera, DEFAULT_FOG_DENSITY } from "./scene.js";
-import { createFlyCamera, createWalkCamera } from "./camera.js";
-import { initTouchControls } from "./touchControls.js";
-import { IS_MOBILE } from "./deviceInfo.js";
-import { sunDirectionAt } from "./sun.js";
-import { TileManager } from "./tileManager.js";
-import { wgs84ToL93, l93ToWgs84 } from "./proj.js";
-import { createSlippyMap } from "./slippyMap.js";
-import {
-  CLASS_INFO as COSIA_CLASS_INFO,
-  palette as cosiaPalette,
-  setClassColor as setCosiaColor,
-  setSatelliteColors,
-} from "./cosia.js";
-import { installTestControls } from "./testControls.js";
-import { createBuildingsOverlay, createPoiOverlay } from "./overlays.js";
-import { fetchWaypointDetail, resolveEmbeddedImages } from "./poi.js";
-import { setBrightness, getBrightness } from "./layers.js";
-import MarkdownIt from "markdown-it";
-import DOMPurify from "dompurify";
+import * as itowns from "itowns";
+import { API_BASE_URL } from "./apiConfig.js";
+import { setBrightness, setMapSource } from "./layers.js";
+import { wgs84ToL93 } from "./proj.js";
+import { DracoTileLayer } from "./dracoLayer.js";
+import { initEnvironment } from "./environment.js";
+import { BuildingsLayer } from "./overlays.js";
+import { initPoi } from "./poi.js";
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-// Uncapped DPR on a 3x-retina phone triples fragment-shader/fill cost for no
-// visible gain at that screen size — cap harder on mobile than desktop.
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, IS_MOBILE ? 1.5 : 2));
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
-renderer.domElement.style.transition = "opacity 0.35s ease";
-document.body.appendChild(renderer.domElement);
-initTouchControls(renderer.domElement);
+itowns.CRS.defs(
+  "EPSG:2154",
+  "+proj=lcc +lat_0=46.5 +lon_0=3 +lat_1=49 +lat_2=44 +x_0=700000 +y_0=6600000 +ellps=GRS80 +units=m +no_defs",
+);
 
-// CSS2D label renderer (POI text labels) — overlays the WebGL canvas.
-const labelRenderer = new CSS2DRenderer();
-labelRenderer.setSize(window.innerWidth, window.innerHeight);
-labelRenderer.domElement.style.position = "absolute";
-labelRenderer.domElement.style.top = "0";
-labelRenderer.domElement.style.left = "0";
-labelRenderer.domElement.style.pointerEvents = "none";
-labelRenderer.domElement.style.transition = "opacity 0.35s ease";
-document.body.appendChild(labelRenderer.domElement);
+const extent = new itowns.Extent("EPSG:2154", 256000, 1280000, 5952000, 6976000);
 
-// tileManager is created before the cameras because flyCtrl's ground-clamp
-// callback captures it by reference — safe since the callback only ever
-// runs later (render loop / teleport calls), never during this setup.
-const scene    = createScene();
-const tileManager = new TileManager(scene);
-const flyCtrl  = createFlyCamera(renderer, (x, z) => tileManager.getHeightAt(x, z));
-const walkCtrl = createWalkCamera(renderer, scene);
-scene.add(flyCtrl.camera);
-scene.add(walkCtrl.camera);
+const viewerDiv = document.getElementById("viewerDiv");
+const params = new URLSearchParams(location.search);
+const x = 1000 * (parseFloat(params.get("x")) || 965.5);
+const y = 1000 * (parseFloat(params.get("y")) || 6430.5);
 
-// Start above Barre des Écrins tile area (L93 ≈ x=965.5 km, y=6430.5 km),
-// unless the URL carries ?x=&y= (L93 km) from a previous session/share link.
-const urlParams = new URLSearchParams(window.location.search);
-const urlX = parseFloat(urlParams.get("x"));
-const urlY = parseFloat(urlParams.get("y"));
-const hasUrlPos = !isNaN(urlX) && !isNaN(urlY);
+const PLANAR_CONTROLS = {
+  // Zenith angle counts from straight-down: iTowns' 82.5° default stops the
+  // tilt short of the horizon, so peaks above the camera can't be looked at.
+  maxZenithAngle: 130,
+  maxAltitude: 100000,
+};
 
-const INIT_POS    = hasUrlPos
-  ? new THREE.Vector3(urlX, 8, -urlY)
-  : new THREE.Vector3(965.5, 8, -6430.5);
-const INIT_TARGET = hasUrlPos
-  ? new THREE.Vector3(urlX, 2, -urlY)
-  : new THREE.Vector3(965.5, 2, -6430.5);
-flyCtrl.teleport(INIT_POS, INIT_TARGET);
-
-// Reflect the camera's L93 (x, y) position in the URL so the view is
-// shareable/bookmarkable; replaceState avoids polluting browser history.
-function updateURLFromPosition(pos) {
-  const params = new URLSearchParams(window.location.search);
-  params.set("x", pos.x.toFixed(3));
-  params.set("y", (-pos.z).toFixed(3));
-  const newUrl = `${window.location.pathname}?${params.toString()}${window.location.hash}`;
-  window.history.replaceState(null, "", newUrl);
-}
-if (!hasUrlPos) updateURLFromPosition(INIT_POS);
-
-let activeCtrl = flyCtrl;
-
-window.addEventListener("keydown", (e) => {
-  if (e.code !== "KeyC") return;
-  // Don't switch camera mode if search bar is focused
-  if (document.activeElement === searchInput) return;
-
-  if (activeCtrl === flyCtrl) {
-    const { yaw, pitch } = flyCtrl.getOrientation();
-    walkCtrl.camera.position.copy(flyCtrl.camera.position);
-    walkCtrl.setOrientation(yaw, pitch);
-    flyCtrl.disable();
-    walkCtrl.enable();
-    activeCtrl = walkCtrl;
-    cameraModeEl.textContent = "Walk";
-  } else {
-    const { yaw, pitch } = walkCtrl.getOrientation();
-    flyCtrl.camera.position.copy(walkCtrl.camera.position);
-    flyCtrl.setOrientation(yaw, pitch);
-    walkCtrl.disable();
-    flyCtrl.enable();
-    activeCtrl = flyCtrl;
-    cameraModeEl.textContent = "Fly";
-  }
+const view = new itowns.PlanarView(viewerDiv, extent, {
+  maxSubdivisionLevel: 12,
+  // iTowns displaces the tile plane at its vertices only, so its 16x16 default
+  // grid samples the elevation every ~62 m at level 10 — narrow summits are
+  // simply flattened away, and depth picking (wheel zoom, smart travel) misses
+  // them. The DEM tiles are hidden wherever a draco mesh shows, so the extra
+  // vertices cost memory, not draw time.
+  segments: 64,
+  controls: PLANAR_CONTROLS,
+  placement: {
+    coord: new itowns.Coordinates("EPSG:2154", x, y),
+    range: 8000,
+    tilt: 25,
+    heading: 0,
+  },
 });
 
-const status         = document.getElementById("status");
-const searchInput    = document.getElementById("search-input");
-const searchBtn      = document.getElementById("search-btn");
-const searchResultsEl = document.getElementById("search-results");
-const sidebarLeft    = document.getElementById("sidebar-left");
-const toggleLeft     = document.getElementById("toggle-left");
-const sidebarRight   = document.getElementById("sidebar-right");
-const toggleRight    = document.getElementById("toggle-right");
-const resizeRight    = document.getElementById("resize-right");
-const layerBtns      = document.querySelectorAll(".layer-selector .layer-btn");
-const sunDateInput   = document.getElementById("sun-date");
-const sunTimeInput   = document.getElementById("sun-time");
-const sunHint        = document.getElementById("sun-hint");
-const cameraModeEl   = document.getElementById("camera-mode");
-const fogDensityInput  = document.getElementById("fog-density");
-const fogDensityValue  = document.getElementById("fog-density-value");
-const sunTimeLabel     = document.getElementById("sun-time-label");
 
-// Reflect the computed default (depends on LOAD_RADIUS_MAX, which differs on
-// mobile) rather than the static value baked into the slider's HTML markup.
-fogDensityInput.value = DEFAULT_FOG_DENSITY;
-fogDensityValue.textContent = DEFAULT_FOG_DENSITY.toFixed(2);
+window.view = view;
 
-// Slippy map (Leaflet/OpenTopoMap): manually toggled via #map-mode-btn,
-// replaces the 3D view entirely while active. camera.position stays the
-// single source of truth for "where are we" in both modes — see
-// slippyMap.js for the altitude<->zoom heuristic used to keep the two views'
-// positions closely connected across the switch. The two layers cross-fade
-// (both elements have a CSS opacity transition) instead of hard-swapping.
-const FADE_MS = 350;
-const slippyMapEl = document.getElementById("slippy-map");
-const slippyMap = createSlippyMap(slippyMapEl);
-const mapModeBtn = document.getElementById("map-mode-btn");
-let inMapMode = false;
-
-slippyMap.onChange((lat, lon, altitudeKm) => {
-  if (!inMapMode) return;
-  const [xm, ym] = wgs84ToL93.forward([lon, lat]);
-  activeCtrl.camera.position.set(xm / 1000, altitudeKm, -ym / 1000);
-  updateURLFromPosition(activeCtrl.camera.position);
+// Custom DEM built from the lidar meshes (scripts/build_dem_tiles.py), on the
+// view's own TMS grid — displaces the (hidden) quadtree planes so depth
+// picking, SSE subdivision and culling follow the real terrain.
+const demSource = new itowns.TMSSource({
+  crs: "EPSG:2154",
+  url: `${API_BASE_URL}/dem/\${z}/\${x}/\${y}.bil`,
+  format: "image/x-bil;bits=32",
+  zoom: { min: 0, max: 11 },
 });
 
-function enterMapMode() {
-  inMapMode = true;
-  const pos = activeCtrl.camera.position;
-  const [lon, lat] = l93ToWgs84.forward([pos.x * 1000, -pos.z * 1000]);
-  slippyMap.setViewFromCamera(lat, lon, pos.y);
 
-  slippyMap.show(); // display:'' + invalidateSize; opacity still 0 → fades in below
-  requestAnimationFrame(() => { slippyMapEl.style.opacity = "1"; });
-  renderer.domElement.style.opacity = "0";
-  labelRenderer.domElement.style.opacity = "0";
-  // Actually stop rendering/painting the 3D layer only once its fade-out is done.
-  setTimeout(() => {
-    renderer.domElement.style.display = "none";
-    labelRenderer.domElement.style.display = "none";
-  }, FADE_MS);
+const demLayer = new itowns.ElevationLayer("dem", {
+  source: demSource,
+  noDataValue: -99999,
+  clampValues: { min: 0 },
+});
 
-  status.textContent = "Open Topo Map";
-  mapModeBtn.textContent = "🌍 3D view";
-}
+view.addLayer(demLayer)
 
-function exitMapMode() {
-  inMapMode = false;
-  renderer.domElement.style.display = "";
-  labelRenderer.domElement.style.display = "";
-  requestAnimationFrame(() => {
-    renderer.domElement.style.opacity = "1";
-    labelRenderer.domElement.style.opacity = "1";
+// Beyond the draco levels (10-12) the terrain IS the DEM-displaced quadtree —
+// a 2.5D heightfield mesh — so it needs its own imagery: without a ColorLayer
+// the distance renders plain grey. The draco tiles drape themselves (buildCanvas)
+// and hide the DEM tile underneath, so these two never show at once.
+const ignSource = (name) =>
+  new itowns.WMSSource({
+    url: "https://data.geopf.fr/wms-r/wms",
+    name,
+    crs: "EPSG:2154",
+    extent,
+    version: "1.3.0",
+    format: "image/jpeg",
   });
-  slippyMapEl.style.opacity = "0";
-  setTimeout(() => slippyMap.hide(), FADE_MS);
 
-  const pos = activeCtrl.camera.position.clone();
-  activeCtrl.teleport(pos, new THREE.Vector3(pos.x, 0, pos.z));
-  status.textContent = "Ready";
-  mapModeBtn.textContent = "🗺️ Open Topo Map";
+const orthoLayer = new itowns.ColorLayer("ortho", {
+  source: ignSource("ORTHOIMAGERY.ORTHOPHOTOS"),
+});
+const planLayer = new itowns.ColorLayer("plan", {
+  source: ignSource("GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2"),
+
+});
+
+view.addLayer(orthoLayer);
+view.addLayer(planLayer);
+planLayer.visible = false;
+
+
+
+
+// Wheel zoom and middle-click smart travel aim at the depth-picked point on
+// the DEM-displaced planes. Where the heightmap isn't loaded yet (or has no
+// data) the pick lands on the z=0 plane, far below the terrain, and the
+// animated travel "gets lost" — discard those moves instead.
+{
+  // Middle-click calls initiateSmartTravel() without the event — capture the
+  // pointer position ourselves (window capture phase runs before the
+  // controls' own handler).
+  let lastMouseEvent = null;
+  window.addEventListener("mousedown", (e) => { lastMouseEvent = e; }, true);
+  const pickIsUsable = (event) => {
+    if (!event) return false;
+    const picked = view.getPickingPositionFromDepth(view.eventToViewCoords(event));
+    return picked !== undefined && picked.z > 1;
+  };
+  const { initiateZoom, initiateSmartTravel } = view.controls;
+  view.controls.initiateZoom = (event) => {
+    if (pickIsUsable(event)) initiateZoom.call(view.controls, event);
+  };
+  view.controls.initiateSmartTravel = (event) => {
+    if (pickIsUsable(event ?? lastMouseEvent)) initiateSmartTravel.call(view.controls, event);
+  };
 }
 
-mapModeBtn.addEventListener("click", () => {
-  if (inMapMode) exitMapMode(); else enterMapMode();
+// Draco tiles and the DEM share the tile server's host queue, and a draco
+// command holds its slot through fetch + decode + imagery drape. iTowns'
+// default of 6 in-flight commands per host starves it; the dev server (and the
+// API) speak HTTP/2, so a much wider queue is fine.
+view.mainLoop.scheduler.maxCommandsPerHost = 24;
+
+const dracoLayer = new DracoTileLayer("draco", { view });
+dracoLayer.priority = 10;
+view.addLayer(dracoLayer);
+
+let planVisible = false;
+document.getElementById("layer-toggle").addEventListener("click", () => {
+  planVisible = !planVisible;
+
+  planLayer.visible = planVisible;
+  orthoLayer.visible = !planVisible;
+  setMapSource(planVisible ? "plan" : "ortho");
+  dracoLayer.refreshTextures();
+  view.notifyChange(view.tileLayer);
 });
 
-toggleLeft.addEventListener("click", () => {
-  sidebarLeft.classList.toggle("collapsed");
-  toggleLeft.textContent = sidebarLeft.classList.contains("collapsed") ? "›" : "‹";
+const { setSunDate, setEnabled } = initEnvironment(view);
+setBrightness(1.2);
+
+view.addLayer(new BuildingsLayer("buildings", view));
+
+initPoi(view);
+
+const envEnabledInput = document.getElementById("env-enabled");
+envEnabledInput.addEventListener("change", () => {
+  setEnabled(envEnabledInput.checked);
 });
 
-toggleRight.addEventListener("click", () => {
-  sidebarRight.classList.toggle("collapsed");
-  toggleRight.textContent = sidebarRight.classList.contains("collapsed") ? "‹" : "›";
+const envPanel = document.getElementById("env-panel");
+document.getElementById("env-toggle").addEventListener("click", () => {
+  envPanel.classList.toggle("hidden");
 });
 
-resizeRight.addEventListener("click", () => {
-  sidebarRight.classList.toggle("wide");
-  resizeRight.textContent = sidebarRight.classList.contains("wide") ? "⤡" : "⤢";
+// Help panel: shown on a first visit, hidden once dismissed, always reachable
+// again through the "?" button.
+const helpPanel = document.getElementById("help-panel");
+const HELP_SEEN = "montagne3d.helpSeen";
+helpPanel.classList.toggle("hidden", localStorage.getItem(HELP_SEEN) === "1");
+document.getElementById("help-close").addEventListener("click", () => {
+  helpPanel.classList.add("hidden");
+  localStorage.setItem(HELP_SEEN, "1");
+});
+document.getElementById("help-toggle").addEventListener("click", () => {
+  helpPanel.classList.toggle("hidden");
 });
 
+const sunDateInput = document.getElementById("sun-date");
+const sunTimeInput = document.getElementById("sun-time");
+const sunTimeValue = document.getElementById("sun-time-value");
+
+function minutesToHHMM(minutes) {
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+}
+
+function applySunInputs() {
+  const minutes = parseInt(sunTimeInput.value, 10);
+  sunTimeValue.textContent = minutesToHHMM(minutes);
+  const d = new Date(`${sunDateInput.value}T${minutesToHHMM(minutes)}:00`);
+  if (!isNaN(d)) setSunDate(d);
+}
+
+const noon = new Date();
+noon.setHours(12, 0, 0, 0);
+sunDateInput.value = `${noon.getFullYear()}-${String(noon.getMonth() + 1).padStart(2, "0")}-${String(noon.getDate()).padStart(2, "0")}`;
+applySunInputs();
+sunDateInput.addEventListener("change", applySunInputs);
+sunTimeInput.addEventListener("input", applySunInputs);
+
+const brightnessInput = document.getElementById("brightness");
+const brightnessValue = document.getElementById("brightness-value");
+brightnessInput.addEventListener("input", () => {
+  const v = parseFloat(brightnessInput.value);
+  setBrightness(v);
+  brightnessValue.textContent = v.toFixed(2);
+  view.notifyChange(view.camera3D);
+});
+
+const fogInput = document.getElementById("fog-density");
+const fogValue = document.getElementById("fog-density-value");
+fogInput.addEventListener("input", () => {
+  const v = parseFloat(fogInput.value);
+  view.scene.fog.density = v / 1000;
+  fogValue.textContent = v.toFixed(2);
+  view.notifyChange(view.camera3D);
+});
+
+// Place search (Nominatim): animate the camera to the picked result's L93
+// position via iTowns' camera travel.
+const searchInput = document.getElementById("search-input");
+const searchBtn = document.getElementById("search-btn");
+const searchResultsEl = document.getElementById("search-results");
 const SEARCH_RESULT_LIMIT = 5;
+const SEARCH_DEBOUNCE_MS = 400;
+const SEARCH_MIN_CHARS = 3;
+let searchDebounceTimer = null;
 
 function hideSearchResults() {
   searchResultsEl.classList.remove("visible");
@@ -210,31 +225,25 @@ function hideSearchResults() {
 }
 
 function goToSearchResult(result) {
-  const { display_name, lat, lon } = result;
-  status.textContent = display_name.split(",").slice(0, 2).join(",");
   hideSearchResults();
-
-  const l93 = wgs84ToL93.forward([parseFloat(lon), parseFloat(lat)]);
-  const x_km = l93[0] / 1000; // convert m to km
-  const y_km = l93[1] / 1000;
-
-  // Teleport camera to location (fly mode: at altitude; walk mode: will snap to ground)
-  const altitude = activeCtrl === flyCtrl ? 5 : 0;
-  const target = new THREE.Vector3(x_km, altitude, -y_km); // negate Y for L93→scene conversion
-  const lookAt = new THREE.Vector3(x_km, 0, -y_km);
-  activeCtrl.teleport(target, lookAt);
-  updateURLFromPosition(target);
+  const [xm, ym] = wgs84ToL93.forward([parseFloat(result.lon), parseFloat(result.lat)]);
+  itowns.CameraUtils.animateCameraToLookAtTarget(view, view.camera3D, {
+    coord: new itowns.Coordinates("EPSG:2154", xm, ym),
+    range: 8000,
+    tilt: 25,
+    heading: 0,
+  });
 }
 
 function renderSearchResults(results) {
   searchResultsEl.innerHTML = "";
-  results.forEach((result) => {
+  for (const result of results) {
     const item = document.createElement("div");
     item.className = "search-result";
     item.textContent = result.display_name;
     item.addEventListener("click", () => goToSearchResult(result));
     searchResultsEl.append(item);
-  });
+  }
   searchResultsEl.classList.toggle("visible", results.length > 0);
 }
 
@@ -242,35 +251,30 @@ async function doSearch({ jumpOnSingleResult } = {}) {
   const q = searchInput.value.trim();
   if (!q) return;
   searchBtn.disabled = true;
-  status.textContent = `Searching "${q}"…`;
   try {
-    const res  = await fetch(
+    const res = await fetch(
       `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=${SEARCH_RESULT_LIMIT}`,
-      { headers: { Accept: "application/json" } }
+      { headers: { Accept: "application/json" } },
     );
     if (!res.ok) throw new Error(`Nominatim returned ${res.status}`);
     const data = await res.json();
-    if (!data.length) { status.textContent = `Not found: "${q}"`; hideSearchResults(); return; }
-
+    if (!data.length) { hideSearchResults(); return; }
     if (data.length === 1 && jumpOnSingleResult) {
       goToSearchResult(data[0]);
     } else {
-      status.textContent = `${data.length} result${data.length > 1 ? "s" : ""} for "${q}"`;
       renderSearchResults(data);
     }
-  } catch (e) {
-    status.textContent = `Search error: ${e.message}`;
+  } catch {
     hideSearchResults();
   } finally {
     searchBtn.disabled = false;
   }
 }
-const SEARCH_DEBOUNCE_MS = 400;
-const SEARCH_MIN_CHARS   = 3;
-let searchDebounceTimer  = null;
 
 searchBtn.addEventListener("click", () => doSearch({ jumpOnSingleResult: true }));
-searchInput.addEventListener("keydown", (e) => { if (e.key === "Enter") doSearch({ jumpOnSingleResult: true }); });
+searchInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") doSearch({ jumpOnSingleResult: true });
+});
 searchInput.addEventListener("input", () => {
   clearTimeout(searchDebounceTimer);
   if (searchInput.value.trim().length < SEARCH_MIN_CHARS) { hideSearchResults(); return; }
@@ -279,317 +283,3 @@ searchInput.addEventListener("input", () => {
 document.addEventListener("click", (e) => {
   if (!e.target.closest("#search-form")) hideSearchResults();
 });
-
-function setActiveLayer(layerId) {
-  layerBtns.forEach((b) => b.classList.toggle("active", b.dataset.layer === layerId));
-  tileManager.setLayer(layerId);
-  // The right sidebar hosts the COSIA palette; show it only for that layer.
-  const showRight = layerId === "cosia";
-  sidebarRight.style.display = showRight ? "" : "none";
-  toggleRight.style.display  = showRight ? "" : "none";
-  resizeRight.style.display  = showRight ? "" : "none";
-  document.getElementById("cosia-panel").style.display = showRight ? "" : "none";
-}
-
-layerBtns.forEach((btn) => {
-  btn.addEventListener("click", () => setActiveLayer(btn.dataset.layer));
-});
-// Show right panel for the initial layer
-setActiveLayer(tileManager._layer);
-
-const brightnessValue = document.getElementById("brightness-value");
-const BRIGHTNESS_STEP = 0.15;
-const BRIGHTNESS_MAX = 1.75;
-const BRIGHTNESS_MIN = 0.4;
-
-function adjustBrightness(delta) {
-  const next = Math.min(BRIGHTNESS_MAX, Math.max(BRIGHTNESS_MIN, getBrightness() + delta));
-  setBrightness(next);
-  brightnessValue.textContent = `${next.toFixed(1)}x`;
-}
-
-document.getElementById("brightness-up").addEventListener("click", () => adjustBrightness(BRIGHTNESS_STEP));
-document.getElementById("brightness-down").addEventListener("click", () => adjustBrightness(-BRIGHTNESS_STEP));
-
-// One colour picker per COSIA class.
-function buildPaletteUI(containerId, classInfo, paletteMap, setColor) {
-  const container = document.getElementById(containerId);
-  for (const { code, label } of classInfo) {
-    const row = document.createElement("div");
-    row.className = "color-row";
-    const lbl = document.createElement("label");
-    lbl.textContent = label;
-    const input = document.createElement("input");
-    input.type = "color";
-    input.value = paletteMap[code];
-    input.addEventListener("input", (e) => setColor(code, e.target.value));
-    row.append(lbl, input);
-    container.append(row);
-  }
-}
-buildPaletteUI("cosia-palette", COSIA_CLASS_INFO, cosiaPalette, setCosiaColor);
-
-// COSIA: toggle between the editable class palette and baked satellite colours.
-document.getElementById("cosia-sat").addEventListener("change", (e) => {
-  setSatelliteColors(e.target.checked);
-  // Per-class pickers only apply in palette mode.
-  document.getElementById("cosia-palette").style.display = e.target.checked ? "none" : "";
-  tileManager.refreshLayer();
-});
-
-let currentSunDir = new THREE.Vector3(0.5, 1.0, 0.8).normalize();
-
-// POI info panel: populated when a peak/pass/hut/parking label is clicked.
-const WAYPOINT_TYPE_LABEL = { summit: "Summit", pass: "Pass", hut: "Hut", access: "Parking / access" };
-// Camptocamp text is a markdown dialect with some raw inline HTML (e.g. <sup>) —
-// render it, then sanitize before inserting, since it's third-party wiki content.
-const poiMarkdown = new MarkdownIt({ html: true, linkify: true });
-
-function poiMeta(doc) {
-  return [WAYPOINT_TYPE_LABEL[doc.waypoint_type] ?? doc.waypoint_type, doc.elevation ? `${doc.elevation} m` : null]
-    .filter(Boolean).join(" · ");
-}
-
-// Guards against a slower earlier request overwriting the panel after a
-// second POI is clicked before the first one's (multi-fetch) load finishes.
-let poiRequestToken = 0;
-
-const ACTIVITY_EMOJI = {
-  skitouring: "⛷️",
-  snow_ice_mixed: "🧊",
-  mountain_climbing: "🏔️",
-  rock_climbing: "🧗",
-  ice_climbing: "🧊",
-  hiking: "🥾",
-  snowshoeing: "🐾",
-  via_ferrata: "🪜",
-  slacklining: "🎪",
-  paragliding: "🪂",
-  mountain_biking: "🚵",
-};
-
-function routeTitle(route) {
-  const locale = route.locales?.[0];
-  const name = locale?.title_prefix ? `${locale.title_prefix} – ${locale.title}` : locale?.title ?? "?";
-  const emojis = (route.activities ?? []).map((a) => ACTIVITY_EMOJI[a] ?? "📍").join("");
-  const grade = [route.global_rating, route.engagement_rating].filter(Boolean).join(" · ");
-  return [emojis, grade, name].filter(Boolean).join(" ");
-}
-
-function outingTitle(outing) {
-  const name = outing.locales?.[0]?.title ?? "?";
-  const date = outing.date_start ? new Date(outing.date_start).toLocaleDateString("fr-FR") : null;
-  return date ? `${date} — ${name}` : name;
-}
-
-/** Fill a <ul class="poi-link-list"> with links built from Camptocamp association items. */
-function renderPoiLinkList(sectionId, listId, items, urlBase, titleFn) {
-  const section = document.getElementById(sectionId);
-  const list = document.getElementById(listId);
-  list.innerHTML = "";
-  if (!items?.length) { section.style.display = "none"; return; }
-  for (const item of items) {
-    const li = document.createElement("li");
-    const a = document.createElement("a");
-    a.href = `https://www.camptocamp.org/${urlBase}/${item.document_id}`;
-    a.target = "_blank";
-    a.rel = "noopener";
-    a.textContent = titleFn(item);
-    li.appendChild(a);
-    list.appendChild(li);
-  }
-  section.style.display = "";
-}
-
-function showPoiPanel(poi) {
-  const token = ++poiRequestToken;
-
-  document.getElementById("cosia-panel").style.display = "none";
-  const panel = document.getElementById("poi-panel");
-  const title = document.getElementById("poi-title");
-  const meta  = document.getElementById("poi-meta");
-  const text  = document.getElementById("poi-text");
-  const link  = document.getElementById("poi-link");
-
-  title.textContent = poi.locales[0].title;
-  meta.textContent = poiMeta(poi);
-  text.textContent = "Loading…";
-  link.href = `https://www.camptocamp.org/waypoints/${poi.document_id}`;
-  renderPoiLinkList("poi-routes-section", "poi-routes", [], "routes", routeTitle);
-  renderPoiLinkList("poi-outings-section", "poi-outings", [], "outings", outingTitle);
-
-  panel.style.display = "";
-  sidebarRight.style.display = "";
-  sidebarRight.classList.remove("collapsed");
-  toggleRight.style.display = "";
-  resizeRight.style.display = "";
-
-  fetchWaypointDetail(poi.document_id).then(async (doc) => {
-    if (token !== poiRequestToken) return;
-    meta.textContent = poiMeta(doc);
-
-    renderPoiLinkList("poi-routes-section", "poi-routes", doc.associations?.all_routes?.documents, "routes", routeTitle);
-    renderPoiLinkList("poi-outings-section", "poi-outings", doc.associations?.recent_outings?.documents, "outings", outingTitle);
-
-    const locale = doc.locales?.[0];
-    const raw = [locale?.access, locale?.description].filter(Boolean).join("\n\n");
-    if (!raw) { text.textContent = "No description available."; return; }
-    const resolved = await resolveEmbeddedImages(raw);
-    if (token !== poiRequestToken) return;
-    text.innerHTML = DOMPurify.sanitize(poiMarkdown.render(resolved));
-  }).catch(() => { if (token === poiRequestToken) text.textContent = "Failed to load details."; });
-}
-
-// Proximity overlays: buildings auto-load near the camera; vegetation
-// rides the z=2 terrain tiles inside the tile manager.
-const buildingsOverlay = createBuildingsOverlay(
-  scene,
-  () => currentSunDir,
-  (x0, y0) => tileManager.getCellTextureData(x0, y0),
-);
-const poiOverlay = createPoiOverlay(scene, tileManager, showPoiPanel);
-const vegetationToggle = {
-  enabled: false,
-  setEnabled(on) {
-    this.enabled = on;
-    tileManager.setVegetationEnabled(on);
-  },
-};
-
-function applySunDate(date) {
-  currentSunDir = sunDirectionAt(date);
-  updateSunDirection(scene, currentSunDir);
-  updateSky(scene, currentSunDir);
-  tileManager.setSunDir(currentSunDir);
-  sunHint.classList.toggle("visible", currentSunDir.y <= 0);
-}
-
-function minutesToHHMM(minutes) {
-  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
-}
-
-function getSunDateFromInputs() {
-  const dateStr = sunDateInput.value;
-  const minutes = parseInt(sunTimeInput.value, 10);
-  if (!dateStr || isNaN(minutes)) return null;
-  return new Date(`${dateStr}T${minutesToHHMM(minutes)}:00`);
-}
-
-sunDateInput.addEventListener("change", () => {
-  const d = getSunDateFromInputs();
-  if (d && !isNaN(d)) applySunDate(d);
-});
-
-sunTimeInput.addEventListener("input", () => {
-  sunTimeLabel.textContent = minutesToHHMM(parseInt(sunTimeInput.value, 10));
-  const d = getSunDateFromInputs();
-  if (d && !isNaN(d)) applySunDate(d);
-});
-
-(function initSun() {
-  const formatter = new Intl.DateTimeFormat("fr-FR", {
-    year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", hour12: false,
-    timeZone: "Europe/Paris",
-  });
-  const now = new Date();
-  now.setHours(12, 0, 0, 0);
-
-  const parts  = formatter.formatToParts(now);
-  const year   = parts.find((p) => p.type === "year").value;
-  const month  = parts.find((p) => p.type === "month").value;
-  const day    = parts.find((p) => p.type === "day").value;
-  const hour   = parseInt(parts.find((p) => p.type === "hour").value, 10);
-  const minute = parseInt(parts.find((p) => p.type === "minute").value, 10);
-  const totalMinutes = hour * 60 + minute;
-
-  sunDateInput.value   = `${year}-${month}-${day}`;
-  sunTimeInput.value   = totalMinutes;
-  sunTimeLabel.textContent = minutesToHHMM(totalMinutes);
-
-  applySunDate(now);
-})();
-
-fogDensityInput.addEventListener("input", (e) => {
-  const density = parseFloat(e.target.value);
-  scene.fog.density = density;
-  fogDensityValue.textContent = density.toFixed(2);
-});
-
-// Toggle the buildings/vegetation/POI proximity overlays on/off.
-function wireOverlayToggle(selector, overlay) {
-  document.querySelectorAll(selector).forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const on = !overlay.enabled;
-      overlay.setEnabled(on);
-      btn.classList.toggle("active", on);
-    });
-  });
-}
-wireOverlayToggle(".buildings-btn", buildingsOverlay);
-wireOverlayToggle(".vegetation-btn", vegetationToggle);
-wireOverlayToggle(".poi-btn", poiOverlay);
-
-window.addEventListener("resize", () => {
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  labelRenderer.setSize(window.innerWidth, window.innerHeight);
-  flyCtrl.onResize();
-  walkCtrl.onResize();
-});
-
-// Test controls (shift+left-click COPC points, shift+right-click rebuild):
-// only under `npm run test_build_and_serve`, whose vite config defines
-// __TEST_CONTROLS__ and serves the /debug/* routes they need.
-if (__TEST_CONTROLS__) {
-  installTestControls({
-    renderer,
-    scene,
-    tileManager,
-    getCamera: () => activeCtrl.camera,
-  });
-}
-
-const clock    = new THREE.Clock();
-const debugEl  = document.getElementById("debug-overlay");
-const skySphere  = scene.getObjectByName("sky");
-const sunMesh  = scene.getObjectByName("sun-mesh");
-const sunGlow  = scene.getObjectByName("sun-glow");
-
-function animate() {
-  requestAnimationFrame(animate);
-  const dt = clock.getDelta();
-
-  // The 2D map handles its own rendering/interaction — nothing to draw here.
-  // activeCtrl.update() is skipped too: fly mode applies WASD directly to
-  // camera.position regardless of enable()/disable(), which would fight the
-  // position slippyMap.onChange() is writing.
-  if (inMapMode) return;
-
-  activeCtrl.update(dt);
-  tileManager.update(activeCtrl.camera, activeCtrl);
-  buildingsOverlay.update(activeCtrl.camera);
-  poiOverlay.update(activeCtrl.camera);
-  if (skySphere) skySphere.position.copy(activeCtrl.camera.position);
-  if (sunMesh) {
-    const aboveHorizon = currentSunDir.y > -0.02;
-    sunMesh.visible = aboveHorizon;
-    sunGlow.visible = aboveHorizon;
-    if (aboveHorizon) {
-      const pos = activeCtrl.camera.position.clone().addScaledVector(currentSunDir, 350);
-      sunMesh.position.copy(pos);
-      sunGlow.position.copy(pos);
-    }
-  }
-  updateShadowCamera(scene, activeCtrl.camera.position);
-  renderer.render(scene, activeCtrl.camera);
-  labelRenderer.render(scene, activeCtrl.camera);
-
-  if (debugEl) {
-    const p = activeCtrl.camera.position;
-    debugEl.textContent =
-      `cam  x:${p.x.toFixed(2)}  y:${p.y.toFixed(2)}  z:${p.z.toFixed(2)}\n` +
-      `L93  x:${p.x.toFixed(2)} km  y:${(-p.z).toFixed(2)} km`;
-  }
-}
-
-animate();

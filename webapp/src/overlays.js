@@ -1,155 +1,108 @@
-/**
- * Proximity overlays — load per-cell features (buildings, vegetation) on demand.
- *
- * When enabled, a CellOverlay watches the camera and, for every 1 km L93 cell
- * within `radiusKm` (horizontal distance only — camera Y is absolute elevation,
- * not height above ground, so it can't be used for the range check), fetches
- * that cell's data via `load(x0, y0)` and adds it to the scene; cells that fall out of range
- * are disposed. Cells with no data (404) are remembered so they aren't refetched
- * — that memory is cleared when the overlay is toggled off, so newly-built data
- * is picked up on re-enable.
- */
-
+import * as THREE from "three";
+import * as itowns from "itowns";
 import { API_BASE_URL } from "./apiConfig.js";
 import { loadCityBuildings } from "./buildings.js";
-import { fetchCellPois, buildPoiGroup } from "./poi.js";
-import { MEDIUM_LOD_RADIUS_KM } from "./tileManager.js";
+import { getSunDir } from "./environment.js";
 
-// Buildings key off this so they only render where terrain has already
-// reached at least the medium (z=1) LOD, keeping overlay detail coherent
-// with the terrain it sits on. (Vegetation rides the z=2 tiles directly in
-// the tile manager.)
-const OVERLAY_RADIUS_KM = MEDIUM_LOD_RADIUS_KM;
-
-/** Cell (x0, y0) → source LAZ stem (NW-corner naming: y = y0 + 1 km). */
+// Cell (x0, y0) → source LAZ stem (NW-corner naming: y = y0 + 1 km).
 export function cellLazStem(x0, y0) {
   const pad = (n) => String(n).padStart(4, "0");
   return `LHD_FXX_${pad(x0)}_${pad(y0 + 1)}_PTS_LAMB93_IGN69`;
 }
 
-export class CellOverlay {
-  /**
-   * @param {THREE.Scene} scene
-   * @param {object} opts  { radiusKm, load: (x0,y0) => Promise<Object3D|null> }
-   */
-  constructor(scene, { radiusKm, load }) {
-    this._scene = scene;
-    this._radiusKm = radiusKm;
-    this._load = load;
-    this._objects = new Map(); // "x|y" → Object3D
-    this._loading = new Set();
-    this._empty = new Set(); // cells known to have no data
-    this._needed = new Set(); // cells wanted as of the last tick (live)
-    this.enabled = false;
-  }
+// Buildings are keyed to the level-11 (z=1, 500 m) terrain node lifecycle —
+// the same node.dispose()-driven pattern dracoLayer.js uses for vegetation —
+// instead of a camera-distance proximity overlay. That avoids a real race: a
+// camera-driven overlay discards a building the instant its async load
+// resolves if the (fast, teleporting) iTowns camera has already drifted out
+// of range by then, which a slow legacy fly camera rarely triggered. Tying
+// loading to iTowns' own tile residency means a building simply stays for as
+// long as iTowns itself keeps that patch of terrain around — no polling, no
+// proxy camera, no discard-on-arrival race.
+const BUILDING_LEVEL = 11;
 
-  setEnabled(on) {
-    this.enabled = on;
-    if (!on) this._clear();
-  }
+// Legacy building meshes are built in the old Y-up/km scene convention (see
+// buildings.js). Wrapping in this group reproduces the same conversion
+// dracoLayer.js applies to raw .drc geometry — no rotation there because
+// draco vertices are already Z-up; here the mesh itself is Y-up, hence the
+// rotation.
+const UP_AXIS = new THREE.Vector3(0, 0, 1);
 
-  /** Currently-loaded overlay objects (for e.g. sun-direction updates). */
-  objects() {
-    return this._objects.values();
-  }
-
-  update(camera) {
-    if (!this.enabled) return;
-    const cx = camera.position.x, cy = -camera.position.z;
-    const r = Math.ceil(this._radiusKm);
-    const x0c = Math.floor(cx), y0c = Math.floor(cy);
-
-    const needed = new Set();
-    for (let dx = -r; dx <= r; dx++)
-      for (let dy = -r; dy <= r; dy++) {
-        const x0 = x0c + dx, y0 = y0c + dy;
-        const d = Math.hypot(cx - (x0 + 0.5), cy - (y0 + 0.5));
-        if (d <= this._radiusKm) needed.add(`${x0}|${y0}`);
-      }
-    this._needed = needed; // expose live set for in-flight loads to re-check
-
-    for (const key of needed) {
-      if (this._objects.has(key) || this._loading.has(key) || this._empty.has(key))
-        continue;
-      this._loading.add(key);
-      const [x0, y0] = key.split("|").map(Number);
-      console.log("[overlay] loading cell", key);
-      this._load(x0, y0)
-        .then((obj) => {
-          this._loading.delete(key);
-          if (!obj) { console.warn("[overlay] cell returned null (empty):", key); this._empty.add(key); return; }
-          // Discard if the overlay was disabled or the cell drifted out of range
-          // while loading (check the live set, not the tick that started us).
-          if (!this.enabled || !this._needed.has(key)) { console.log("[overlay] cell discarded (out of range or disabled):", key); _dispose(obj); return; }
-          console.log("[overlay] cell added to scene:", key, obj);
-          this._scene.add(obj);
-          this._objects.set(key, obj);
-        })
-        .catch((err) => {
-          this._loading.delete(key);
-          this._empty.add(key); // missing/failed → don't hammer the server
-          console.warn("[overlay] cell failed, marked empty:", key, err);
-        });
-    }
-
-    for (const [key, obj] of this._objects)
-      if (!needed.has(key)) {
-        this._scene.remove(obj);
-        _dispose(obj);
-        this._objects.delete(key);
-      }
-  }
-
-  _clear() {
-    for (const obj of this._objects.values()) {
-      this._scene.remove(obj);
-      _dispose(obj);
-    }
-    this._objects.clear();
-    this._empty.clear(); // retry 404s next time the overlay is enabled
-  }
+function wrapForItowns(mesh) {
+  const group = new THREE.Group();
+  group.rotation.x = Math.PI / 2;
+  group.scale.setScalar(1000);
+  group.add(mesh);
+  group.updateMatrixWorld(true);
+  return group;
 }
 
-/** Free geometry + material for an object and any children. */
-function _dispose(root) {
-  root.traverse((obj) => {
+function disposeGroup(group) {
+  group.traverse((obj) => {
     obj.geometry?.dispose();
     obj.material?.dispose();
-    // CSS2DObject (e.g. POI labels): its "removed" listener only fires when
-    // it is removed directly, not when an ancestor (this cell's group) is
-    // removed from the scene — detach its DOM element explicitly here.
-    obj.element?.remove();
   });
 }
 
-/** Build an overlay that fetches `/{dir}/{lazStem}.{ext}` per cell via `loader`. */
-function makeCellOverlay(scene, { dir, ext, loader }) {
-  return new CellOverlay(scene, {
-    radiusKm: OVERLAY_RADIUS_KM,
-    load: (x0, y0) =>
-      loader(`${API_BASE_URL}/${dir}/${cellLazStem(x0, y0)}.${ext}`).catch((err) => { console.error("[overlay] loader threw:", err); return null; }),
-  });
-}
+// A 1 km building cell is covered by up to 4 sibling level-11 nodes; loads
+// are deduped and refcounted across them so each cell fetches once.
+export class BuildingsLayer extends itowns.Layer {
+  constructor(id, view) {
+    super(id, { source: false });
+    this.view = view;
+    this.object3d = new THREE.Group();
+    this.object3d.name = id;
+    this._nodeCells = new Map(); // node.id -> cellKey
+    this._cells = new Map(); // cellKey -> { status, group, refCount }
+  }
 
-/** Buildings overlay: fetch each cell's CityJSONL, null if absent. */
-export function createBuildingsOverlay(scene, getSunDir, getTerrainCanvas) {
-  return new CellOverlay(scene, {
-    radiusKm: OVERLAY_RADIUS_KM,
-    load: (x0, y0) =>
-      loadCityBuildings(`${API_BASE_URL}/buildings/${cellLazStem(x0, y0)}.city.jsonl`, {
-        x0, y0, sunDir: getSunDir?.(), getTerrainCanvas,
-      }).catch((err) => { console.error("[overlay] loader threw:", err); return null; }),
-  });
-}
+  update(context, layer, node) {
+    if (node.level !== BUILDING_LEVEL || this._nodeCells.has(node.id)) return;
 
-/** POI overlay: fetch each cell's summits/passes/huts/parking via the Camptocamp API, build labels. */
-export function createPoiOverlay(scene, tileManager, onSelect) {
-  return new CellOverlay(scene, {
-    radiusKm: OVERLAY_RADIUS_KM,
-    load: (x0, y0) =>
-      fetchCellPois(x0, y0)
-        .then((pois) => buildPoiGroup(pois, x0, y0, (wx, wz) => tileManager.getHeightAt(wx, wz), onSelect))
-        .catch((err) => { console.error("[overlay] poi loader threw:", err); return null; }),
-  });
-}
+    const ox = Math.round(node.extent.west / 1000);
+    const oy = Math.round(node.extent.south / 1000);
+    const cellKey = `${ox}|${oy}`;
+    this._nodeCells.set(node.id, cellKey);
 
+    let cell = this._cells.get(cellKey);
+    if (!cell) {
+      cell = { status: "loading", group: null, refCount: 0 };
+      this._cells.set(cellKey, cell);
+
+      loadCityBuildings(`${API_BASE_URL}/buildings/${cellLazStem(ox, oy)}.city.jsonl`, {
+        x0: ox, y0: oy, sunDir: getSunDir(), upAxis: UP_AXIS,
+      }).then((mesh) => {
+        if (this._cells.get(cellKey) !== cell) return; // evicted while loading
+        if (!mesh) { cell.status = "empty"; return; }
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        cell.group = wrapForItowns(mesh);
+        cell.status = "done";
+        if (cell.refCount > 0) {
+          this.object3d.add(cell.group);
+          this.view.notifyChange(this.parent ?? this);
+        }
+      }).catch((err) => {
+        console.error("[itowns buildings] loader threw:", err);
+        cell.status = "failed";
+      });
+    }
+    cell.refCount++;
+
+    node.addEventListener("dispose", () => {
+      this._nodeCells.delete(node.id);
+      cell.refCount--;
+      if (cell.refCount <= 0) {
+        if (cell.group) {
+          this.object3d.remove(cell.group);
+          disposeGroup(cell.group);
+        }
+        this._cells.delete(cellKey);
+      }
+    });
+
+    if (cell.status === "done" && cell.group && !cell.group.parent) {
+      this.object3d.add(cell.group);
+    }
+  }
+}
