@@ -45,6 +45,9 @@ export function initTouchControls(view) {
     lastDist = spread(t);
     lastAngle = angle(t);
     turn = 0;
+    // twice: handleRotation consumes a position *delta*, so the first frame of
+    // the gesture must not inherit one from wherever the cursor last was
+    feedRotation(t);
     feedRotation(t);
     controls.initiateRotation();
   };
