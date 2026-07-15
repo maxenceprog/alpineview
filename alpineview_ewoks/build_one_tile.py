@@ -9,7 +9,6 @@ import argparse
 import logging
 
 from . import build_tiles_utils, client
-from .core.tiles import delete_cell_outputs
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -26,7 +25,7 @@ def main(argv: list[str] | None = None) -> None:
 
     if not args.no_servers:
         build_tiles_utils.run_servers()
-    delete_cell_outputs(args.x, args.y)
+
     result = client.submit_build_tile(args.x, args.y, True, True)
     print(result)
 

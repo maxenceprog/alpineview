@@ -126,6 +126,10 @@ view.addLayer(new BuildingsLayer("buildings", view));
 
 initPoi(view);
 
+if (__TEST_CONTROLS__) {
+  import("./testControls.js").then(({ initTestControls }) => initTestControls(view));
+}
+
 const envEnabledInput = document.getElementById("env-enabled");
 envEnabledInput.addEventListener("change", () => {
   setEnabled(envEnabledInput.checked);

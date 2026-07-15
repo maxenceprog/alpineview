@@ -60,7 +60,7 @@ GRAPH = {
 # BuildVegetationInputs); override here only to deviate from them.
 INPUTS: list = [
     # {"id": "download", "name": "resolution", "value": 2},
-    # {"id": "tiles", "name": "depth", "value": 10},
+    {"id": "tiles", "name": "depth", "value": 11},
     # {"id": "tiles", "name": "weight", "value": 8},
     # {"id": "tiles", "name": "lod", "value": 2},
     # {"id": "tiles", "name": "trim", "value": 5.0},
@@ -68,7 +68,7 @@ INPUTS: list = [
     # {"id": "tiles", "name": "use_las", "value": True},
     # {"id": "tiles", "name": "optimize", "value": True},
     # {"id": "tiles", "name": "encode", "value": False},
-    # {"id": "tiles", "name": "skirt_depth", "value": 50.0},
+    {"id": "tiles", "name": "skirt_depth", "value": 0.0},
     # {"id": "tiles", "name": "aratio", "value": 0.05},
     # {"id": "tiles", "name": "clean", "value": 2},
     # {"id": "tiles", "name": "downsample", "value": True},
