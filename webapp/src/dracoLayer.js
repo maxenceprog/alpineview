@@ -4,20 +4,17 @@ import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { API_BASE_URL } from "./apiConfig.js";
 import { processGeometry } from "./geometryWorkerPool.js";
 import {
-  buildCanvas,
   buildVerticalDiffuseMaterial,
   disposeLayerMaterials,
   replaceMeshMaterial,
-  WMTS_ZOOM_FOR_LOD,
 } from "./layers.js";
+import { fetchWmtsCanvas } from "./wmts.js";
 
 export const DRACO_BASE_LEVEL = 10;
 export const DRACO_MAX_Z = 2;
 export const DRACO_MIN_Z = 0;
 
 const CRS = "EPSG:2154";
-
-const MIN_WMTS_ZOOM = 14;
 
 const _loader = new DRACOLoader();
 _loader.setDecoderPath(`${import.meta.env.BASE_URL}draco/`);
@@ -35,28 +32,25 @@ function tileKey(tile) {
   return { tx, ty, z, ox: Math.floor(tx / scale), oy: Math.floor(ty / scale) };
 }
 
-function wmtsZoom(z) {
-  return Math.max(MIN_WMTS_ZOOM, WMTS_ZOOM_FOR_LOD[Math.max(z, 0)] + Math.min(z, 0));
-}
-
-function bakeUVs(geometry, ox, oy, { xMin, xMax, zMin, zMax }) {
+// Positions are km relative to the parent cell origin (ox, oy); the extent is L93 metres,
+// and v runs from north down to match the unflipped canvas.
+function bakeUVs(geometry, ox, oy, { west, east, south, north }) {
   const pos = geometry.attributes.position.array;
   const count = pos.length / 3;
   const uvs = new Float32Array(count * 2);
   for (let i = 0; i < count; i++) {
-    uvs[i * 2] = (ox + pos[i * 3] - xMin) / (xMax - xMin);
-    uvs[i * 2 + 1] = (-(oy + pos[i * 3 + 1]) - zMin) / (zMax - zMin);
+    uvs[i * 2] = ((ox + pos[i * 3]) * 1000 - west) / (east - west);
+    uvs[i * 2 + 1] = (north - (oy + pos[i * 3 + 1]) * 1000) / (north - south);
   }
   geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
 }
 
 async function loadTileTexture(geometry, { tx, ty, z, ox, oy }) {
-  const s = 2 ** -z;
-  const bounds = await buildCanvas(
-    tx * s, (tx + 1) * s, -(ty + 1) * s, -ty * s, wmtsZoom(z),
-  );
-  bakeUVs(geometry, ox, oy, bounds);
-  const texture = new THREE.CanvasTexture(bounds.canvas);
+  const s = 2 ** -z * 1000;
+  const extent = { west: tx * s, east: (tx + 1) * s, south: ty * s, north: (ty + 1) * s };
+  const canvas = await fetchWmtsCanvas(extent);
+  bakeUVs(geometry, ox, oy, extent);
+  const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.flipY = false;
   return texture;

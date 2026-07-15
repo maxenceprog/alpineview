@@ -3,11 +3,13 @@ import { API_BASE_URL } from "./apiConfig.js";
 import { IS_MOBILE } from "./deviceInfo.js";
 import { DracoTileLayer } from "./dracoLayer.js";
 import { initEnvironment } from "./environment.js";
-import { setBrightness, setMapSource } from "./layers.js";
+import { setBrightness } from "./layers.js";
+import { setMapSource } from "./wmts.js";
 import { BuildingsLayer } from "./overlays.js";
 import { initPoi } from "./poi.js";
 import { wgs84ToL93 } from "./proj.js";
 import { initTouchControls } from "./touchControls.js";
+import { WmtsStitchSource } from "./wmtsSource.js";
 
 itowns.CRS.defs(
   "EPSG:2154",
@@ -60,22 +62,11 @@ const demLayer = new itowns.ElevationLayer("dem", {
 
 view.addLayer(demLayer)
 
-const ignSource = (name) =>
-  new itowns.WMSSource({
-    url: "https://data.geopf.fr/wms-r/wms",
-    name,
-    crs: "EPSG:2154",
-    extent,
-    version: "1.3.0",
-    format: "image/jpeg",
-  });
-
 const orthoLayer = new itowns.ColorLayer("ortho", {
-  source: ignSource("ORTHOIMAGERY.ORTHOPHOTOS"),
+  source: new WmtsStitchSource({ sourceKey: "ortho", extent }),
 });
 const planLayer = new itowns.ColorLayer("plan", {
-  source: ignSource("GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2"),
-
+  source: new WmtsStitchSource({ sourceKey: "plan", extent }),
 });
 
 view.addLayer(orthoLayer);

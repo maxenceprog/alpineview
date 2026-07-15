@@ -11,7 +11,8 @@
 
 import * as THREE from "three";
 import { Earcut } from "three/src/extras/Earcut.js";
-import { bakeWorldUVs, buildCanvas, WMTS_ZOOM_FOR_LOD } from "./layers.js";
+import { bakeWorldUVs } from "./layers.js";
+import { fetchWmtsCanvas } from "./wmts.js";
 
 /** L93 metres → Three.js scene km (x=east, y=alt, z=-north). */
 function l93ToScene(xm, ym, zm) {
@@ -108,20 +109,24 @@ function collectSurfaces(geom) {
  * Load a CityJSONL file and return a Three.js Mesh of all buildings.
  *
  * @param {string} url  URL of the .city.jsonl file.
- * @param {object} opts { x0, y0, sunDir, getTerrainCanvas } cell grid coordinates, sun direction,
- *   and optional callback returning pre-loaded terrain canvas data (skips WMTS fetch).
+ * @param {object} opts { x0, y0, sunDir, upAxis } cell grid coordinates and sun direction.
  * @returns {THREE.Mesh|null}
  */
 export async function loadCityBuildings(url, opts = {}) {
-  const { x0, y0, sunDir, getTerrainCanvas, upAxis } = opts;
+  const { x0, y0, sunDir, upAxis } = opts;
 
+  // The canvas covers the cell exactly; bakeWorldUVs speaks the legacy km / z=−north frame.
   const canvasPromise = (x0 != null && y0 != null)
-    ? (() => {
-        const td = getTerrainCanvas?.(x0, y0);
-        return td
-          ? Promise.resolve(td)
-          : buildCanvas(x0, x0 + 1, -(y0 + 1), -y0, WMTS_ZOOM_FOR_LOD[0]).catch(() => null);
-      })()
+    ? fetchWmtsCanvas({
+        west: x0 * 1000, east: (x0 + 1) * 1000,
+        south: y0 * 1000, north: (y0 + 1) * 1000,
+      })
+      .then((canvas) => ({
+        canvas,
+        xMin: x0, xMax: x0 + 1,
+        zMin: -(y0 + 1), zMax: -y0,
+      }))
+      .catch(() => null)
     : Promise.resolve(null);
 
   const text = await fetch(url).then((r) => {

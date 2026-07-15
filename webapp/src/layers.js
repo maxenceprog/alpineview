@@ -1,108 +1,6 @@
 import * as THREE from "three";
 
-import { IS_MOBILE } from "./deviceInfo.js";
 import { getSunDirection, registerLitMaterial, unregisterLitMaterial } from "./sunLighting.js";
-
-const L93_ORIGIN_X = 0;
-const L93_ORIGIN_Y = 12_000_000;
-const L93_TILE_SIZE_M = {
-  14: 256 * 45714.2857 * 0.00028,
-  15: 256 * 22857.1429 * 0.00028,
-  16: 256 * 11428.5714 * 0.00028,
-  17: 256 * 5714.2857 * 0.00028,
-  18: 256 * 2857.1429 * 0.00028,
-  19: 256 * 1428.5714 * 0.00028,
-};
-export const WMTS_ZOOM_FOR_LOD = IS_MOBILE ? [15, 17, 18] : [16, 18, 19];
-
-const ignOrthoUrl = (col, row, level) =>
-  `https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0` +
-  `&LAYER=HR.ORTHOIMAGERY.ORTHOPHOTOS.L93&STYLE=normal&FORMAT=image%2Fjpeg` +
-  `&TILEMATRIXSET=2154_10cm_10_20&TILEMATRIX=${level}&TILEROW=${row}&TILECOL=${col}`;
-
-const ignPlanUrl = (col, row, level) =>
-  `https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0` +
-  `&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2.L93&STYLE=normal&FORMAT=image%2Fjpeg` +
-  `&TILEMATRIXSET=2154_10cm_6_20&TILEMATRIX=${level}&TILEROW=${row}&TILECOL=${col}`;
-
-const MAP_SOURCE_URLS = { ortho: ignOrthoUrl, plan: ignPlanUrl };
-
-let currentMapSource = "ortho";
-
-export function setMapSource(source) {
-  currentMapSource = source;
-}
-
-export function getMapSource() {
-  return currentMapSource;
-}
-
-
-const IMAGE_TIMEOUT_MS = 10_000;
-
-const IMAGE_CACHE_MAX = IS_MOBILE ? 200 : 800;
-const _imageCache = new Map();
-
-function loadImage(url) {
-  const cached = _imageCache.get(url);
-  if (cached) {
-    _imageCache.delete(url);
-    _imageCache.set(url, cached);
-    return cached;
-  }
-
-  const promise = new Promise((resolve, reject) => {
-    const img = new Image();
-    const timer = setTimeout(
-      () => reject(new Error(`Timeout loading tile: ${url}`)),
-      IMAGE_TIMEOUT_MS,
-    );
-    img.crossOrigin = "anonymous";
-    img.onload = () => { clearTimeout(timer); resolve(img); };
-    img.onerror = () => { clearTimeout(timer); reject(new Error(`Failed to load tile: ${url}`)); };
-    img.src = url;
-  }).catch((err) => { _imageCache.delete(url); throw err; });
-
-  _imageCache.set(url, promise);
-  if (_imageCache.size > IMAGE_CACHE_MAX) {
-    const oldestKey = _imageCache.keys().next().value;
-    _imageCache.delete(oldestKey);
-  }
-  return promise;
-}
-
-export async function buildCanvas(worldMinX, worldMaxX, worldMinZ, worldMaxZ, level) {
-  const s = L93_TILE_SIZE_M[level];
-  const x0 = worldMinX * 1000, x1 = worldMaxX * 1000;
-  const y0 = -worldMaxZ * 1000, y1 = -worldMinZ * 1000;
-
-  const colMin = Math.floor((x0 - L93_ORIGIN_X) / s);
-  const colMax = Math.floor((x1 - L93_ORIGIN_X) / s);
-  const rowMin = Math.floor((L93_ORIGIN_Y - y1) / s);
-  const rowMax = Math.floor((L93_ORIGIN_Y - y0) / s);
-
-  const canvas = document.createElement("canvas");
-  canvas.width = (colMax - colMin + 1) * 256;
-  canvas.height = (rowMax - rowMin + 1) * 256;
-  const ctx = canvas.getContext("2d");
-
-  const tileUrl = MAP_SOURCE_URLS[currentMapSource];
-  const fetches = [];
-  for (let r = rowMin; r <= rowMax; r++)
-    for (let c = colMin; c <= colMax; c++)
-      fetches.push(loadImage(tileUrl(c, r, level)).then(img => ({ img, col: c - colMin, row: r - rowMin })));
-
-  for (const { img, col, row } of await Promise.all(fetches))
-    ctx.drawImage(img, col * 256, row * 256, 256, 256);
-
-  return {
-    canvas,
-    xMin: (L93_ORIGIN_X + colMin * s) / 1000,
-    xMax: (L93_ORIGIN_X + (colMax + 1) * s) / 1000,
-    zMin: -(L93_ORIGIN_Y - rowMin * s) / 1000,
-    zMax: -(L93_ORIGIN_Y - (rowMax + 1) * s) / 1000,
-  };
-}
 
 const TILE_DRAW = {
   side: THREE.FrontSide,
@@ -224,26 +122,6 @@ export function replaceMeshMaterial(mesh, newMaterial) {
   const oldMaterial = mesh.material;
   mesh.material = newMaterial;
   disposeMeshMaterial(oldMaterial);
-}
-
-export async function applyLayer(mesh, tileZ = 2) {
-  const ver = (mesh.userData._layerVer = ((mesh.userData._layerVer ?? 0) + 1));
-
-  const wmtsZoom = WMTS_ZOOM_FOR_LOD[tileZ] ?? WMTS_ZOOM_FOR_LOD[WMTS_ZOOM_FOR_LOD.length - 1];
-  const { min, max } = mesh.geometry.boundingBox;
-  const wx = mesh.position.x, wz = mesh.position.z;
-  const { canvas, xMin, xMax, zMin, zMax } =
-    await buildCanvas(min.x + wx, max.x + wx, min.z + wz, max.z + wz, wmtsZoom);
-  if (mesh.userData._layerVer !== ver) return;
-
-  bakeWorldUVs(mesh.geometry, mesh.position, xMin, xMax, zMin, zMax);
-
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.flipY = false;
-  mesh.userData.textureData = { canvas, xMin, xMax, zMin, zMax };
-
-  replaceMeshMaterial(mesh, buildVerticalDiffuseMaterial(texture));
 }
 
 export function disposeLayerMaterials(mesh) {
