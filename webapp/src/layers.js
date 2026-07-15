@@ -176,7 +176,7 @@ export function buildVerticalDiffuseMaterial(texture) {
         vec4 c = texture2D(map, vUv);
         float ambient = 0.15;
         float direct = 0.85 * max(0.0, dot(vWorldNormal, uSunDir));
-        #if NUM_DIR_LIGHT_SHADOWS > 0
+        #if defined( USE_SHADOWMAP ) && NUM_DIR_LIGHT_SHADOWS > 0
           direct *= getShadow(directionalShadowMap[0], directionalLightShadows[0].shadowMapSize,
             directionalLightShadows[0].shadowIntensity, directionalLightShadows[0].shadowBias,
             directionalLightShadows[0].shadowRadius, vDirectionalShadowCoord[0]);

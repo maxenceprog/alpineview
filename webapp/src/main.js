@@ -1,13 +1,13 @@
 import * as itowns from "itowns";
 import { API_BASE_URL } from "./apiConfig.js";
-import { setBrightness, setMapSource } from "./layers.js";
-import { wgs84ToL93 } from "./proj.js";
+import { IS_MOBILE } from "./deviceInfo.js";
 import { DracoTileLayer } from "./dracoLayer.js";
 import { initEnvironment } from "./environment.js";
+import { setBrightness, setMapSource } from "./layers.js";
 import { BuildingsLayer } from "./overlays.js";
 import { initPoi } from "./poi.js";
+import { wgs84ToL93 } from "./proj.js";
 import { initTouchControls } from "./touchControls.js";
-import { IS_MOBILE } from "./deviceInfo.js";
 
 itowns.CRS.defs(
   "EPSG:2154",
@@ -23,7 +23,8 @@ const y = 1000 * (parseFloat(params.get("y")) || 6430.5);
 
 const PLANAR_CONTROLS = {
   maxZenithAngle: 130,
-  maxAltitude: 100000,
+  maxAltitude: 30000,
+  zoomFactor: 1.4,
 };
 
 const view = new itowns.PlanarView(viewerDiv, extent, {
@@ -118,7 +119,7 @@ document.getElementById("layer-toggle").addEventListener("click", () => {
   view.notifyChange(view.tileLayer);
 });
 
-const { setSunDate, setEnabled } = initEnvironment(view);
+const { setSunDate, setEnabled, setShadowsEnabled } = initEnvironment(view);
 setBrightness(1.2);
 
 view.addLayer(new BuildingsLayer("buildings", view));
@@ -128,6 +129,11 @@ initPoi(view);
 const envEnabledInput = document.getElementById("env-enabled");
 envEnabledInput.addEventListener("change", () => {
   setEnabled(envEnabledInput.checked);
+});
+
+const shadowsInput = document.getElementById("shadows-enabled");
+shadowsInput.addEventListener("change", () => {
+  setShadowsEnabled(shadowsInput.checked);
 });
 
 const envPanel = document.getElementById("env-panel");

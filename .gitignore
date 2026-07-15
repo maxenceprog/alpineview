@@ -41,3 +41,5 @@ webapp/test-results
 data
 
 !webapp/public/credits/*.png
+
+*.drc

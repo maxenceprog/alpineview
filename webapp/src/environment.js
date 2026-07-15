@@ -1,5 +1,5 @@
-import * as THREE from "three";
 import * as itowns from "itowns";
+import * as THREE from "three";
 import { setTerrainLightingEnabled } from "./layers.js";
 import { sunDirectionAt } from "./sun.js";
 import { setSunDirection } from "./sunLighting.js";
@@ -38,6 +38,10 @@ function skyStops(sunUp) {
 }
 
 const _sunDir = new THREE.Vector3(0.5, -0.8, 1.0).normalize();
+const _fwd = new THREE.Vector3();
+const SHADOW_DIST = 16000;
+const SHADOW_GROUND_Z = 1500;
+const SHADOW_LOOK_MAX = 14000;
 let _enabled = true;
 
 export function getSunDir() {
@@ -46,8 +50,9 @@ export function getSunDir() {
 
 export function initEnvironment(view) {
   const renderer = view.mainLoop.gfxEngine.renderer;
-  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.enabled = false;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  let _shadows = false;
 
   const scene = view.scene;
 
@@ -61,8 +66,8 @@ export function initEnvironment(view) {
   sun.shadow.camera.right = 10000;
   sun.shadow.camera.top = 10000;
   sun.shadow.camera.bottom = -10000;
-  sun.shadow.camera.near = 500;
-  sun.shadow.camera.far = 25000;
+  sun.shadow.camera.near = SHADOW_DIST - 8000;
+  sun.shadow.camera.far = SHADOW_DIST + 8000;
   sun.shadow.bias = -0.001;
   sun.shadow.radius = 2;
   scene.add(sun);
@@ -71,6 +76,7 @@ export function initEnvironment(view) {
   const fill = new THREE.DirectionalLight(0xb0c8ff, 0.3);
   fill.position.set(-0.8, 0.6, 0.4);
   scene.add(fill);
+  fill.updateMatrixWorld();
 
   const skyCanvas = document.createElement("canvas");
   skyCanvas.width = 4;
@@ -126,13 +132,23 @@ export function initEnvironment(view) {
       sunMesh.position.copy(cam).addScaledVector(_sunDir, 350000);
       sunGlow.position.copy(sunMesh.position);
     }
+
+    view.camera3D.getWorldDirection(_fwd);
+    let dist = _fwd.z < -0.05 ? (cam.z - SHADOW_GROUND_Z) / -_fwd.z : SHADOW_LOOK_MAX;
+    dist = Math.min(Math.max(dist, 0), SHADOW_LOOK_MAX);
+    const fx = cam.x + _fwd.x * dist;
+    const fy = cam.y + _fwd.y * dist;
     sun.position.set(
-      cam.x + _sunDir.x * 15000,
-      cam.y + _sunDir.y * 15000,
-      cam.z + _sunDir.z * 15000,
+      fx + _sunDir.x * SHADOW_DIST,
+      fy + _sunDir.y * SHADOW_DIST,
+      SHADOW_GROUND_Z + _sunDir.z * SHADOW_DIST,
     );
-    sun.target.position.set(cam.x, cam.y, 0);
+    sun.target.position.set(fx, fy, SHADOW_GROUND_Z);
     sun.target.updateMatrixWorld();
+    sun.updateMatrixWorld();
+    skySphere.updateMatrixWorld();
+    sunMesh.updateMatrixWorld();
+    sunGlow.updateMatrixWorld();
   });
 
   function setSunDate(date) {
@@ -158,7 +174,7 @@ export function initEnvironment(view) {
     sun.visible = on;
     fill.visible = on;
     skySphere.visible = on;
-    renderer.shadowMap.enabled = on;
+    renderer.shadowMap.enabled = on && _shadows;
     if (on) {
       scene.fog.density = savedFogDensity;
     } else {
@@ -169,8 +185,15 @@ export function initEnvironment(view) {
     view.notifyChange(view.camera3D);
   }
 
+  function setShadowsEnabled(on) {
+    _shadows = on;
+    renderer.shadowMap.enabled = on && _enabled;
+    renderer.shadowMap.needsUpdate = true;
+    view.notifyChange(view.camera3D);
+  }
+
   setSunDate(new Date());
-  return { setSunDate, setEnabled };
+  return { setSunDate, setEnabled, setShadowsEnabled };
 }
 
 export class TileLightingLayer extends itowns.Layer {
