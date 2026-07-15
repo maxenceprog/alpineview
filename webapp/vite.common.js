@@ -20,15 +20,18 @@ export const PROD_API_URL =
 export const repoRoot = resolve(import.meta.dirname, "..");
 export const py = "python3";
 
-// Serves (dev) / copies into dist/draco (build) the Draco decoder shipped
-// with three.js, so it doesn't need a manual pre-build copy step.
-const dracoCopyPlugin = () =>
+// Serves (dev) / copies into dist (build): the Draco decoder shipped with
+// three.js, so it doesn't need a manual pre-build copy step, and the root
+// NOTICE.md — the bundle redistributes three.js et al., whose licenses require
+// their notices to ship with it.
+const staticCopyPlugin = () =>
   viteStaticCopy({
     targets: [
       {
         src: "node_modules/three/examples/jsm/libs/draco/{draco_decoder.js,draco_decoder.wasm,draco_wasm_wrapper.js}",
         dest: "draco",
       },
+      { src: resolve(repoRoot, "NOTICE.md"), dest: "." },
     ],
   });
 
@@ -36,7 +39,7 @@ export const servePlugins = () => [
   // Self-signed TLS so the dev server speaks HTTP/2 — over plain HTTP the
   // browser caps parallel tile fetches at ~6 connections per origin.
   basicSsl(),
-  dracoCopyPlugin(),
+  staticCopyPlugin(),
 ];
 
 const apiProxy = () =>
