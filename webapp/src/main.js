@@ -20,8 +20,8 @@ const extent = new itowns.Extent("EPSG:2154", 256000, 1280000, 5952000, 6976000)
 
 const viewerDiv = document.getElementById("viewerDiv");
 const params = new URLSearchParams(location.search);
-const x = 1000 * (parseFloat(params.get("x")) || 965.5);
-const y = 1000 * (parseFloat(params.get("y")) || 6430.5);
+const x = 1000 * (parseFloat(params.get("x")) || 954.6);
+const y = 1000 * (parseFloat(params.get("y")) || 6438.5);
 
 const PLANAR_CONTROLS = {
   maxZenithAngle: 130,
@@ -36,7 +36,7 @@ const view = new itowns.PlanarView(viewerDiv, extent, {
   placement: {
     coord: new itowns.Coordinates("EPSG:2154", x, y),
     range: 8000,
-    tilt: 25,
+    tilt: 90,
     heading: 0,
   },
 });
