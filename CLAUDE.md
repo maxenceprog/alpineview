@@ -120,8 +120,11 @@ the call site.
 - `buildVerticalDiffuseMaterial` keeps legacy uniform defaults (`uLit=1`, `uBrightness` set via
   `setBrightness`) — nothing else depends on them now that the legacy app is gone, but the tests
   in `tests/layers.test.js` do.
-- Dev server serves `public/tiles|vegetation|buildings` through custom middleware and returns
-  `index.html` for missing files — always validate the 5-byte `"DRACO"` magic before decoding.
+- `/tiles|vegetation|buildings|dem` are proxied to the real `alpineview_api` in dev
+  (`DEV_API_URL`, `vite.common.js`) exactly as in prod — no custom middleware, no `index.html`
+  fallback. **Missing tiles 404**, and sparse coverage makes that the normal case, not an error:
+  404 must be silent and never retried (`isTileMissing` in `dracoLayer.js`, `null` in
+  `buildings.js`/vegetation). The 5-byte `"DRACO"` magic check survives as a corruption guard.
 - Draco decoder wasm is copied to `/draco/` by `vite.common.js` (`DRACOLoader.setDecoderPath`).
 - `src/testControls.js` — dev-only browser-console commands, loaded from `main.js` behind
   `__TEST_CONTROLS__` (true only under `npm run test_build_and_serve`, which also mounts the

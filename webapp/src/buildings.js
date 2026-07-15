@@ -129,10 +129,10 @@ export async function loadCityBuildings(url, opts = {}) {
       .catch(() => null)
     : Promise.resolve(null);
 
-  const text = await fetch(url).then((r) => {
-    if (!r.ok) throw new Error(`Failed to fetch ${url}: ${r.status}`);
-    return r.text();
-  });
+  const res = await fetch(url);
+  if (res.status === 404) return null; // no buildings for this cell
+  if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
+  const text = await res.text();
 
   const lines = text.split("\n").filter((l) => l.trim());
   if (lines.length < 2) return null;

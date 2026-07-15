@@ -1,53 +1,19 @@
-import { createReadStream, existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import basicSsl from "@vitejs/plugin-basic-ssl";
 import { viteStaticCopy } from "vite-plugin-static-copy";
 
-// Serve a public sub-directory at a given URL prefix, bypassing Vite's
-// snapshot (which misses files created after startup or excluded from watching).
-function servePublicDir(urlPrefix, subDir) {
-  const dir = resolve(import.meta.dirname, "public", subDir);
-  const MIME = {
-    ".drc": "application/octet-stream",
-    ".jsonl": "application/jsonl",
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".gz": "application/octet-stream",
-  };
-  return {
-    name: `serve-${subDir}`,
-    configureServer(server) {
-      server.middlewares.use(urlPrefix, (req, res, next) => {
-        const rel = decodeURIComponent(req.url.split("?")[0]);
-        const filePath = resolve(dir, "." + rel);
-        if (
-          !filePath.startsWith(dir + "/") ||
-          !existsSync(filePath) ||
-          !statSync(filePath).isFile()
-        ) {
-          return next();
-        }
-        // Last-Modified + no-cache lets the browser 304 on unchanged tiles
-        // while still picking up a regenerated one on the next request
-        // (reloadTile's `cache: "reload"` skips this entirely when needed).
-        const lastModified = statSync(filePath).mtime.toUTCString();
-        res.setHeader("Cache-Control", "no-cache");
-        res.setHeader("Last-Modified", lastModified);
-        if (req.headers["if-modified-since"] === lastModified) {
-          res.statusCode = 304;
-          res.end();
-          return;
-        }
-        res.setHeader(
-          "Content-Type",
-          MIME[filePath.slice(filePath.lastIndexOf("."))] ??
-            "application/octet-stream",
-        );
-        createReadStream(filePath).pipe(res);
-      });
-    },
-  };
-}
+// Asset layers served by alpineview_api, in dev as in prod.
+export const API_LAYERS = ["tiles", "vegetation", "buildings", "dem"];
+
+// Dev: the local alpineview_api the test_serve scripts start (see ../test_serve).
+// Proxied rather than called cross-origin, so the app stays same-origin and keeps
+// the dev server's HTTP/2 — and so API_BASE_URL is empty, as on a same-host deploy.
+export const DEV_API_URL = process.env.ALPINEVIEW_API_URL ?? "http://127.0.0.1:8000";
+
+// Prod: the deployed API (alpineview_api/deploy/vars.yml api_domain). The built
+// frontend is static (GitHub Pages), so it needs the absolute URL baked in.
+export const PROD_API_URL =
+  process.env.VITE_API_BASE_URL ?? "https://vps121630.serveur-vps.net";
 
 // The dev server is launched from inside the project env (conda), so the
 // PATH python is the right interpreter for the debug/build helpers.
@@ -71,11 +37,13 @@ export const servePlugins = () => [
   // browser caps parallel tile fetches at ~6 connections per origin.
   basicSsl(),
   dracoCopyPlugin(),
-  servePublicDir("/tiles", "tiles"),
-  servePublicDir("/vegetation", "vegetation"),
-  servePublicDir("/buildings", "buildings"),
-  servePublicDir("/dem", "dem"),
 ];
+
+const apiProxy = () =>
+  Object.fromEntries(API_LAYERS.map((layer) => [
+    `/${layer}`,
+    { target: DEV_API_URL, changeOrigin: true },
+  ]));
 
 export const baseConfig = {
   build: {
@@ -86,6 +54,7 @@ export const baseConfig = {
     },
   },
   server: {
+    proxy: apiProxy(),
     // Generated static tiles (thousands of .drc/.png/.gz files) don't need HMR
     // watching — watching them all exhausts the inotify limit (ENOSPC).
     watch: { ignored: ["**/public/tiles*/**", "**/public/vegetation/**", "**/public/dem/**"] },

@@ -125,5 +125,6 @@ export default defineConfig({
     tileBuildPlugin(),
     ...servePlugins(),
   ],
-  define: { __TEST_CONTROLS__: "true" },
+  // Dev-only config: assets are proxied to the local alpineview_api, so same-origin.
+  define: { __TEST_CONTROLS__: "true", __API_BASE_URL__: '""' },
 });

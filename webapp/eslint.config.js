@@ -14,6 +14,7 @@ export default [
       globals: {
         ...globals.browser,
         __TEST_CONTROLS__: "readonly",
+        __API_BASE_URL__: "readonly",
       },
     },
     rules: {
@@ -35,7 +36,7 @@ export default [
     },
   },
   {
-    files: ["*.config.js", "eslint.config.js"],
+    files: ["*.config.js", "vite.common.js", "eslint.config.js"],
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "module",

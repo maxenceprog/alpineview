@@ -56,6 +56,12 @@ async function loadTileTexture(geometry, { tx, ty, z, ox, oy }) {
   return texture;
 }
 
+// The API 404s absent tiles; itowns' Fetcher turns that into a plain Error
+// carrying the Response. Missing is normal (sparse coverage) — never retry.
+function isTileMissing(err) {
+  return !!err.isTileMissing || err.response?.status === 404;
+}
+
 async function parseDraco(buffer) {
   if (
     buffer.byteLength < 5 ||
@@ -349,7 +355,7 @@ export class DracoTileLayer extends itowns.GeometryLayer {
           state.pending = false;
           return;
         }
-        const delay = state.failure(err.isTileMissing || state.errors > 3);
+        const delay = state.failure(isTileMissing(err) || state.errors > 3);
         if (!state.finished) {
           setTimeout(() => context.view.notifyChange(node, false), delay);
         }

@@ -8,7 +8,9 @@ export default defineConfig({
     bypassCSP: true,
   },
   webServer: {
-    command: "npm run dev",
+    // ../test_serve, not `npm run dev`: the asset routes are proxied to
+    // alpineview_api, which that script starts alongside the dev server.
+    command: "../test_serve",
     url: "http://localhost:5173",
     reuseExistingServer: true,
     timeout: 15_000,
