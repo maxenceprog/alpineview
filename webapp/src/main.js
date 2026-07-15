@@ -48,7 +48,7 @@ const demSource = new itowns.TMSSource({
   crs: "EPSG:2154",
   url: `${API_BASE_URL}/dem/\${z}/\${x}/\${y}.bil`,
   format: "image/x-bil;bits=32",
-  zoom: { min: 0, max: 11 },
+  zoom: { min: 0, max: 10 },
 });
 
 
