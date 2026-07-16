@@ -17,9 +17,6 @@ const TARGET_TEXTURE_PX = IS_MOBILE ? 128 : 256;
 
 // zoom = the levels each set publishes (its TileMatrixLimits); the ortho stops short at 10.
 // bbox = the layer's data coverage in L93 metres, from its GetCapabilities WGS84BoundingBox.
-// The matrix is wider than the data (z7 has 4 columns, the plan layer fills 3), so tiles
-// outside this box 404 — checked against every published TileMatrixLimits, the box
-// reproduces them exactly, which is why it can stand in for parsing 15 of them.
 const WMTS_SOURCES = {
   ortho: {
     layer: "HR.ORTHOIMAGERY.ORTHOPHOTOS.L93",
@@ -64,6 +61,17 @@ const IMAGE_TIMEOUT_MS = 10_000;
 const IMAGE_CACHE_MAX = IS_MOBILE ? 200 : 800;
 const _imageCache = new Map();
 
+// null = IGN has no imagery for this tile. It answers 404 (an OWS "No data found"
+// exception) for sea and coverage gaps, even within the layer's declared TileMatrixLimits,
+// so that is normal and must not fail the surrounding mosaic — nor be retried, which is
+// why the null is cached like any other result.
+async function fetchTile(url) {
+  const res = await fetch(url, { signal: AbortSignal.timeout(IMAGE_TIMEOUT_MS) });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Failed to load tile: ${url} (${res.status})`);
+  return createImageBitmap(await res.blob());
+}
+
 function loadImage(url) {
   const cached = _imageCache.get(url);
   if (cached) {
@@ -72,17 +80,8 @@ function loadImage(url) {
     return cached;
   }
 
-  const promise = new Promise((resolve, reject) => {
-    const img = new Image();
-    const timer = setTimeout(
-      () => reject(new Error(`Timeout loading tile: ${url}`)),
-      IMAGE_TIMEOUT_MS,
-    );
-    img.crossOrigin = "anonymous";
-    img.onload = () => { clearTimeout(timer); resolve(img); };
-    img.onerror = () => { clearTimeout(timer); reject(new Error(`Failed to load tile: ${url}`)); };
-    img.src = url;
-  }).catch((err) => { _imageCache.delete(url); throw err; });
+  const promise = fetchTile(url)
+    .catch((err) => { _imageCache.delete(url); throw err; });
 
   _imageCache.set(url, promise);
   if (_imageCache.size > IMAGE_CACHE_MAX) {
@@ -142,9 +141,10 @@ export async function fetchWmtsCanvas(
       })));
     }
 
-  // One unreachable tile leaves its patch blank rather than failing the whole extent.
+  // A tile with no imagery (null, e.g. sea inside the bbox) leaves its patch blank, as
+  // does an unreachable one — neither fails the whole extent.
   for (const res of await Promise.allSettled(fetches))
-    if (res.status === "fulfilled")
+    if (res.status === "fulfilled" && res.value.img)
       ctx.drawImage(res.value.img, res.value.x, res.value.y, TILE_PX, TILE_PX);
 
   return canvas;

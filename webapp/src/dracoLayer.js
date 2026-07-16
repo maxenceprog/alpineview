@@ -117,6 +117,10 @@ export class DracoTileSource extends itowns.Source {
     };
   }
 
+  handlingError(err) {
+    throw err;
+  }
+
   urlFromExtent(tile) {
     const { tx, ty, z } = tileKey(tile);
     return `${API_BASE_URL}/tiles/tile.${tx}.${ty}.${z}.drc`;
