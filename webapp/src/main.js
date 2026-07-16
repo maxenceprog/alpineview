@@ -39,7 +39,7 @@ const view = new itowns.PlanarView(viewerDiv, extent, {
   placement: {
     coord: new itowns.Coordinates("EPSG:2154", x, y),
     range: 8000,
-    tilt: 90,
+    tilt: 80,
     heading: 0,
   },
 });
