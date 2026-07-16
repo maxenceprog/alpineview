@@ -238,13 +238,20 @@ export class DracoTileLayer extends itowns.GeometryLayer {
   // itowns detaches a node's children when it is culled or stops subdividing, without
   // disposing them or emitting 'dispose': a mesh outlives its node, and the node replacing
   // it is a new object wanting the same tile. Meshes are therefore kept per tile rather
-  // than per node, so panning back does not refetch and redecode. Only traversed nodes
-  // reach update(), so each frame restates which of them are shown.
+  // than per node, so panning back does not refetch and redecode. Only orphans are touched
+  // here: an update pass may traverse a single subtree, leaving every other node's mesh to
+  // hold the state its own update() last gave it.
   preUpdate() {
     for (const mesh of this.meshCache.values()) {
-      mesh.visible = false;
+      if (this.isOrphaned(mesh)) {
+        mesh.visible = false;
+      }
     }
-    this.displayed.clear();
+    for (const node of this.displayed) {
+      if (!node.parent) {
+        this.displayed.delete(node);
+      }
+    }
   }
 
   cacheMesh(key, mesh) {
