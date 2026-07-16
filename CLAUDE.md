@@ -1,6 +1,6 @@
 # AlpineView — CLAUDE.md
 
-3D mountain viewer for the French Alps (montagne3d.fr). LiDAR HD point clouds are meshed offline
+3D mountain viewer for the French Alps (3dalpsview.fr). LiDAR HD point clouds are meshed offline
 (`alpineview_ewoks` + `alpineview_builder`) into Draco tiles served statically (`alpineview_api`,
 or Vite middleware in dev). The web frontend lives in `webapp/` (Vite 6, three.js, ESM).
 

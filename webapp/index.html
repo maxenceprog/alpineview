@@ -1,479 +1,538 @@
 <!doctype html>
 <html lang="fr">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>montagne3d.fr — iTowns</title>
-    <style>
-      html,
-      body {
-        margin: 0;
-        height: 100%;
-        overflow: hidden;
-      }
-      #viewerDiv {
-        width: 100%;
-        height: 100%;
-        touch-action: none;
-      }
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3dalpsview.fr</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    #viewerDiv {
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+    }
+
+    #env-toggle,
+    #layer-toggle,
+    #help-toggle {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      z-index: 11;
+      width: 34px;
+      height: 34px;
+      border: none;
+      border-radius: 8px;
+      background: rgba(10, 20, 35, 0.75);
+      color: #dde6f0;
+      font-size: 16px;
+      cursor: pointer;
+    }
+
+    #layer-toggle {
+      left: 52px;
+    }
+
+    #help-toggle {
+      left: 94px;
+      font-weight: 600;
+    }
+
+    #help-panel {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      z-index: 12;
+      width: 300px;
+      max-width: calc(100vw - 20px);
+      max-height: calc(100vh - 20px);
+      overflow-y: auto;
+      background: rgba(10, 20, 35, 0.88);
+      backdrop-filter: blur(6px);
+      color: #dde6f0;
+      font: 13px/1.45 system-ui, sans-serif;
+      padding: 14px 16px 16px;
+      border-radius: 10px;
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+    }
+
+    #help-panel.hidden {
+      display: none;
+    }
+
+    #help-panel h2 {
+      margin: 0 0 2px;
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    #help-panel p {
+      margin: 0 0 12px;
+      color: #9fb0c4;
+      font-size: 12px;
+    }
+
+    #help-close {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 26px;
+      height: 26px;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: #9fb0c4;
+      font-size: 17px;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    #help-close:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: #dde6f0;
+    }
+
+    #help-panel dl {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 7px 12px;
+      margin: 0;
+      align-items: baseline;
+    }
+
+    #help-panel #help-mobile {
+      display: none;
+    }
+
+    #help-panel dt {
+      white-space: nowrap;
+    }
+
+    #help-panel dd {
+      margin: 0;
+    }
+
+    #help-panel kbd {
+      display: inline-block;
+      padding: 1px 6px;
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      border-bottom-width: 2px;
+      border-radius: 5px;
+      background: rgba(255, 255, 255, 0.08);
+      font: 11px/1.5 system-ui, sans-serif;
+      white-space: nowrap;
+    }
+
+    #env-panel {
+      position: fixed;
+      top: 52px;
+      left: 10px;
+      z-index: 10;
+      background: rgba(10, 20, 35, 0.75);
+      color: #dde6f0;
+      font: 12px system-ui, sans-serif;
+      padding: 10px 12px;
+      border-radius: 8px;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 6px 8px;
+      align-items: center;
+    }
+
+    #env-panel input[type="range"] {
+      width: 110px;
+    }
+
+    #env-panel.hidden {
+      display: none;
+    }
+
+    #search-form {
+      position: fixed;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 12;
+      display: flex;
+      gap: 4px;
+    }
+
+    #search-input {
+      width: 220px;
+      padding: 6px 10px;
+      background: rgba(10, 20, 35, 0.75);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 8px;
+      color: #dde6f0;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    #search-input:focus {
+      border-color: #3b82f6;
+    }
+
+    #search-input::placeholder {
+      color: #7c8ba0;
+    }
+
+    #search-btn {
+      padding: 6px 12px;
+      background: rgba(10, 20, 35, 0.75);
+      border: 1px solid #3b82f6;
+      border-radius: 8px;
+      color: #93c5fd;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    #search-btn:hover {
+      background: #2563eb;
+      color: #fff;
+    }
+
+    #search-btn:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+
+    #search-results {
+      display: none;
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      width: 320px;
+      max-width: 90vw;
+      background: rgba(10, 20, 35, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    #search-results.visible {
+      display: block;
+    }
+
+    .search-result {
+      padding: 6px 10px;
+      font: 12px system-ui, sans-serif;
+      color: #dde6f0;
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .search-result:hover {
+      background: #1e3a5f;
+      color: #93c5fd;
+    }
+
+    .search-result+.search-result {
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    /* POI labels (iTowns LabelLayer). iTowns positions the zero-size anchor
+         at the point; the inner span offsets itself up-and-centred. */
+    .poi-label {
+      position: absolute;
+      left: 0;
+      top: 0;
+      transform: translate(-50%, -100%);
+      color: #fff;
+      font-size: 12px;
+      font-family: sans-serif;
+      text-shadow: 0 0 3px #000, 0 0 3px #000;
+      white-space: nowrap;
+      pointer-events: auto;
+      cursor: pointer;
+    }
+
+    .poi-peak {
+      font-weight: 700;
+    }
+
+    .poi-pass {
+      font-style: italic;
+      color: #d8e8ff;
+    }
+
+    .poi-hut {
+      color: #ffe0a3;
+    }
+
+    .poi-parking {
+      color: #a3ffb0;
+    }
+
+    /* POI info panel */
+    #poi-panel {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      z-index: 13;
+      width: 320px;
+      max-width: calc(100vw - 20px);
+      max-height: calc(100vh - 20px);
+      overflow-y: auto;
+      background: rgba(10, 20, 35, 0.9);
+      backdrop-filter: blur(6px);
+      color: #dde6f0;
+      font: 13px/1.45 system-ui, sans-serif;
+      padding: 14px 16px 16px;
+      border-radius: 10px;
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+    }
+
+    #poi-panel.hidden {
+      display: none;
+    }
+
+    #poi-panel.maximized {
+      width: 680px;
+      height: calc(100vh - 20px);
+    }
+
+    #poi-close,
+    #poi-maximize {
+      position: absolute;
+      top: 8px;
+      width: 26px;
+      height: 26px;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: #9fb0c4;
+      font-size: 17px;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    #poi-close {
+      right: 8px;
+    }
+
+    #poi-maximize {
+      right: 38px;
+      font-size: 15px;
+    }
+
+    #poi-close:hover,
+    #poi-maximize:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: #dde6f0;
+    }
+
+    #poi-panel h3 {
+      margin: 0 0 2px;
+      font-size: 15px;
+    }
+
+    #poi-title {
+      padding-right: 56px;
+    }
+
+    #poi-panel .poi-meta {
+      font-size: 11px;
+      color: #9ca3af;
+    }
+
+    #poi-panel .poi-text {
+      font-size: 12px;
+      line-height: 1.5;
+      color: #d1d5db;
+    }
+
+    #poi-panel .poi-text img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 4px;
+      display: block;
+      margin: 6px 0;
+    }
+
+    #poi-panel a {
+      font-size: 12px;
+      color: #60a5fa;
+    }
+
+    #poi-panel .poi-link-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    #poi-panel .poi-link-list a {
+      display: block;
+    }
+
+    /* Mobile: bigger touch targets and a simple vertical stack so the
+         toggles, search bar and panels stop overlapping on narrow screens. */
+    @media (max-width: 640px) {
+
       #env-toggle,
       #layer-toggle,
       #help-toggle {
-        position: fixed;
-        top: 10px;
-        left: 10px;
-        z-index: 11;
-        width: 34px;
-        height: 34px;
-        border: none;
-        border-radius: 8px;
-        background: rgba(10, 20, 35, 0.75);
-        color: #dde6f0;
-        font-size: 16px;
-        cursor: pointer;
+        width: 40px;
+        height: 40px;
+        font-size: 20px;
       }
+
       #layer-toggle {
-        left: 52px;
+        left: 58px;
       }
+
       #help-toggle {
-        left: 94px;
-        font-weight: 600;
-      }
-      #help-panel {
-        position: fixed;
-        top: 10px;
-        right: 10px;
-        z-index: 12;
-        width: 300px;
-        max-width: calc(100vw - 20px);
-        max-height: calc(100vh - 20px);
-        overflow-y: auto;
-        background: rgba(10, 20, 35, 0.88);
-        backdrop-filter: blur(6px);
-        color: #dde6f0;
-        font: 13px/1.45 system-ui, sans-serif;
-        padding: 14px 16px 16px;
-        border-radius: 10px;
-        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
-      }
-      #help-panel.hidden {
-        display: none;
-      }
-      #help-panel h2 {
-        margin: 0 0 2px;
-        font-size: 15px;
-        font-weight: 600;
-      }
-      #help-panel p {
-        margin: 0 0 12px;
-        color: #9fb0c4;
-        font-size: 12px;
-      }
-      #help-close {
-        position: absolute;
-        top: 8px;
-        right: 8px;
-        width: 26px;
-        height: 26px;
-        border: none;
-        border-radius: 6px;
-        background: transparent;
-        color: #9fb0c4;
-        font-size: 17px;
-        line-height: 1;
-        cursor: pointer;
-      }
-      #help-close:hover {
-        background: rgba(255, 255, 255, 0.1);
-        color: #dde6f0;
-      }
-      #help-panel dl {
-        display: grid;
-        grid-template-columns: auto 1fr;
-        gap: 7px 12px;
-        margin: 0;
-        align-items: baseline;
-      }
-      #help-panel #help-mobile {
-        display: none;
-      }
-      #help-panel dt {
-        white-space: nowrap;
-      }
-      #help-panel dd {
-        margin: 0;
-      }
-      #help-panel kbd {
-        display: inline-block;
-        padding: 1px 6px;
-        border: 1px solid rgba(255, 255, 255, 0.22);
-        border-bottom-width: 2px;
-        border-radius: 5px;
-        background: rgba(255, 255, 255, 0.08);
-        font: 11px/1.5 system-ui, sans-serif;
-        white-space: nowrap;
-      }
-      #env-panel {
-        position: fixed;
-        top: 52px;
-        left: 10px;
-        z-index: 10;
-        background: rgba(10, 20, 35, 0.75);
-        color: #dde6f0;
-        font: 12px system-ui, sans-serif;
-        padding: 10px 12px;
-        border-radius: 8px;
-        display: grid;
-        grid-template-columns: auto 1fr auto;
-        gap: 6px 8px;
-        align-items: center;
-      }
-      #env-panel input[type="range"] {
-        width: 110px;
-      }
-      #env-panel.hidden {
-        display: none;
+        left: 106px;
       }
 
       #search-form {
-        position: fixed;
-        top: 10px;
-        left: 50%;
-        transform: translateX(-50%);
-        z-index: 12;
-        display: flex;
-        gap: 4px;
-      }
-      #search-input {
-        width: 220px;
-        padding: 6px 10px;
-        background: rgba(10, 20, 35, 0.75);
-        border: 1px solid rgba(255, 255, 255, 0.16);
-        border-radius: 8px;
-        color: #dde6f0;
-        font-size: 13px;
-        outline: none;
-        transition: border-color 0.2s;
-      }
-      #search-input:focus {
-        border-color: #3b82f6;
-      }
-      #search-input::placeholder {
-        color: #7c8ba0;
-      }
-      #search-btn {
-        padding: 6px 12px;
-        background: rgba(10, 20, 35, 0.75);
-        border: 1px solid #3b82f6;
-        border-radius: 8px;
-        color: #93c5fd;
-        font-size: 13px;
-        cursor: pointer;
-        transition: background 0.15s;
-      }
-      #search-btn:hover {
-        background: #2563eb;
-        color: #fff;
-      }
-      #search-btn:disabled {
-        opacity: 0.5;
-        cursor: default;
-      }
-      #search-results {
-        display: none;
-        position: absolute;
-        top: calc(100% + 4px);
-        left: 0;
-        width: 320px;
-        max-width: 90vw;
-        background: rgba(10, 20, 35, 0.95);
-        border: 1px solid rgba(255, 255, 255, 0.16);
-        border-radius: 8px;
-        overflow: hidden;
-      }
-      #search-results.visible {
-        display: block;
-      }
-      .search-result {
-        padding: 6px 10px;
-        font: 12px system-ui, sans-serif;
-        color: #dde6f0;
-        cursor: pointer;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      .search-result:hover {
-        background: #1e3a5f;
-        color: #93c5fd;
-      }
-      .search-result + .search-result {
-        border-top: 1px solid rgba(255, 255, 255, 0.08);
-      }
-
-      /* POI labels (iTowns LabelLayer). iTowns positions the zero-size anchor
-         at the point; the inner span offsets itself up-and-centred. */
-      .poi-label {
-        position: absolute;
-        left: 0;
-        top: 0;
-        transform: translate(-50%, -100%);
-        color: #fff;
-        font-size: 12px;
-        font-family: sans-serif;
-        text-shadow: 0 0 3px #000, 0 0 3px #000;
-        white-space: nowrap;
-        pointer-events: auto;
-        cursor: pointer;
-      }
-      .poi-peak {
-        font-weight: 700;
-      }
-      .poi-pass {
-        font-style: italic;
-        color: #d8e8ff;
-      }
-      .poi-hut {
-        color: #ffe0a3;
-      }
-      .poi-parking {
-        color: #a3ffb0;
-      }
-
-      /* POI info panel */
-      #poi-panel {
-        position: fixed;
-        top: 10px;
+        top: 58px;
+        left: 10px;
         right: 10px;
-        z-index: 13;
-        width: 320px;
-        max-width: calc(100vw - 20px);
-        max-height: calc(100vh - 20px);
-        overflow-y: auto;
-        background: rgba(10, 20, 35, 0.9);
-        backdrop-filter: blur(6px);
-        color: #dde6f0;
-        font: 13px/1.45 system-ui, sans-serif;
-        padding: 14px 16px 16px;
-        border-radius: 10px;
-        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+        transform: none;
       }
-      #poi-panel.hidden {
+
+      #search-input {
+        flex: 1;
+        width: auto;
+      }
+
+      #search-results {
+        left: 0;
+        right: 0;
+        width: auto;
+        max-width: none;
+      }
+
+      #env-panel,
+      #help-panel,
+      #poi-panel,
+      #poi-panel.maximized {
+        top: 104px;
+        left: 10px;
+        right: 10px;
+        width: auto;
+        max-width: none;
+        height: auto;
+        max-height: calc(100vh - 114px);
+      }
+
+      #help-panel #help-desktop {
         display: none;
       }
-      #poi-panel.maximized {
-        width: 680px;
-        height: calc(100vh - 20px);
-      }
-      #poi-close,
-      #poi-maximize {
-        position: absolute;
-        top: 8px;
-        width: 26px;
-        height: 26px;
-        border: none;
-        border-radius: 6px;
-        background: transparent;
-        color: #9fb0c4;
-        font-size: 17px;
-        line-height: 1;
-        cursor: pointer;
-      }
-      #poi-close {
-        right: 8px;
-      }
-      #poi-maximize {
-        right: 38px;
-        font-size: 15px;
-      }
-      #poi-close:hover,
-      #poi-maximize:hover {
-        background: rgba(255, 255, 255, 0.1);
-        color: #dde6f0;
-      }
-      #poi-panel h3 {
-        margin: 0 0 2px;
-        font-size: 15px;
-      }
-      #poi-title {
-        padding-right: 56px;
-      }
-      #poi-panel .poi-meta {
-        font-size: 11px;
-        color: #9ca3af;
-      }
-      #poi-panel .poi-text {
-        font-size: 12px;
-        line-height: 1.5;
-        color: #d1d5db;
-      }
-      #poi-panel .poi-text img {
-        max-width: 100%;
-        height: auto;
-        border-radius: 4px;
-        display: block;
-        margin: 6px 0;
-      }
-      #poi-panel a {
-        font-size: 12px;
-        color: #60a5fa;
-      }
-      #poi-panel .poi-link-list {
-        list-style: none;
-        margin: 0;
-        padding: 0;
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-      }
-      #poi-panel .poi-link-list a {
-        display: block;
-      }
 
-      /* Mobile: bigger touch targets and a simple vertical stack so the
-         toggles, search bar and panels stop overlapping on narrow screens. */
-      @media (max-width: 640px) {
-        #env-toggle,
-        #layer-toggle,
-        #help-toggle {
-          width: 40px;
-          height: 40px;
-          font-size: 20px;
-        }
-        #layer-toggle {
-          left: 58px;
-        }
-        #help-toggle {
-          left: 106px;
-        }
-        #search-form {
-          top: 58px;
-          left: 10px;
-          right: 10px;
-          transform: none;
-        }
-        #search-input {
-          flex: 1;
-          width: auto;
-        }
-        #search-results {
-          left: 0;
-          right: 0;
-          width: auto;
-          max-width: none;
-        }
-        #env-panel,
-        #help-panel,
-        #poi-panel,
-        #poi-panel.maximized {
-          top: 104px;
-          left: 10px;
-          right: 10px;
-          width: auto;
-          max-width: none;
-          height: auto;
-          max-height: calc(100vh - 114px);
-        }
-        #help-panel #help-desktop {
-          display: none;
-        }
-        #help-panel #help-mobile {
-          display: grid;
-        }
+      #help-panel #help-mobile {
+        display: grid;
       }
-    </style>
-  </head>
-  <body>
-    <div id="viewerDiv"></div>
-    <button id="env-toggle" title="Soleil, lumière et brume">🌤</button>
-    <button id="layer-toggle" title="Photo aérienne / Plan IGN">🗺</button>
-    <button id="help-toggle" title="Aide — commandes">?</button>
+    }
+  </style>
+</head>
 
-    <div id="search-form">
-      <input id="search-input" type="text" placeholder="Rechercher un lieu…" autocomplete="off" />
-      <button id="search-btn">Go</button>
-      <div id="search-results"></div>
+<body>
+  <div id="viewerDiv"></div>
+  <button id="env-toggle" title="Soleil, lumière et brume">🌤</button>
+  <button id="layer-toggle" title="Photo aérienne / Plan IGN">🗺</button>
+  <button id="help-toggle" title="Aide — commandes">?</button>
+
+  <div id="search-form">
+    <input id="search-input" type="text" placeholder="Rechercher un lieu…" autocomplete="off" />
+    <button id="search-btn">Go</button>
+    <div id="search-results"></div>
+  </div>
+
+  <div id="help-panel">
+    <button id="help-close" title="Fermer" aria-label="Fermer">×</button>
+    <h2>Se déplacer</h2>
+    <p>Le relief est en 3D : approchez-vous, tournez autour, levez les yeux.</p>
+    <dl id="help-desktop">
+      <dt><kbd>Clic gauche</kbd> + glisser</dt>
+      <dd>Déplacer le terrain, comme une carte que l'on tire.</dd>
+
+      <dt><kbd>Molette</kbd></dt>
+      <dd>Zoomer vers le point sous le curseur.</dd>
+
+      <dt><kbd>Ctrl</kbd> + <kbd>clic gauche</kbd></dt>
+      <dd>Pivoter autour du point visé : changer l'angle de vue, se mettre au ras du sol.</dd>
+
+      <dt><kbd>Clic droit</kbd> + glisser</dt>
+      <dd>Faire un panoramique sans bouger de place.</dd>
+
+      <dt><kbd>Clic molette</kbd><br />ou <kbd>Espace</kbd></dt>
+      <dd>Voler jusqu'au point visé, par exemple un sommet.</dd>
+
+      <dt><kbd>T</kbd></dt>
+      <dd>Vue du dessus.</dd>
+
+      <dt><kbd>Y</kbd></dt>
+      <dd>Revenir à la vue de départ.</dd>
+    </dl>
+    <dl id="help-mobile">
+      <dt><kbd>1 doigt</kbd> + glisser</dt>
+      <dd>Déplacer le terrain, comme une carte que l'on tire.</dd>
+
+      <dt><kbd>Pincer</kbd> à 2 doigts</dt>
+      <dd>Zoomer entre les deux doigts.</dd>
+
+      <dt><kbd>Tourner</kbd> à 2 doigts</dt>
+      <dd>Faire pivoter la vue autour du centre.</dd>
+
+      <dt><kbd>2 doigts</kbd> vers le haut/bas</dt>
+      <dd>Basculer l'angle de vue, se mettre au ras du sol.</dd>
+
+      <dt><kbd>Double-tap</kbd></dt>
+      <dd>Voler jusqu'au point visé, par exemple un sommet.</dd>
+    </dl>
+  </div>
+  <div id="poi-panel" class="hidden">
+    <button id="poi-maximize" title="Agrandir" aria-label="Agrandir">⤢</button>
+    <button id="poi-close" title="Fermer" aria-label="Fermer">×</button>
+    <h3 id="poi-title"></h3>
+    <div id="poi-meta" class="poi-meta"></div>
+    <div id="poi-text" class="poi-text"></div>
+    <a id="poi-link" href="#" target="_blank" rel="noopener">Ouvrir sur camptocamp.org →</a>
+    <div id="poi-routes-section" style="display: none">
+      <h3>Itinéraires</h3>
+      <ul id="poi-routes" class="poi-link-list"></ul>
     </div>
-
-    <div id="help-panel">
-      <button id="help-close" title="Fermer" aria-label="Fermer">×</button>
-      <h2>Se déplacer</h2>
-      <p>Le relief est en 3D : approchez-vous, tournez autour, levez les yeux.</p>
-      <dl id="help-desktop">
-        <dt><kbd>Clic gauche</kbd> + glisser</dt>
-        <dd>Déplacer le terrain, comme une carte que l'on tire.</dd>
-
-        <dt><kbd>Molette</kbd></dt>
-        <dd>Zoomer vers le point sous le curseur.</dd>
-
-        <dt><kbd>Ctrl</kbd> + <kbd>clic gauche</kbd></dt>
-        <dd>Pivoter autour du point visé : changer l'angle de vue, se mettre au ras du sol.</dd>
-
-        <dt><kbd>Clic droit</kbd> + glisser</dt>
-        <dd>Faire un panoramique sans bouger de place.</dd>
-
-        <dt><kbd>Clic molette</kbd><br />ou <kbd>Espace</kbd></dt>
-        <dd>Voler jusqu'au point visé, par exemple un sommet.</dd>
-
-        <dt><kbd>T</kbd></dt>
-        <dd>Vue du dessus.</dd>
-
-        <dt><kbd>Y</kbd></dt>
-        <dd>Revenir à la vue de départ.</dd>
-      </dl>
-      <dl id="help-mobile">
-        <dt><kbd>1 doigt</kbd> + glisser</dt>
-        <dd>Déplacer le terrain, comme une carte que l'on tire.</dd>
-
-        <dt><kbd>Pincer</kbd> à 2 doigts</dt>
-        <dd>Zoomer entre les deux doigts.</dd>
-
-        <dt><kbd>Tourner</kbd> à 2 doigts</dt>
-        <dd>Faire pivoter la vue autour du centre.</dd>
-
-        <dt><kbd>2 doigts</kbd> vers le haut/bas</dt>
-        <dd>Basculer l'angle de vue, se mettre au ras du sol.</dd>
-
-        <dt><kbd>Double-tap</kbd></dt>
-        <dd>Voler jusqu'au point visé, par exemple un sommet.</dd>
-      </dl>
+    <div id="poi-outings-section" style="display: none">
+      <h3>Sorties récentes</h3>
+      <ul id="poi-outings" class="poi-link-list"></ul>
     </div>
-    <div id="poi-panel" class="hidden">
-      <button id="poi-maximize" title="Agrandir" aria-label="Agrandir">⤢</button>
-      <button id="poi-close" title="Fermer" aria-label="Fermer">×</button>
-      <h3 id="poi-title"></h3>
-      <div id="poi-meta" class="poi-meta"></div>
-      <div id="poi-text" class="poi-text"></div>
-      <a id="poi-link" href="#" target="_blank" rel="noopener">Ouvrir sur camptocamp.org →</a>
-      <div id="poi-routes-section" style="display: none">
-        <h3>Itinéraires</h3>
-        <ul id="poi-routes" class="poi-link-list"></ul>
-      </div>
-      <div id="poi-outings-section" style="display: none">
-        <h3>Sorties récentes</h3>
-        <ul id="poi-outings" class="poi-link-list"></ul>
-      </div>
-    </div>
-    <div id="env-panel">
-      <label for="env-enabled">Éclairage</label>
-      <input type="checkbox" id="env-enabled" checked />
-      <span></span>
-      <label for="shadows-enabled">Ombres</label>
-      <input type="checkbox" id="shadows-enabled" />
-      <span></span>
-      <label for="sun-date">Date</label>
-      <input type="date" id="sun-date" />
-      <span></span>
-      <label for="sun-time">Heure</label>
-      <input type="range" id="sun-time" min="0" max="1425" step="15" value="720" />
-      <span id="sun-time-value">12:00</span>
-      <label for="brightness">Luminosité</label>
-      <input type="range" id="brightness" min="0.5" max="2" step="0.05" value="1.2" />
-      <span id="brightness-value">1.20</span>
-      <label for="fog-density">Brume</label>
-      <input type="range" id="fog-density" min="0" max="0.5" step="0.01" value="0.05" />
-      <span id="fog-density-value">0.05</span>
-    </div>
-    <script type="module" src="/src/main.js"></script>
-  </body>
+  </div>
+  <div id="env-panel">
+    <label for="env-enabled">Éclairage</label>
+    <input type="checkbox" id="env-enabled" checked />
+    <span></span>
+    <label for="shadows-enabled">Ombres</label>
+    <input type="checkbox" id="shadows-enabled" />
+    <span></span>
+    <label for="sun-date">Date</label>
+    <input type="date" id="sun-date" />
+    <span></span>
+    <label for="sun-time">Heure</label>
+    <input type="range" id="sun-time" min="0" max="1425" step="15" value="720" />
+    <span id="sun-time-value">12:00</span>
+    <label for="brightness">Luminosité</label>
+    <input type="range" id="brightness" min="0.5" max="2" step="0.05" value="1.2" />
+    <span id="brightness-value">1.20</span>
+    <label for="fog-density">Brume</label>
+    <input type="range" id="fog-density" min="0" max="0.5" step="0.01" value="0.05" />
+    <span id="fog-density-value">0.05</span>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+
 </html>

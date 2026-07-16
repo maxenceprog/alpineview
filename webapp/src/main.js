@@ -4,11 +4,11 @@ import { IS_MOBILE } from "./deviceInfo.js";
 import { DracoTileLayer } from "./dracoLayer.js";
 import { initEnvironment } from "./environment.js";
 import { setBrightness } from "./layers.js";
-import { setMapSource } from "./wmts.js";
 import { BuildingsLayer } from "./overlays.js";
 import { initPoi } from "./poi.js";
 import { wgs84ToL93 } from "./proj.js";
 import { initTouchControls } from "./touchControls.js";
+import { setMapSource } from "./wmts.js";
 import { WmtsStitchSource } from "./wmtsSource.js";
 
 itowns.CRS.defs(
@@ -138,7 +138,7 @@ document.getElementById("env-toggle").addEventListener("click", () => {
 });
 
 const helpPanel = document.getElementById("help-panel");
-const HELP_SEEN = "montagne3d.helpSeen";
+const HELP_SEEN = "3dalpsview.helpSeen";
 helpPanel.classList.toggle("hidden", localStorage.getItem(HELP_SEEN) === "1");
 document.getElementById("help-close").addEventListener("click", () => {
   helpPanel.classList.add("hidden");
