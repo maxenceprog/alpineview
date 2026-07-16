@@ -103,7 +103,7 @@ export function initTouchControls(view) {
         let da = a - lastAngle;
         if (da > Math.PI) da -= 2 * Math.PI;
         else if (da < -Math.PI) da += 2 * Math.PI;
-        turn += da;
+        turn -= da;
         lastAngle = a;
         feedRotation(t);
       }

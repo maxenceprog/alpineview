@@ -24,6 +24,9 @@ const x = 1000 * (parseFloat(params.get("x")) || 954.6);
 const y = 1000 * (parseFloat(params.get("y")) || 6438.5);
 
 const PLANAR_CONTROLS = {
+  // >0: at nadir the orbit offset aligns with camera.up and handleRotation's
+  // lookAt loses its azimuth to a degenerate cross product
+  minZenithAngle: 5,
   maxZenithAngle: 130,
   maxAltitude: 30000,
   zoomFactor: 1.4,
