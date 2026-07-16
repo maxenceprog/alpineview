@@ -131,27 +131,23 @@ export class DracoTileSource extends itowns.Source {
   }
 }
 
+const cacheKey = ({ tx, ty, z }) => `${tx}.${ty}.${z}`;
+const MAX_CACHED_MESHES = 240;
+
 function isWanted(node) {
   return !!node.parent && node.visible;
 }
 
-function cancelled() {
-  const err = new Error("draco tile no longer needed");
-  err.isCancelledCommandException = true;
-  return err;
-}
-
+// A requester that went away mid-flight still gets its mesh built: the node replacing it
+// wants the same tile, and the fetch and decode are already paid for. Commands still
+// queued are dropped by the layer's earlyDropFunction.
 const DracoProvider = {
   executeCommand(command) {
-    const { layer, requester, extentsSource } = command;
+    const { layer, extentsSource } = command;
     const tile = extentsSource[0];
-    return layer.source.loadData(tile, layer).then((geometry) => {
-      if (!isWanted(requester)) {
-        geometry.dispose();
-        throw cancelled();
-      }
-      return layer.convert(geometry, tile).then((mesh) => [mesh]);
-    });
+    return layer.source.loadData(tile, layer)
+      .then((geometry) => layer.convert(geometry, tile))
+      .then((mesh) => [mesh]);
   },
 };
 
@@ -200,6 +196,7 @@ export class DracoTileLayer extends itowns.GeometryLayer {
     this.isDracoTileLayer = true;
     this.displayed = new Set();
     this._covered = new WeakMap();
+    this.meshCache = new Map();
     this.view = view;
     this.protocol = "draco";
 
@@ -236,6 +233,53 @@ export class DracoTileLayer extends itowns.GeometryLayer {
       }
       return buffer;
     };
+  }
+
+  // itowns detaches a node's children when it is culled or stops subdividing, without
+  // disposing them or emitting 'dispose': a mesh outlives its node, and the node replacing
+  // it is a new object wanting the same tile. Meshes are therefore kept per tile rather
+  // than per node, so panning back does not refetch and redecode. Only traversed nodes
+  // reach update(), so each frame restates which of them are shown.
+  preUpdate() {
+    for (const mesh of this.meshCache.values()) {
+      mesh.visible = false;
+    }
+    this.displayed.clear();
+  }
+
+  cacheMesh(key, mesh) {
+    this.evictOrphanedMeshes();
+    mesh.userData.cacheKey = key;
+    this.meshCache.set(key, mesh);
+    this.object3d.add(mesh);
+  }
+
+  attachMeshToNode(node, mesh) {
+    node.link[this.id] = mesh;
+    mesh.userData.node = node;
+    this.markRecentlyUsed(mesh);
+  }
+
+  markRecentlyUsed(mesh) {
+    this.meshCache.delete(mesh.userData.cacheKey);
+    this.meshCache.set(mesh.userData.cacheKey, mesh);
+  }
+
+  isOrphaned(mesh) {
+    return !mesh.userData.node?.parent;
+  }
+
+  evictOrphanedMeshes() {
+    for (const [key, mesh] of this.meshCache) {
+      if (this.meshCache.size < MAX_CACHED_MESHES) {
+        return;
+      }
+      if (!this.isOrphaned(mesh)) {
+        continue;
+      }
+      this.meshCache.delete(key);
+      this.disposeMesh(mesh);
+    }
   }
 
   async convert(geometry, tile) {
@@ -305,6 +349,7 @@ export class DracoTileLayer extends itowns.GeometryLayer {
 
     if (mesh) {
       mesh.visible = display;
+      this.markRecentlyUsed(mesh);
     }
 
     const covered = display || coveredByAncestor;
@@ -335,6 +380,15 @@ export class DracoTileLayer extends itowns.GeometryLayer {
       return;
     }
 
+    const key = cacheKey(tileKey(tiles[0]));
+    const cached = this.meshCache.get(key);
+    if (cached) {
+      state.finish();
+      this.attachMeshToNode(node, cached);
+      context.view.notifyChange(this, false);
+      return;
+    }
+
     state.newTry();
     return context.scheduler.execute({
       layer: this,
@@ -345,13 +399,11 @@ export class DracoTileLayer extends itowns.GeometryLayer {
       earlyDropFunction: (cmd) => !isWanted(cmd.requester),
     }).then(
       ([mesh]) => {
-        if (!node.parent) {
-          this.disposeMesh(mesh);
-          return;
-        }
         state.finish();
-        node.link[this.id] = mesh;
-        this.object3d.add(mesh);
+        this.cacheMesh(key, mesh);
+        if (node.parent) {
+          this.attachMeshToNode(node, mesh);
+        }
         context.view.notifyChange(this, true);
       },
       (err) => {
@@ -375,10 +427,13 @@ export class DracoTileLayer extends itowns.GeometryLayer {
       return;
     }
     delete node.link[this.id];
-    this.disposeMesh(mesh);
+    if (mesh.userData.node === node) {
+      delete mesh.userData.node;
+    }
   }
 
   disposeMesh(mesh) {
+    this.meshCache.delete(mesh.userData.cacheKey);
     this.object3d.remove(mesh);
     disposeLayerMaterials(mesh);
     itowns.ObjectRemovalHelper.removeChildrenAndCleanupRecursively(this, mesh);
