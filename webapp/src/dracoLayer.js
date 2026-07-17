@@ -2,6 +2,7 @@ import * as itowns from "itowns";
 import * as THREE from "three";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { API_BASE_URL } from "./apiConfig.js";
+import { IS_MOBILE } from "./deviceInfo.js";
 import { processGeometry } from "./geometryWorkerPool.js";
 import {
   buildVerticalDiffuseMaterial,
@@ -132,7 +133,7 @@ export class DracoTileSource extends itowns.Source {
 }
 
 const cacheKey = ({ tx, ty, z }) => `${tx}.${ty}.${z}`;
-const MAX_CACHED_MESHES = 240;
+const MAX_CACHED_MESHES = IS_MOBILE ? 50 : 200;
 
 function isWanted(node) {
   return !!node.parent && node.visible;
