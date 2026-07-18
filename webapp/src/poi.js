@@ -11,6 +11,7 @@ const BLOCK_KM = 8;
 const ALPS_EXTENT = new itowns.Extent("EPSG:2154", 256000, 1280000, 5952000, 6976000);
 
 const WAYPOINTS_URL = "https://api.camptocamp.org/waypoints";
+const SEARCH_URL = "https://api.camptocamp.org/search";
 const IMAGES_URL = "https://api.camptocamp.org/images";
 const MEDIA_BASE = "https://media.camptocamp.org/c2corg-active";
 const IMG_TAG_RE = /\[img=(\d+)[^\]]*\]([^[]*)\[\/img\]/g;
@@ -30,7 +31,7 @@ export async function fetchCellPois(x0, y0, sizeKm = 1) {
   const wtyp = Object.keys(KIND_CLASS).join(",");
   const docs = [];
   let offset = 0;
-  for (;;) {
+  for (; ;) {
     const url = `${WAYPOINTS_URL}?bbox=${bbox}&wtyp=${wtyp}&pl=fr&limit=${PAGE_LIMIT}&offset=${offset}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error(`Camptocamp API returned ${res.status}`);
@@ -41,6 +42,27 @@ export async function fetchCellPois(x0, y0, sizeKm = 1) {
     if (page.length < PAGE_LIMIT || docs.length >= (data.total ?? 0)) break;
   }
   return docs.filter((doc) => doc.locales?.[0]?.title);
+}
+
+export async function searchWaypoints(q, limit = 5) {
+  const res = await fetch(`${SEARCH_URL}?q=${encodeURIComponent(q)}&t=w&pl=fr&limit=${limit * 5}`);
+  if (!res.ok) throw new Error(`Camptocamp API returned ${res.status}`);
+  const data = await res.json();
+  return (data.waypoints?.documents ?? [])
+    .filter((doc) => doc.waypoint_type in KIND_CLASS && doc.locales?.[0]?.title && doc.geometry?.geom)
+    .slice(0, limit)
+    .map((doc) => {
+      const [x, y] = webMercatorToL93.forward(JSON.parse(doc.geometry.geom).coordinates);
+      return {
+        id: doc.document_id,
+        title: doc.locales[0].title,
+        wtyp: doc.waypoint_type,
+        elevation: doc.elevation ?? null,
+        area: doc.areas?.find((a) => a.area_type === "range")?.locales?.[0]?.title ?? null,
+        x,
+        y,
+      };
+    });
 }
 
 export async function fetchWaypointDetail(documentId) {
@@ -190,7 +212,7 @@ function renderPoiLinkList(sectionId, listId, items, urlBase, titleFn) {
 
 let poiRequestToken = 0;
 
-function showPoiPanel(poi) {
+export function showPoiPanel(poi) {
   const token = ++poiRequestToken;
   const panel = document.getElementById("poi-panel");
   const title = document.getElementById("poi-title");
@@ -307,11 +329,12 @@ function installLabelOcclusion(view, poiLayer) {
   view.addFrameRequester(itowns.MAIN_LOOP_EVENTS.AFTER_RENDER, () => {
     if (!poiLayer.object3d.children.length) return;
     const now = performance.now();
-    if (!lastPass || (now - lastPass > THROTTLE && !camera.matrixWorld.equals(lastCamMatrix))) {
-      recompute();
-    }
+    const moved = !camera.matrixWorld.equals(lastCamMatrix);
+    if (!lastPass || (moved && now - lastPass > THROTTLE)) recompute();
     eachLabel((label) => { if (label._occluded) label.visible = false; });
-    clearTimeout(trailer);
-    trailer = setTimeout(() => view.notifyChange(camera), THROTTLE + 20);
+    if (moved) {
+      clearTimeout(trailer);
+      trailer = setTimeout(settle, THROTTLE + 20);
+    }
   });
 }

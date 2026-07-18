@@ -62,6 +62,3 @@ license for `alpineview_builder` must account for it.
 - **[Camptocamp.org](https://www.camptocamp.org/articles/106728/fr/licences-des-contenus)** —
   waypoint and topoguide data CC BY-SA; images licensed per image by their
   authors, not uniformly CC BY-SA.
-- **[OpenStreetMap](https://www.openstreetmap.org/copyright) / Nominatim** —
-  © OpenStreetMap contributors, ODbL 1.0, subject to the
-  [usage policy](https://operations.osmfoundation.org/policies/nominatim/).

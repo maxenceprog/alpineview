@@ -5,8 +5,7 @@ import { DracoTileLayer } from "./dracoLayer.js";
 import { initEnvironment } from "./environment.js";
 import { setBrightness } from "./layers.js";
 import { BuildingsLayer } from "./overlays.js";
-import { initPoi } from "./poi.js";
-import { wgs84ToL93 } from "./proj.js";
+import { initPoi, searchWaypoints, showPoiPanel } from "./poi.js";
 import { initTouchControls } from "./touchControls.js";
 import { setMapSource } from "./wmts.js";
 
@@ -210,15 +209,18 @@ function hideSearchResults() {
   searchResultsEl.innerHTML = "";
 }
 
+const SEARCH_RANGE = 3000;
+const SEARCH_PITCH = Math.PI / 4;
+
 function goToSearchResult(result) {
   hideSearchResults();
-  const [xm, ym] = wgs84ToL93.forward([parseFloat(result.lon), parseFloat(result.lat)]);
-  itowns.CameraUtils.animateCameraToLookAtTarget(view, view.camera3D, {
-    coord: new itowns.Coordinates("EPSG:2154", xm, ym),
-    range: 8000,
-    tilt: 25,
-    heading: 0,
-  });
+  showPoiPanel(result);
+  const target = new THREE.Vector3(result.x, result.y, result.elevation ?? 0);
+  const camPos = target.clone();
+  camPos.z += SEARCH_RANGE * Math.sin(SEARCH_PITCH);
+  camPos.y -= SEARCH_RANGE * Math.cos(SEARCH_PITCH);
+  view.controls.initiateTravel(camPos, "auto", target, true);
+  view.notifyChange(view.camera3D);
 }
 
 function renderSearchResults(results) {
@@ -226,7 +228,8 @@ function renderSearchResults(results) {
   for (const result of results) {
     const item = document.createElement("div");
     item.className = "search-result";
-    item.textContent = result.display_name;
+    item.textContent = [result.title, result.elevation ? `${result.elevation} m` : null, result.area]
+      .filter(Boolean).join(" · ");
     item.addEventListener("click", () => goToSearchResult(result));
     searchResultsEl.append(item);
   }
@@ -238,17 +241,12 @@ async function doSearch({ jumpOnSingleResult } = {}) {
   if (!q) return;
   searchBtn.disabled = true;
   try {
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=${SEARCH_RESULT_LIMIT}`,
-      { headers: { Accept: "application/json" } },
-    );
-    if (!res.ok) throw new Error(`Nominatim returned ${res.status}`);
-    const data = await res.json();
-    if (!data.length) { hideSearchResults(); return; }
-    if (data.length === 1 && jumpOnSingleResult) {
-      goToSearchResult(data[0]);
+    const results = await searchWaypoints(q, SEARCH_RESULT_LIMIT);
+    if (!results.length) { hideSearchResults(); return; }
+    if (results.length === 1 && jumpOnSingleResult) {
+      goToSearchResult(results[0]);
     } else {
-      renderSearchResults(data);
+      renderSearchResults(results);
     }
   } catch {
     hideSearchResults();
