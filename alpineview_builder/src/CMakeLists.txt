@@ -17,11 +17,13 @@ add_executable(alpineview_builder
 	chrono.cpp
 	las_read.cpp
 	las_normal_cgal.cpp
+	las_source.cpp
 	las_downsample.cpp
 	copc.cpp
 	mesh.cpp
 	mesh_clip.cpp
 	mesh_ply.cpp
+	mesh_simplify.cpp
 	mesh_lod.cpp
 	vertex_remap.cpp
 	mesh_utils.cpp

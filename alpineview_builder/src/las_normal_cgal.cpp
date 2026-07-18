@@ -9,7 +9,6 @@
 #include <CGAL/estimate_scale.h>
 #include <CGAL/linear_least_squares_fitting_3.h>
 #include <CGAL/property_map.h>
-#include <CGAL/scanline_orient_normals.h>
 
 #include <boost/iterator/counting_iterator.hpp>
 
@@ -19,14 +18,12 @@
 #include <cstdio>
 
 #include "chrono.h"
+#include "las_source.h"
 
 using Kernel = CGAL::Exact_predicates_inexact_constructions_kernel;
 using Point_3 = Kernel::Point_3;
 using Vector_3 = Kernel::Vector_3;
 using Plane_3 = Kernel::Plane_3;
-using Pwn = std::pair<Point_3, Vector_3>;
-using Point_map = CGAL::First_of_pair_property_map<Pwn>;
-using Normal_map = CGAL::Second_of_pair_property_map<Pwn>;
 
 using Search_traits = CGAL::Search_traits_3<Kernel>;
 
@@ -35,39 +32,30 @@ using Search_traits = CGAL::Search_traits_3<Kernel>;
  * normals and not only their coordinates. */
 using Position_map = CGAL::Pointer_property_map<Point_3>::const_type;
 using Index_traits =
-    CGAL::Search_traits_adapter<std::size_t, Position_map, Search_traits>;
+	CGAL::Search_traits_adapter<std::size_t, Position_map, Search_traits>;
 using Index_tree = CGAL::Kd_tree<Index_traits>;
 using Index_distance =
-    CGAL::Distance_adapter<std::size_t, Position_map,
-			   CGAL::Euclidean_distance<Search_traits>>;
+	CGAL::Distance_adapter<std::size_t, Position_map,
+						   CGAL::Euclidean_distance<Search_traits>>;
 using Index_search =
-    CGAL::Orthogonal_k_neighbor_search<Index_traits, Index_distance>;
+	CGAL::Orthogonal_k_neighbor_search<Index_traits, Index_distance>;
 
-/* Read-only property map over a flat side array, indexed by pointer offset
- * from a Pwn vector's data(). Lets scanline_orient_normals' named-parameter
- * maps (scan_angle_map, scanline_id_map) reach into plain arrays without
- * bundling them into the Pwn struct. Only valid while the Pwn vector is not
- * reordered, which holds for scanline_orient_normals. */
-template <typename ValueT>
-struct ArrayPropertyMap
+/* Orientation confidence gates, from the pre-CGAL pipeline (las_normal.h).
+ * The margin is `tol + 2 * (1 - quality)`: the worse the plane fit, the more
+ * decisive the test must be before its normal is trusted enough to flip. */
+static const float SCAN_TOL = 0.25f;
+static const float NML_Z_TOL = 0.55f;
+
+enum EOrient
 {
-	using key_type = Pwn;
-	using value_type = ValueT;
-	using reference = ValueT;
-	using category = boost::readable_property_map_tag;
-
-	const Pwn *base = nullptr;
-	const ValueT *data = nullptr;
+	ENone = 0,
+	EOriented,
+	EPositiveZ,
+	EScanline
 };
 
-template <typename ValueT>
-ValueT get(const ArrayPropertyMap<ValueT> &m, const Pwn &key)
-{
-	return m.data[&key - m.base];
-}
-
 double cgal_estimate_scale(const Vec3 *pos, size_t point_num,
-			   size_t window_target)
+						   size_t window_target)
 {
 	std::vector<Point_3> window;
 	if (point_num <= window_target)
@@ -96,7 +84,7 @@ double cgal_estimate_scale(const Vec3 *pos, size_t point_num,
 		for (size_t i = 0; i < point_num; ++i)
 		{
 			if (std::abs(pos[i].x - cx) <= hx &&
-			    std::abs(pos[i].y - cy) <= hy)
+				std::abs(pos[i].y - cy) <= hy)
 			{
 				window.emplace_back(pos[i].x, pos[i].y, pos[i].z);
 			}
@@ -135,19 +123,19 @@ static const int JET_ORDER = 2;
  * covariance, as returned by linear_least_squares_fitting_3: 1 = perfect
  * plane, 0 = isotropic) below which the PCA normal is re-estimated with
  * a jet (Monge) fit. */
-static const double JET_QUALITY = 0.95;
+static const double JET_QUALITY = 0.8;
 
 /* Neighborhood of `query`: the indices of its K_NEIGHBORS nearest
  * neighbors, restricted to `radius`. The query point itself is
  * included. */
 static void gather_neighborhood(const Index_tree &tree,
-				const Position_map &pos_map,
-				const Point_3 &query, double radius,
-				std::vector<std::size_t> &nbhd)
+								const Position_map &pos_map,
+								const Point_3 &query, double radius,
+								std::vector<std::size_t> &nbhd)
 {
 	nbhd.clear();
 	Index_search knn(tree, query, K_NEIGHBORS, 0.0, true,
-			 Index_distance(pos_map));
+					 Index_distance(pos_map));
 	const double r2 = radius * radius;
 	for (const auto &r : knn) /* sorted by increasing distance */
 	{
@@ -158,55 +146,51 @@ static void gather_neighborhood(const Index_tree &tree,
 	}
 }
 
-void cgal_estimate_and_orient_normals(const Vec3 *pos, size_t point_num,
-				      const std::vector<LasPoint> &points,
-				      double neighbor_radius, Vec3 *nml,
-				      bool verbose)
+size_t cgal_estimate_and_orient_normals(Vec3 *pos, size_t point_num,
+										std::vector<LasPoint> &points,
+										double neighbor_radius, Vec3 *nml,
+										bool verbose)
 {
 	Timer chrono;
 
 	/* Kd-tree */
 	chrono.start();
-	std::vector<Pwn> pwn(point_num);
-	for (size_t i = 0; i < point_num; ++i)
-	{
-		pwn[i] = {Point_3(pos[i].x, pos[i].y, pos[i].z),
-			  Vector_3(0, 0, 0)};
-	}
 	std::vector<Point_3> positions;
 	positions.reserve(point_num);
 	for (size_t i = 0; i < point_num; ++i)
 	{
-		positions.push_back(pwn[i].first);
+		positions.push_back(Point_3(pos[i].x, pos[i].y, pos[i].z));
 	}
 	const std::vector<Point_3> &positions_c = positions;
 	Position_map pos_map = CGAL::make_property_map(positions_c);
 	Index_tree tree(boost::counting_iterator<std::size_t>(0),
-			boost::counting_iterator<std::size_t>(point_num),
-			Index_tree::Splitter(), Index_traits(pos_map));
+					boost::counting_iterator<std::size_t>(point_num),
+					Index_tree::Splitter(), Index_traits(pos_map));
 	tree.build();
 	if (verbose)
 	{
 		printf("Kd-tree build              : %.2f s\n",
-		       1e-6 * chrono.stop());
+			   1e-6 * chrono.stop());
 	}
 
 	/* Normals, one neighborhood gather per point: PCA plane fit (the
 	 * low-level primitive behind CGAL::pca_estimate_normals, whose
 	 * quality = 1 - lambda_min/lambda_max comes for free), then a jet
 	 * (Monge) refit over the same neighborhood wherever the plane fit is
-	 * poor -- noisy or curved. Orientation is fixed later by the
-	 * scanline pass. */
+	 * poor -- noisy or curved. Orientation is fixed later by the beam
+	 * pass. */
 	chrono.start();
 	const int min_jet_nb = (JET_ORDER + 1) * (JET_ORDER + 2) / 2;
 	size_t refit = 0;
 	std::vector<std::size_t> nbhd;
 	std::vector<Point_3> nbhd_pts;
+	std::vector<Vector_3> nmls(point_num);
+	std::vector<float> qual(point_num);
 	CGAL::Monge_via_jet_fitting<Kernel> monge_fit;
 	for (size_t i = 0; i < point_num; ++i)
 	{
 		gather_neighborhood(tree, pos_map, positions[i],
-				    neighbor_radius, nbhd);
+							neighbor_radius, nbhd);
 		nbhd_pts.clear();
 		for (std::size_t j : nbhd)
 		{
@@ -215,16 +199,16 @@ void cgal_estimate_and_orient_normals(const Vec3 *pos, size_t point_num,
 
 		Plane_3 plane;
 		double quality = CGAL::linear_least_squares_fitting_3(
-		    nbhd_pts.begin(), nbhd_pts.end(), plane,
-		    CGAL::Dimension_tag<0>());
+			nbhd_pts.begin(), nbhd_pts.end(), plane,
+			CGAL::Dimension_tag<0>());
 		Vector_3 n = plane.orthogonal_vector();
 
 		if (quality < JET_QUALITY &&
-		    (int)nbhd.size() >= min_jet_nb)
+			(int)nbhd.size() >= min_jet_nb)
 		{
 			auto monge_form = monge_fit(nbhd_pts.begin(),
-						    nbhd_pts.end(), JET_ORDER,
-						    1);
+										nbhd_pts.end(), JET_ORDER,
+										1);
 			Vector_3 jn = monge_form.normal_direction();
 			if (jn * n < 0)
 			{
@@ -233,45 +217,100 @@ void cgal_estimate_and_orient_normals(const Vec3 *pos, size_t point_num,
 			n = jn;
 			++refit;
 		}
-		pwn[i].second = n;
+		/* Plane_3::orthogonal_vector() is not unit, and both the gates
+		 * below and downstream (normal_space_thin's cone test,
+		 * Poisson) assume it is. */
+		double len = sqrt(n.squared_length());
+		nmls[i] = len > 0 ? n / len : Vector_3(0, 0, 1);
+		qual[i] = (float)quality;
 	}
 	if (verbose)
 	{
 		printf("Eval. normal directions    : %zu pts, jet refit "
-		       "%zu (quality < %g, order %d), %.2f s\n",
-		       point_num, refit, JET_QUALITY, JET_ORDER,
-		       1e-6 * chrono.stop());
+			   "%zu (quality < %g, order %d), %.2f s\n",
+			   point_num, refit, JET_QUALITY, JET_ORDER,
+			   1e-6 * chrono.stop());
 	}
 
-	/* Scanline orientation. scan_angle / source_id live in LasPoint, not
-	 * in the Pwn vector CGAL iterates over: side arrays + pointer-offset
-	 * property maps bridge the two. */
+	/* Orientation cascade (pre-CGAL pipeline's, las_normal.cpp):
+	 *   1. beam  -- the flight line's across-track azimuth plus the point's
+	 *      scan angle give its beam; the normal must oppose it (face the
+	 *      scanner). Decided only when the beam is not grazing the surface.
+	 *   2. +Z    -- for what the beam left open, when clearly non-vertical.
+	 * Both gates abstain rather than guess, so a point that clears neither
+	 * still carries the PCA's arbitrary sign and is dropped below. */
 	chrono.start();
-	std::vector<double> scan_angle(point_num);
-	std::vector<int32_t> source_id(point_num);
+	int source_num = las_get_sources(points);
+	std::vector<SourceStat> stats(source_num);
+	las_stat_sources(points, stats);
+	std::vector<SourceFlightLine> fls(source_num);
+	/* theta only depends on dy/dx, and LAS x/y share a scale. */
+	const double scale[3] = {1.0, 1.0, 1.0};
+	int valid = las_approx_flight_lines(points, scale, stats, fls);
+
+	std::vector<EOrient> oriented(point_num, ENone);
+	size_t by_scan = 0;
 	for (size_t i = 0; i < point_num; ++i)
 	{
-		scan_angle[i] = (double)points[i].scan_angle;
-		source_id[i] = (int32_t)points[i].source_id;
+		const SourceFlightLine &fl = fls[points[i].source_idx];
+		if (!fl.is_valid)
+		{
+			continue;
+		}
+		double a = points[i].scan_angle * M_PI / 180.0;
+		double th = fl.theta_across;
+		Vector_3 beam(cos(th) * sin(a), sin(th) * sin(a), -cos(a));
+		double test = nmls[i] * beam;
+		if (fabs(test) > SCAN_TOL + 2 * (1 - qual[i]))
+		{
+			oriented[i] = EScanline;
+			if (test > 0)
+			{
+				nmls[i] = -nmls[i];
+			}
+			by_scan++;
+		}
 	}
-	ArrayPropertyMap<double> scan_angle_map{pwn.data(), scan_angle.data()};
-	ArrayPropertyMap<int32_t> scanline_id_map{pwn.data(), source_id.data()};
-	CGAL::scanline_orient_normals(
-	    pwn, CGAL::parameters::point_map(Point_map())
-		     .normal_map(Normal_map())
-		     .scan_angle_map(scan_angle_map)
-		     .scanline_id_map(scanline_id_map));
+
+	size_t by_z = 0;
+	for (size_t i = 0; i < point_num; ++i)
+	{
+		if (oriented[i] >= EPositiveZ)
+		{
+			continue;
+		}
+		if (fabs(nmls[i].z()) > NML_Z_TOL + 2 * (1 - qual[i]))
+		{
+			oriented[i] = EPositiveZ;
+			if (nmls[i].z() < 0)
+			{
+				nmls[i] = -nmls[i];
+			}
+			by_z++;
+		}
+	}
+
+	/* Drop what neither gate settled: its sign is the PCA's arbitrary one,
+	 * and feeding that to Poisson is worse than feeding nothing. */
+	size_t out = 0;
+	for (size_t i = 0; i < point_num; ++i)
+	{
+		if (oriented[i] >= EOriented)
+		{
+			pos[out] = pos[i];
+			nml[out].x = (float)nmls[i].x();
+			nml[out].y = (float)nmls[i].y();
+			nml[out].z = (float)nmls[i].z();
+			out++;
+		}
+	}
 	if (verbose)
 	{
-		printf("Eval. normal orientations  : %.2f s\n",
-		       1e-6 * chrono.stop());
+		printf("Eval. normal orientations  : %d/%d flight lines valid, "
+			   "%zu by beam + %zu by +Z, %zu dropped, %.2f s\n",
+			   valid, source_num, by_scan, by_z, point_num - out,
+			   1e-6 * chrono.stop());
 	}
 
-	for (size_t i = 0; i < point_num; ++i)
-	{
-		const Vector_3 &n = pwn[i].second;
-		nml[i].x = (float)n.x();
-		nml[i].y = (float)n.y();
-		nml[i].z = (float)n.z();
-	}
+	return out;
 }
