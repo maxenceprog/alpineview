@@ -13,7 +13,7 @@ const resolutionM = (zoom) => FINEST_RESOLUTION_M * 2 ** (FINEST_ZOOM - zoom);
 const tileSizeM = (zoom) => TILE_PX * resolutionM(zoom);
 
 // Texture pixels we aim to drape across one tile, whatever its ground size.
-const TARGET_TEXTURE_PX = 512;
+const TARGET_TEXTURE_PX = 50;
 
 // zoom = the levels each set publishes (its TileMatrixLimits); the ortho stops short at 10.
 // bbox = the layer's data coverage in L93 metres, from its GetCapabilities WGS84BoundingBox.

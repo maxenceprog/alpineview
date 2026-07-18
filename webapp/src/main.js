@@ -1,5 +1,5 @@
 import * as itowns from "itowns";
-import { API_BASE_URL } from "./apiConfig.js";
+import * as THREE from "three";
 import { IS_MOBILE } from "./deviceInfo.js";
 import { DracoTileLayer } from "./dracoLayer.js";
 import { initEnvironment } from "./environment.js";
@@ -9,7 +9,6 @@ import { initPoi } from "./poi.js";
 import { wgs84ToL93 } from "./proj.js";
 import { initTouchControls } from "./touchControls.js";
 import { setMapSource } from "./wmts.js";
-import { WmtsStitchSource } from "./wmtsSource.js";
 
 itowns.CRS.defs(
   "EPSG:2154",
@@ -33,12 +32,12 @@ const PLANAR_CONTROLS = {
 };
 
 const view = new itowns.PlanarView(viewerDiv, extent, {
-  maxSubdivisionLevel: 12,
+  maxSubdivisionLevel: 13,
   segments: 64,
   controls: PLANAR_CONTROLS,
   placement: {
     coord: new itowns.Coordinates("EPSG:2154", x, y),
-    range: 8000,
+    range: 5000,
     tilt: 80,
     heading: 0,
   },
@@ -49,32 +48,6 @@ window.view = view;
 
 initTouchControls(view);
 
-const demSource = new itowns.TMSSource({
-  crs: "EPSG:2154",
-  url: `${API_BASE_URL}/dem/\${z}/\${x}/\${y}.bil`,
-  format: "image/x-bil;bits=32",
-  zoom: { min: 0, max: 10 },
-});
-
-
-const demLayer = new itowns.ElevationLayer("dem", {
-  source: demSource,
-  noDataValue: -99999,
-  clampValues: { min: 0 },
-});
-
-view.addLayer(demLayer)
-
-const orthoLayer = new itowns.ColorLayer("ortho", {
-  source: new WmtsStitchSource({ sourceKey: "ortho", extent }),
-});
-const planLayer = new itowns.ColorLayer("plan", {
-  source: new WmtsStitchSource({ sourceKey: "plan", extent }),
-});
-
-view.addLayer(orthoLayer);
-view.addLayer(planLayer);
-planLayer.visible = false;
 
 
 
@@ -87,12 +60,47 @@ planLayer.visible = false;
     const picked = view.getPickingPositionFromDepth(view.eventToViewCoords(event));
     return picked !== undefined && picked.z > 1;
   };
-  const { initiateZoom, initiateSmartTravel } = view.controls;
+  const { initiateZoom } = view.controls;
   view.controls.initiateZoom = (event) => {
     if (pickIsUsable(event)) initiateZoom.call(view.controls, event);
   };
+
+  const _ray = new THREE.Raycaster();
+  const _down = new THREE.Vector3(0, 0, -1);
+  const terrainZAt = (x, y) => {
+    const meshes = view.getLayerById("draco")?.object3d.children ?? [];
+    _ray.set(new THREE.Vector3(x, y, 5000), _down);
+    const hits = _ray.intersectObjects(meshes, true);
+    return hits.length ? hits[0].point.z : null;
+  };
+
+
   view.controls.initiateSmartTravel = (event) => {
-    if (pickIsUsable(event ?? lastMouseEvent)) initiateSmartTravel.call(view.controls, event);
+    const e = event ?? lastMouseEvent;
+    if (!pickIsUsable(e)) return;
+    const controls = view.controls;
+    const target = view.getPickingPositionFromDepth(view.eventToViewCoords(e));
+
+    const dir = target.clone().sub(view.camera3D.position);
+    dir.z = 0;
+    dir.normalize();
+    const distance = view.camera3D.position.distanceTo(target);
+    const height = THREE.MathUtils.lerp(
+      controls.smartTravelHeightMin,
+      controls.smartTravelHeightMax,
+      Math.min(distance / 5000, 1),
+    );
+
+    const moveTarget = target.clone();
+    if (controls.enableRotation) moveTarget.add(dir.multiplyScalar(-height * 2));
+    moveTarget.z = target.z + height;
+
+    const terrainAtEnd = terrainZAt(moveTarget.x, moveTarget.y);
+    if (terrainAtEnd !== null) {
+      moveTarget.z = Math.max(moveTarget.z, terrainAtEnd + controls.smartTravelHeightMin);
+    }
+
+    controls.initiateTravel(moveTarget, "auto", target, true);
   };
 }
 
@@ -106,8 +114,6 @@ let planVisible = false;
 document.getElementById("layer-toggle").addEventListener("click", () => {
   planVisible = !planVisible;
 
-  planLayer.visible = planVisible;
-  orthoLayer.visible = !planVisible;
   setMapSource(planVisible ? "plan" : "ortho");
   dracoLayer.refreshTextures();
   view.notifyChange(view.tileLayer);

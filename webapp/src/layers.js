@@ -27,8 +27,17 @@ export function getBrightness() {
   return currentBrightness;
 }
 
+// itowns' RenderMode.MODES; readDepthBuffer only ever pushes DEPTH.
+export const MODE_FINAL = 0;
+export const MODE_DEPTH = 1;
+
 export function buildVerticalDiffuseMaterial(texture) {
   const mat = new THREE.ShaderMaterial({
+    defines: {
+      MODE_FINAL,
+      MODE_DEPTH,
+      MODE: MODE_FINAL,
+    },
     uniforms: {
       ...THREE.UniformsLib.fog,
       ...THREE.UniformsLib.lights,
@@ -71,6 +80,12 @@ export function buildVerticalDiffuseMaterial(texture) {
       varying vec3 vWorldNormal;
       void main() {
         #include <logdepthbuf_fragment>
+        #if MODE == MODE_DEPTH
+        // logdepthbuf_fragment has just written gl_FragDepth; three aliases
+        // gl_FragDepthEXT to it. Encoding it is what makes this mesh visible to
+        // itowns' depth picking (wheel zoom, smart travel).
+        gl_FragColor = packDepthToRGBA(gl_FragDepthEXT);
+        #else
         vec4 c = texture2D(map, vUv);
         float ambient = 0.15;
         float direct = 0.85 * max(0.0, dot(vWorldNormal, uSunDir));
@@ -86,11 +101,24 @@ export function buildVerticalDiffuseMaterial(texture) {
         vec3 lifted = clamp(c.rgb + amt * (1.0 - c.rgb), 0.0, 1.0);
         gl_FragColor = vec4(lifted * d, c.a);
         #include <fog_fragment>
+        #endif
       }
     `,
     fog: true,
     lights: true,
     ...TILE_DRAW,
+  });
+  // Same contract as itowns' LayeredMaterial, which RenderMode.push drives.
+  Object.defineProperty(mat, "mode", {
+    get() {
+      return this.defines.MODE;
+    },
+    set(mode) {
+      if (this.defines.MODE !== mode) {
+        this.defines.MODE = mode;
+        this.needsUpdate = true;
+      }
+    },
   });
   verticalDiffuseMaterials.add(mat);
   registerLitMaterial(mat);

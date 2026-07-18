@@ -7,13 +7,15 @@ import { processGeometry } from "./geometryWorkerPool.js";
 import {
   buildVerticalDiffuseMaterial,
   disposeLayerMaterials,
+  MODE_DEPTH,
+  MODE_FINAL,
   replaceMeshMaterial,
 } from "./layers.js";
 import { fetchWmtsCanvas } from "./wmts.js";
 
 export const DRACO_BASE_LEVEL = 10;
-export const DRACO_MAX_Z = 2;
-export const DRACO_MIN_Z = 0;
+export const DRACO_MAX_Z = 3;
+export const DRACO_MIN_Z = -2;
 
 const CRS = "EPSG:2154";
 
@@ -22,7 +24,30 @@ _loader.setDecoderPath(`${import.meta.env.BASE_URL}draco/`);
 
 const _extent = new itowns.Extent(CRS, 0, 0, 0, 0);
 
-const CULL_MARGIN = new THREE.Vector3(40, 40, 80);
+// Bumped by DracoTileLayer.reload() so a rebuilt tile is refetched past the HTTP cache.
+let _cacheBust = 0;
+const bustSuffix = () => (_cacheBust ? `?v=${_cacheBust}` : "");
+
+// itowns' PlanarControls STATE.TRAVEL, the animated fly/zoom state.
+const CONTROLS_STATE_TRAVEL = 3;
+
+// itowns subdivides on screen-space error scaled by `subdivisionThreshold` (256,
+// "the texture size") — a DEM/imagery notion irrelevant to our meshes, which carry
+// their own baked texture. We drive subdivision purely off the tile's on-screen
+// footprint instead: subdivide once the tile spans more than this many pixels, so a
+// level is one halving finer than the screen needs. Higher = coarser, fewer tiles and
+// requests; lower = finer, more of both.
+const SUBDIVIDE_SCREEN_PX = 384;
+
+const _priorityCenter = new THREE.Vector3();
+const _subCenter = new THREE.Vector3();
+const _subDim = new THREE.Vector2();
+
+// Meshes can overhang their tile's extent slightly; the extent itself is exact.
+const CULL_MARGIN = new THREE.Vector3(40, 40, 0);
+// French Alps, Mont Blanc is 4809 m.
+const DOMAIN_Z_MIN = 0;
+const DOMAIN_Z_MAX = 5000;
 
 function tileKey(tile) {
   const z = tile.zoom - DRACO_BASE_LEVEL;
@@ -91,7 +116,9 @@ async function parseDraco(buffer) {
 
 async function loadVegetationGeometry({ tx, ty, z }) {
   try {
-    const res = await fetch(`${API_BASE_URL}/vegetation/tile.${tx}.${ty}.${z}.veg.drc`);
+    const res = await fetch(
+      `${API_BASE_URL}/vegetation/tile.${tx}.${ty}.${z}.veg.drc${bustSuffix()}`,
+    );
     if (!res.ok) {
       return null;
     }
@@ -124,7 +151,7 @@ export class DracoTileSource extends itowns.Source {
 
   urlFromExtent(tile) {
     const { tx, ty, z } = tileKey(tile);
-    return `${API_BASE_URL}/tiles/tile.${tx}.${ty}.${z}.drc`;
+    return `${API_BASE_URL}/tiles/tile.${tx}.${ty}.${z}.drc${bustSuffix()}`;
   }
 
   extentInsideLimit(extent, zoom) {
@@ -203,34 +230,87 @@ export class DracoTileLayer extends itowns.GeometryLayer {
 
     if (view) {
       view.mainLoop.scheduler.addProtocolProvider(this.protocol, DracoProvider);
+      // View.addLayer parks object3d straight in view.scene, where readDepthBuffer —
+      // which renders tileLayer.object3d alone — cannot see it.
+      view.tileLayer.object3d.add(this.object3d);
       this._patchDepthPicking(view);
       this._patchCulling(view);
+      this._patchSubdivision(view);
     }
   }
 
+  // Replace itowns' texture-resolution SSE with a plain screen-footprint test, so the
+  // draco meshes subdivide on how big a tile is on screen, not on a 256 px texture size.
+  // Drives both real subdivision and the load gate below (both call tileLayer.subdivision).
+  _patchSubdivision(view) {
+    const tileLayer = view.tileLayer;
+    tileLayer.subdivision = (context, layer, node) => {
+      if (node.level < layer.minSubdivisionLevel) {
+        return true;
+      }
+      if (node.level >= layer.maxSubdivisionLevel) {
+        return false;
+      }
+      node.extent.planarDimensions(_subDim);
+      const groundSize = Math.max(_subDim.x, _subDim.y);
+      _subCenter.copy(node.boundingSphere.center).applyMatrix4(node.matrixWorld);
+      const distance = Math.max(
+        1,
+        context.camera.camera3D.position.distanceTo(_subCenter),
+      );
+      node.screenSize = (context.camera._preSSE * groundSize) / distance;
+      return node.screenSize > SUBDIVIDE_SCREEN_PX;
+    };
+  }
+
+  // A node carrying a mesh has an exact OBB (see syncNodeBBox), so it is culled as-is.
+  // Without one, obb.z comes from the DEM's min/max, which XbilParser samples every 8th
+  // texel while the geometry draws every 4th: measured on our tiles the drawn surface
+  // escapes that box by up to ~1x the tile's own relief — the lid missing summits, the
+  // floor sitting up to 1 km above all-NO_DATA blocks floored to 0. No margin fixes a
+  // z range that wrong, but the tile's XY extent is exact, so cull on footprint alone
+  // and let z span the domain. Goes away with the DEM, once draco covers every level.
   _patchCulling(view) {
     const tileLayer = view.tileLayer;
     const box = new THREE.Box3();
     tileLayer.culling = (node, camera) => {
       box.copy(node.obb.box3D);
+      if (!node.link[this.id]) {
+        box.min.z = DOMAIN_Z_MIN;
+        box.max.z = DOMAIN_Z_MAX;
+      }
       box.expandByVector(CULL_MARGIN);
       return !camera.isBox3Visible(box, node.matrixWorld);
     };
   }
 
+  // itowns picks by re-rendering tileLayer.object3d in a depth-encoding mode. Our meshes
+  // now live under it (see constructor) and their material honours MODE_DEPTH, so picking
+  // reads the lidar surface itself instead of the DEM standing in for it. RenderMode is
+  // not exported by itowns, and its push() is only applied to level0Nodes, so the mode is
+  // set here directly — the same two lines it would run.
   _patchDepthPicking(view) {
     const readDepthBuffer = view.readDepthBuffer.bind(view);
     view.readDepthBuffer = (...args) => {
-      const hidden = [];
-      for (const node of this.displayed) {
-        if (node.material && !node.material.visible) {
-          node.material.visible = true;
-          hidden.push(node.material);
+      // Vegetation is a MeshStandardMaterial child of its tile mesh: it ignores `mode`
+      // and would write colour into the depth buffer. Hiding it also keeps travel on the
+      // ground rather than on a treetop.
+      const shown = [];
+      for (const mesh of this.object3d.children) {
+        mesh.material.mode = MODE_DEPTH;
+        for (const child of mesh.children) {
+          if (child.visible) {
+            child.visible = false;
+            shown.push(child);
+          }
         }
       }
       const buffer = readDepthBuffer(...args);
-      for (const material of hidden) {
-        material.visible = false;
+      for (const mesh of this.object3d.children) {
+        mesh.material.mode = MODE_FINAL;
+      }
+      for (const child of shown) {
+        child.visible = true;
       }
       return buffer;
     };
@@ -266,6 +346,25 @@ export class DracoTileLayer extends itowns.GeometryLayer {
     node.link[this.id] = mesh;
     mesh.userData.node = node;
     this.markRecentlyUsed(mesh);
+    this.syncNodeBBox(node, mesh);
+  }
+
+  // The mesh is the surface itowns culls and subdivides against, so its own bbox is the
+  // exact z range — no DEM proxy, no every-8th-texel scan, no max/mean bias. Geometry is
+  // km and mesh.scale is 1000; a planar tile's local z is world z, which is why the
+  // elevation layer can hand setBBoxZ plain metres too.
+  // Re-asserted from update() rather than set once: an ElevationLayer rewrites obb.z from
+  // its own texture whenever a tile lands, and this must win.
+  syncNodeBBox(node, mesh) {
+    const bbox = mesh.geometry.boundingBox;
+    if (!bbox) {
+      return;
+    }
+    const min = bbox.min.z * 1000;
+    const max = bbox.max.z * 1000;
+    if (node.obb.z.min !== min || node.obb.z.max !== max) {
+      node.setBBoxZ({ min, max });
+    }
   }
 
   markRecentlyUsed(mesh) {
@@ -358,6 +457,7 @@ export class DracoTileLayer extends itowns.GeometryLayer {
     if (mesh) {
       mesh.visible = display;
       this.markRecentlyUsed(mesh);
+      this.syncNodeBBox(node, mesh);
     }
 
     const covered = display || coveredByAncestor;
@@ -367,6 +467,12 @@ export class DracoTileLayer extends itowns.GeometryLayer {
       this.displayed.add(node);
     } else {
       this.displayed.delete(node);
+      // No draco mesh here and none covering from above: draw nothing rather than
+      // the flat imagery quadtree tile at sea level. Applies at every level — the
+      // coarse far/horizon leaves included — so the ground is draco meshes only,
+      // until draco covers levels 0-9 too. iTowns re-asserts material.visible every
+      // frame, so this holds without restore logic, same mechanism as `covered`.
+      node.material.visible = false;
     }
 
     if (this.frozen || !this.visible || !node.visible) {
@@ -397,13 +503,38 @@ export class DracoTileLayer extends itowns.GeometryLayer {
       return;
     }
 
+    // itowns will subdivide this node, so its children carry the display and
+    // baking its imagery is wasted. Without this gate every ancestor from the
+    // draco floor (level 1) up to the display leaf bakes a WMTS canvas on each
+    // zoom-in — thousands of tile requests, and the coarse ones stitch huge
+    // grids. Only final-LOD leaves (subdivision() == false) fetch; a cached
+    // coarser mesh (attached above) still stands in while children load.
+    if (this.parent.subdivision(context, this.parent, node)) {
+      return;
+    }
+
+    // Don't queue new tiles mid-fly: an animated travel sweeps the whole path
+    // and would fetch + bake imagery for every tile passed, none of them seen.
+    // Cached meshes still render; the destination loads once the travel ends
+    // (STATE.TRAVEL === 3, not re-exported from the itowns package root).
+    if (this.view?.controls?.state === CONTROLS_STATE_TRAVEL) {
+      return;
+    }
+
+    // Load nearest first: the scheduler dequeues highest priority first, so use
+    // the negated camera distance. Currently-shown tiles get a boost on top, to
+    // fill the visible surface ahead of equidistant neighbours off to the side.
+    _priorityCenter.copy(node.boundingSphere.center).applyMatrix4(node.matrixWorld);
+    const distance = context.camera.camera3D.position.distanceTo(_priorityCenter);
+    const priority = (covered || node.material.visible ? 1e7 : 0) - distance;
+
     state.newTry();
     return context.scheduler.execute({
       layer: this,
       view: context.view,
       requester: node,
       extentsSource: tiles,
-      priority: covered || node.material.visible ? 100 : 10,
+      priority,
       earlyDropFunction: (cmd) => !isWanted(cmd.requester),
     }).then(
       ([mesh]) => {
@@ -445,6 +576,26 @@ export class DracoTileLayer extends itowns.GeometryLayer {
     this.object3d.remove(mesh);
     disposeLayerMaterials(mesh);
     itowns.ObjectRemovalHelper.removeChildrenAndCleanupRecursively(this, mesh);
+  }
+
+  reload() {
+    _cacheBust = Date.now();
+    for (const mesh of [...this.meshCache.values()]) {
+      const node = mesh.userData.node;
+      if (node) {
+        this.removeNodeMesh(node);
+      }
+      this.disposeMesh(mesh);
+    }
+    this.meshCache.clear();
+    this.displayed.clear();
+    this._covered = new WeakMap();
+    this.view?.tileLayer.object3d.traverse((node) => {
+      if (node.isTileMesh) {
+        delete node.layerUpdateState[this.id];
+      }
+    });
+    this.view?.notifyChange(this, true);
   }
 
   async refreshTextures() {
