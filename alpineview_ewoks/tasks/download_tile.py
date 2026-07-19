@@ -18,10 +18,6 @@ class DownloadTileInputs(BaseInputModel):
     resolution: int = Field(
         default=DEFAULT_RESOLUTION, description="COPC fetch resolution in metres"
     )
-    min_elevation: float | None = Field(
-        default=None,
-        description="Raise ElevationUnderThreshold if tile z_max is below this (metres)",
-    )
     download_neighbor: bool = Field(
         default=False,
         description="Also fetch the 4 neighbouring cells into cache_dir (needed by alpineview_builder's buffer)",
@@ -52,6 +48,5 @@ class DownloadTile(
             self.inputs.y_km,
             self.inputs.cache_dir,
             resolution=self.inputs.resolution,
-            min_elevation=self.inputs.min_elevation,
             download_from_ign=self.inputs.download_from_ign,
         )

@@ -64,7 +64,6 @@ class BuildTilesOutputs(BaseOutputModel):
     x_km: int = Field(description="Pass-through cell X")
     y_km: int = Field(description="Pass-through cell Y")
     tiles_dir: str = Field(description="Directory containing the .drc LOD tiles")
-    stdout: str = Field(description="alpineview_builder stdout")
 
 
 class BuildTiles(Task, input_model=BuildTilesInputs, output_model=BuildTilesOutputs):
@@ -77,9 +76,8 @@ class BuildTiles(Task, input_model=BuildTilesInputs, output_model=BuildTilesOutp
         if not self.inputs.force and cell_outputs_exist(
             self.inputs.x_km, self.inputs.y_km, self.inputs.out_dir, self.inputs.lod
         ):
-            self.outputs.stdout = "skipped: tiles already built"
             return
-        self.outputs.stdout = run_alpineview_builder(
+        run_alpineview_builder(
             self.inputs.x_km,
             self.inputs.y_km,
             self.inputs.cache_dir,

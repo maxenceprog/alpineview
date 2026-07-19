@@ -43,9 +43,7 @@ def test_vegetation_no_class5_succeeds(ground_only_laz, tmp_path, caplog):
     assert not [r for r in caplog.records if r.levelno > logging.INFO]
     assert vegetation_outputs(959, 6433, str(out)) == paths
 
-    task = BuildVegetation(
-        inputs=dict(laz_path=str(ground_only_laz), out_dir=str(out))
-    )
+    task = BuildVegetation(inputs=dict(laz_path=str(ground_only_laz), out_dir=str(out)))
     task.execute()
     assert sorted(task.outputs.veg_tiles) == sorted(paths)
 
@@ -56,7 +54,7 @@ def test_buildings_no_class6_succeeds(ground_only_laz, tmp_path, caplog):
         city_path = build_buildings(str(ground_only_laz), str(out))
 
     assert city_path.endswith(".city.jsonl")
-    lines = [l for l in open(city_path).read().split("\n") if l.strip()]
+    lines = [line for line in open(city_path).read().split("\n") if line.strip()]
     assert len(lines) == 1
     assert json.loads(lines[0])["type"] == "CityJSON"
     assert not [r for r in caplog.records if r.levelno > logging.INFO]

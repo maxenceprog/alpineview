@@ -3,13 +3,19 @@
 alpineview_builder writes the Draco LOD tiles directly:
     z=0 1km ÷16 → 1 file   z=1 500m ÷4 → 4 files   z=2 250m full → 16 files
     tile.{x}.{y}.{z}.drc
+
+Each build also appends one line to a shared `{out_dir}/meta.jsonl` (build
+command, stdout, inputs, repo commit) — see read_meta.py.
 """
 
 from __future__ import annotations
 
+import fcntl
+import json
 import logging
 import os
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 import laspy
@@ -61,6 +67,13 @@ class AlpineviewBuilderError(Exception):
     """Raised when alpineview_builder exits with a non-zero code."""
 
 
+def _check_elevation(laz_file, min_elevation: float):
+    if min_elevation is not None and laz_file.header.z_max < min_elevation:
+        raise ElevationUnderThreshold(
+            f"z_max={laz_file.header.z_max:.1f} m < threshold {min_elevation:.1f} m"
+        )
+
+
 def _query_and_cache(
     tile: TileInfo,
     cache_dir: str,
@@ -83,8 +96,8 @@ def _query_and_cache(
     dest = Path(cache_dir) / (tile.name.removesuffix(".copc.laz") + ".laz")
     if dest.exists():
         try:
-            # try open header
-            laspy.open(dest, decompression_selection=0)
+            with laspy.open(dest, decompression_selection=0) as laz_file:
+                _check_elevation(laz_file, min_elevation)
             return dest
         except laspy.errors.LaspyException:
             log.info("las read", exc_info=True)
@@ -121,10 +134,7 @@ def _query_copc(
 ) -> Path:
     """Query a COPC *source* (local path or remote URL) at *resolution* → dest .laz."""
     with CopcReader.open(source) as reader:
-        if min_elevation is not None and reader.header.z_max < min_elevation:
-            raise ElevationUnderThreshold(
-                f"Tile {dest.name} z_max={reader.header.z_max:.1f} m < threshold {min_elevation:.1f} m"
-            )
+        _check_elevation(reader, min_elevation)
         elevation_diff = reader.header.z_max - reader.header.z_min
         if elevation_diff < 200:
             log.info(
@@ -270,6 +280,21 @@ def cell_outputs_exist(
     return True
 
 
+def _repo_commit() -> str | None:
+    """Current HEAD commit of the alpineview repo, or None if not a git checkout."""
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=_REPO,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return out.stdout.strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+
+
 def run_alpineview_builder(
     x_km: int,
     y_km: int,
@@ -292,7 +317,10 @@ def run_alpineview_builder(
     ds_cone: float,
     ds_min_pts: int,
 ) -> str:
-    """Run alpineview_builder for cell (x_km, y_km); .drc LODs land in `out_dir`, returns its stdout.
+    """Run alpineview_builder for cell (x_km, y_km); .drc LODs land in `out_dir`.
+
+    Appends one JSON line (command, stdout, repo commit, *inputs*) to
+    `{out_dir}/meta.jsonl` under an flock, and returns that path.
 
     No defaults: every alpineview_builder tuning knob is required here so it has
     exactly one default, in BuildTilesInputs (tasks/tiles.py).
@@ -349,4 +377,23 @@ def run_alpineview_builder(
             f"\ncommand:\n{cmd_str}\n"
             f"\nstdout before crash:\n{proc.stdout}"
         )
-    return f"command:\n{cmd_str}\n\nstdout:\n{proc.stdout}"
+
+    metadata = {
+        "date": datetime.now(timezone.utc).isoformat(),
+        "cell": {"x_km": x_km, "y_km": y_km},
+        "build": {
+            "command": cmd,
+            "returncode": proc.returncode,
+            "stdout": proc.stdout,
+            "stderr": proc.stderr,
+        },
+        "repo_commit": _repo_commit(),
+    }
+    metadata_path = Path(out_dir) / "meta.jsonl"
+    with open(metadata_path, "a") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            f.write(json.dumps(metadata) + "\n")
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+    return str(metadata_path)

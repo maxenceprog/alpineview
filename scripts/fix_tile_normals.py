@@ -81,10 +81,16 @@ def fix_tile(path: Path, *, dry_run: bool) -> bool:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("tiles_dir", nargs="?", default="webapp/public/tiles")
-    ap.add_argument("--dry-run", action="store_true", help="report sizes without writing")
-    ap.add_argument("--limit", type=int, default=None, help="process at most N files (testing)")
+    ap.add_argument(
+        "--dry-run", action="store_true", help="report sizes without writing"
+    )
+    ap.add_argument(
+        "--limit", type=int, default=None, help="process at most N files (testing)"
+    )
     args = ap.parse_args()
 
     tiles_dir = Path(args.tiles_dir)
@@ -103,7 +109,9 @@ def main() -> None:
         except Exception as e:
             print(f"ERROR {f}: {e}", file=sys.stderr)
 
-    print(f"\n{fixed}/{len(files)} tiles processed{' (dry run)' if args.dry_run else ''}")
+    print(
+        f"\n{fixed}/{len(files)} tiles processed{' (dry run)' if args.dry_run else ''}"
+    )
 
 
 if __name__ == "__main__":

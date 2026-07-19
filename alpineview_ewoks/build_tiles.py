@@ -19,10 +19,14 @@ from .core.lidar_hd import TileInfo
 from .core.tiles import (
     DEFAULT_CACHE_DIR,
     DEFAULT_RESOLUTION,
+    DEFAULT_TILES_OUT,
     download_cell_and_neighbours,
 )
+from .read_meta import built_cells, cells_built_at
 
-MAX_PENDING = 8
+DEFAULT_MIN_ELEVATION = 2500.0
+
+MAX_PENDING = 7
 
 _LAZ_RE = re.compile(r"LHD_FXX_(\d{4})_(\d{4})_PTS_LAMB93_IGN69")
 
@@ -77,6 +81,23 @@ def main(argv: list[str] | None = None) -> None:
         "--cache", default=DEFAULT_CACHE_DIR, help="LAZ cache directory"
     )
     parser.add_argument("--resolution", type=int, default=DEFAULT_RESOLUTION)
+    parser.add_argument("--tiles-dir", default=DEFAULT_TILES_OUT)
+    parser.add_argument(
+        "--min-elevation",
+        type=float,
+        default=DEFAULT_MIN_ELEVATION,
+        help="Skip cells whose LAZ z_max is below this (metres)",
+    )
+    parser.add_argument(
+        "--rebuild",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="DATE",
+        help="Rebuild cells already present in meta.jsonl; with an argument "
+        "'>aaaa/mm/dd[:hh:mm]' or '<aaaa/mm/dd[:hh:mm]', only those whose last "
+        "build is after / before that date",
+    )
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO)
 
@@ -85,21 +106,36 @@ def main(argv: list[str] | None = None) -> None:
         log.info("No tiles to process.")
         return
 
+    done = built_cells(args.tiles_dir)
+    if args.rebuild == "":
+        done = set()
+    elif args.rebuild is not None:
+        done -= cells_built_at(args.rebuild, args.tiles_dir)
+    if done:
+        log.info("Skipping %d cells already built", len(done))
+
     build_tiles_utils.run_servers()
 
     pendings: dict = {}
     for i, tile in enumerate(tiles, 1):
+        t0 = time.time()
         _wait(pendings)
         x, y = parse_km(tile.name)
+        if (x, y) in done:
+            continue
         try:
             download_cell_and_neighbours(
-                x, y, args.cache, resolution=args.resolution, download_from_ign=True
+                x,
+                y,
+                args.cache,
+                resolution=args.resolution,
+                min_elevation=args.min_elevation,
             )
         except Exception as error:  # noqa: BLE001
             log.error("download failed for (%d, %d): %s", x, y, error)
             continue
 
-        print(f"⬇  downloaded #{i}/{len(tiles)}  {tile.name}")
+        print(f"⬇  downloaded #{i}/{len(tiles)}  {tile.name} in {time.time() - t0}s")
         pendings[(x, y)] = client.submit_build_tile(x, y)
 
     _wait(pendings)
