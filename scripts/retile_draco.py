@@ -1,30 +1,31 @@
 #!/usr/bin/env python3
-"""Rebuild the level 8/9/10 (z-2/z-1/z0) draco pyramid via PoissonRecon.
+"""Rebuild the coarse draco pyramid (z < SRC_Z) via PoissonRecon.
 
-Source is SRC_DIR (level-10 / z0 tiles only, the pre-Poisson backup). Output
-is OUT_DIR, written in place for all three levels.
+Source is SRC_DIR (z=SRC_Z tiles only, the pre-Poisson backup). Output is
+OUT_DIR, written in place for every level in DEPTH_LEVELS.
 
-Unit of work is one z-2 cell: the 4x4 group of z0 tiles it covers (level 8
-tile side = 4 km, z0 side = 1 km). Per cell:
+Unit of work is one ROOT_Z cell: the square group of source tiles it covers.
+Per cell:
 
-  1. Load the (up to) 16 z0 tiles present, compute per-vertex normals for
-     each (PoissonRecon needs oriented normals), and merge all 16 into one
-     combined point cloud spanning the full [0,4]x[0,4] km cell (each tile
-     shifted by (tx%4, ty%4)*1km into the cell's frame -- the same offset
-     math merging elsewhere uses, splitting's inverse).
-  2. Write that single merged cloud to one input .ply, then run the
-     PoissonRecon binary against it three times, at increasing octree depth
-     (finer depth = more detail, since the whole 4x4 km cell is being
-     resolved at once):
-       depth 5 -> crop to the full [0,4]x[0,4] km cell (1 tile)  -> z-2
-       depth 6 -> crop into a 2x2 grid of [0,2]x[0,2] km tiles   -> z-1
-       depth 7 -> crop into a 4x4 grid of [0,1]x[0,1] km tiles   -> z0
-     Each crop is re-localized to its own tile's [0, side] origin (Poisson
+  1. Load the source tiles present -- the cell's own, plus the one-tile ring
+     around it -- compute per-vertex normals for each (PoissonRecon needs
+     oriented normals), and merge them into one combined point cloud in the
+     cell's frame (each tile shifted by its signed index offset -- the same
+     offset math merging elsewhere uses, splitting's inverse), clipped to the
+     cell grown by MARGIN_KM. That margin is why --scale is 1: Poisson sees
+     real data past the cell edge rather than closing the surface there, so
+     adjacent cells agree along their shared boundary. The margin is dropped
+     again by the crops in step 2.
+  2. Write that merged cloud to one input .ply, then run the PoissonRecon
+     binary against it once per entry in DEPTH_LEVELS, at increasing octree
+     depth (finer depth = more detail, since the whole cell is resolved at
+     once). Each output is cropped into the 2^(z - ROOT_Z) grid of tiles at
+     that level, re-localized to its own tile's [0, side] origin (Poisson
      closes the surface a little past the cell edge; the crop also trims
      that overhang) and re-encoded to .drc.
 
 PoissonRecon crashing is isolated to its own OS process, so a plain
-ProcessPoolExecutor over z-2 cells is enough -- no respawn/requeue needed.
+ProcessPoolExecutor over cells is enough -- no respawn/requeue needed.
 
     python scripts/retile_draco.py
 """
@@ -49,28 +50,42 @@ import numpy as np  # noqa: E402
 import open3d as o3d  # noqa: E402
 from tqdm import tqdm  # noqa: E402
 
-SRC_DIR = Path("webapp/public/tiles_")  # level-10 (z0) source tiles
-OUT_DIR = Path("webapp/public/tiles")  # levels 8/9/10 written here in place
+SRC_DIR = Path("webapp/public/tiles")
+OUT_DIR = Path("webapp/public/tiles")
 
 POISSONRECON_BIN = (
     "/home/ruyer/gitlab/ign/third-parties/PoissonRecon/Bin/Linux/PoissonRecon"
 )
-POISSON_SCALE = 1.1
+POISSON_SCALE = 1.0  # margin below already pads the reconstruction domain
 POISSON_PARALLEL = 2  # "none" -- all concurrency is the outer process pool
 WORKERS = 8
 
-# depth -> (output z level, tiles per axis, tile side in km). The z-2 cell is
-# 4 km per side, so side_km * grid_n == 4 for every depth.
+# Band of neighbouring-cell points kept around the cell, in km. Poisson sees
+# real data past the cell edge instead of closing the surface there, so the
+# boundary matches the neighbour's. Must be <= SRC_TILE_KM (only the one-tile
+# ring around the cell is loaded).
+MARGIN_KM = 0.25
+
+FORCE = False  # False: skip levels whose output tiles are all already on disk
+
+SRC_Z = 0  # source level, one tile per SRC_TILE_KM square
+SRC_TILE_KM = 1.0
+ROOT_Z = -2  # coarsest level rebuilt == the unit of work
+
+# PoissonRecon octree depth -> output z level. Every z must be in
+# [ROOT_Z, SRC_Z]; deeper octrees belong with the finer levels.
 DEPTH_LEVELS = {
-    5: (-2, 1, 4.0),
-    6: (-1, 2, 2.0),
-    7: (0, 4, 1.0),
+    5: -2,
+    6: -1,
 }
 
 DRACO_QUANT_BITS = 14  # both match mesh_lod.cpp
 DRACO_COMPRESSION = 1  # DracoPy level 1 == draco speed 9
 
-LOD0_RE = re.compile(r"^tile\.(\d+)\.(\d+)\.0\.drc$")
+CELL_TILES = 2 ** (SRC_Z - ROOT_Z)  # source tiles per axis in one cell
+CELL_KM = SRC_TILE_KM * CELL_TILES
+
+SRC_RE = re.compile(rf"^tile\.(\d+)\.(\d+)\.{SRC_Z}\.drc$")
 
 
 def tile_path(root: Path, tx: int, ty: int, z: int) -> Path:
@@ -101,22 +116,22 @@ def save_tile(path: Path, points: np.ndarray, faces: np.ndarray) -> int:
     return len(buf)
 
 
-def list_z0_cells(src_dir: Path) -> list[tuple[int, int]]:
-    """Every z-2 cell (cx, cy) with at least one z0 tile under it."""
+def list_cells(src_dir: Path) -> list[tuple[int, int]]:
+    """Every ROOT_Z cell (cx, cy) with at least one source tile under it."""
     cells = set()
     for f in src_dir.iterdir():
-        m = LOD0_RE.match(f.name)
+        m = SRC_RE.match(f.name)
         if m:
             tx, ty = int(m.group(1)), int(m.group(2))
-            cells.add((tx // 4, ty // 4))
+            cells.add((tx // CELL_TILES, ty // CELL_TILES))
     return sorted(cells)
 
 
 def load_and_normal(
     src_dir: Path, tx: int, ty: int
 ) -> tuple[np.ndarray, np.ndarray] | None:
-    """Load one z0 tile and compute its per-vertex normals."""
-    loaded = load_tile(tile_path(src_dir, tx, ty, 0))
+    """Load one source tile and compute its per-vertex normals."""
+    loaded = load_tile(tile_path(src_dir, tx, ty, SRC_Z))
     if loaded is None:
         return None
     points, faces = loaded
@@ -129,17 +144,29 @@ def load_and_normal(
 
 
 def merge_group(
-    tiles: list[tuple[int, int, np.ndarray, np.ndarray]], mask: int, child_km: float
+    tiles: list[tuple[int, int, np.ndarray, np.ndarray]], cx: int, cy: int
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Concatenate (tx, ty, points, normals) tiles, each shifted into its
-    parent's frame by (tx & mask, ty & mask) * child_km."""
+    """Concatenate (tx, ty, points, normals) source tiles into cell (cx, cy)'s
+    frame, keeping only what falls inside the cell plus MARGIN_KM. Ring tiles
+    land at a negative or >= CELL_TILES index, hence the signed offset."""
+    lo, hi = -MARGIN_KM, CELL_KM + MARGIN_KM
     pts_list, normals_list = [], []
     for tx, ty, points, normals in tiles:
         shifted = points.copy()
-        shifted[:, 0] += (tx & mask) * child_km
-        shifted[:, 1] += (ty & mask) * child_km
-        pts_list.append(shifted)
-        normals_list.append(normals)
+        shifted[:, 0] += (tx - cx * CELL_TILES) * SRC_TILE_KM
+        shifted[:, 1] += (ty - cy * CELL_TILES) * SRC_TILE_KM
+        keep = (
+            (shifted[:, 0] >= lo)
+            & (shifted[:, 0] <= hi)
+            & (shifted[:, 1] >= lo)
+            & (shifted[:, 1] <= hi)
+        )
+        if not keep.any():
+            continue
+        pts_list.append(shifted[keep])
+        normals_list.append(normals[keep])
+    if not pts_list:
+        return np.empty((0, 3), np.float32), np.empty((0, 3), np.float32)
     return np.concatenate(pts_list), np.concatenate(normals_list)
 
 
@@ -205,22 +232,47 @@ def crop_subtile(
     return out_pts, out_faces
 
 
-def process_cell(cx: int, cy: int, src_dir: Path, out_dir: Path) -> str:
-    """Rebuild levels 10/9/8 for one z-2 cell. Self-contained so a batch can
-    map it over a pool."""
-    tiles: list[tuple[int, int, np.ndarray, np.ndarray]] = []
-    for j in range(4):
-        for i in range(4):
-            tx, ty = cx * 4 + i, cy * 4 + j
-            data = load_and_normal(src_dir, tx, ty)
-            if data is not None:
-                tiles.append((tx, ty, *data))
+def level_done(cx: int, cy: int, z: int, out_dir: Path) -> bool:
+    """True if every tile level z covers for this cell is already on disk.
+    A level whose reconstruction legitimately yielded no tile for some crop
+    never looks done, so it is rebuilt -- conservative, but the alternative
+    is a sidecar marker file."""
+    grid_n = 2 ** (z - ROOT_Z)
+    return all(
+        tile_path(out_dir, cx * grid_n + i, cy * grid_n + j, z).is_file()
+        for j in range(grid_n)
+        for i in range(grid_n)
+    )
 
-    counts = {"z0": 0, "z-1": 0, "z-2": 0}
-    if not tiles:
+
+def process_cell(cx: int, cy: int, src_dir: Path, out_dir: Path) -> str:
+    """Rebuild every DEPTH_LEVELS level for one cell. Self-contained so a
+    batch can map it over a pool."""
+    levels = {
+        depth: z
+        for depth, z in DEPTH_LEVELS.items()
+        if FORCE or not level_done(cx, cy, z, out_dir)
+    }
+    if not levels:
+        return f"cell {cx}.{cy}: skipped"
+
+    tiles: list[tuple[int, int, np.ndarray, np.ndarray]] = []
+    inner = 0
+    for j in range(-1, CELL_TILES + 1):
+        for i in range(-1, CELL_TILES + 1):
+            tx, ty = cx * CELL_TILES + i, cy * CELL_TILES + j
+            data = load_and_normal(src_dir, tx, ty)
+            if data is None:
+                continue
+            tiles.append((tx, ty, *data))
+            if 0 <= i < CELL_TILES and 0 <= j < CELL_TILES:
+                inner += 1
+
+    if not inner:
         return f"cell {cx}.{cy}: empty"
 
-    points, normals = merge_group(tiles, 3, 1.0)
+    counts = {z: 0 for z in levels.values()}
+    points, normals = merge_group(tiles, cx, cy)
 
     with tempfile.TemporaryDirectory() as tmp:
         in_ply = os.path.join(tmp, "in.ply")
@@ -229,14 +281,15 @@ def process_cell(cx: int, cy: int, src_dir: Path, out_dir: Path) -> str:
         pcd.normals = o3d.utility.Vector3dVector(normals.astype(np.float64))
         o3d.io.write_point_cloud(in_ply, pcd)
 
-        for depth, (z, grid_n, side_km) in DEPTH_LEVELS.items():
+        for depth, z in sorted(levels.items()):
+            grid_n = 2 ** (z - ROOT_Z)
+            side_km = CELL_KM / grid_n
             out_ply = os.path.join(tmp, f"out_{depth}.ply")
             mesh = run_poisson_ply(in_ply, out_ply, depth)
             if mesh.is_empty():
                 continue
             rec_pts = np.asarray(mesh.vertices, dtype=np.float32)
             rec_faces = np.asarray(mesh.triangles, dtype=np.int32)
-            label = "z0" if z == 0 else f"z{z}"
             for j in range(grid_n):
                 for i in range(grid_n):
                     result = crop_subtile(
@@ -247,18 +300,21 @@ def process_cell(cx: int, cy: int, src_dir: Path, out_dir: Path) -> str:
                             tile_path(out_dir, cx * grid_n + i, cy * grid_n + j, z),
                             *result,
                         )
-                        counts[label] += 1
+                        counts[z] += 1
 
-    return f"cell {cx}.{cy}: " + " ".join(f"{k}:{v}" for k, v in counts.items())
+    return f"cell {cx}.{cy}: " + " ".join(
+        f"z{z}:{n}" for z, n in sorted(counts.items())
+    )
 
 
 def main() -> None:
-    cells = list_z0_cells(SRC_DIR)
+    cells = list_cells(SRC_DIR)
     if not cells:
-        print(f"no LOD 0 tiles found in {SRC_DIR}", file=sys.stderr)
+        print(f"no z{SRC_Z} tiles found in {SRC_DIR}", file=sys.stderr)
         sys.exit(1)
     print(
-        f"rebuilding {len(cells)} z-2 cells {SRC_DIR} -> {OUT_DIR} on {WORKERS} workers"
+        f"rebuilding {len(cells)} z{ROOT_Z} cells "
+        f"{SRC_DIR} -> {OUT_DIR} on {WORKERS} workers"
     )
 
     failed = 0
