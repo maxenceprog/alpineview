@@ -168,6 +168,18 @@ export function initEnvironment(view) {
 
   let savedFogDensity = scene.fog.density;
 
+  // three caches programs with USE_SHADOWMAP / NUM_DIR_LIGHT_SHADOWS baked in;
+  // toggling shadowMap.enabled or the light's visibility empties the shadow
+  // uniform arrays without invalidating them.
+  function invalidateMaterials() {
+    scene.traverse((o) => {
+      const m = o.material;
+      if (!m) return;
+      if (Array.isArray(m)) m.forEach((x) => (x.needsUpdate = true));
+      else m.needsUpdate = true;
+    });
+  }
+
   function setEnabled(on) {
     _enabled = on;
     ambient.visible = on;
@@ -182,6 +194,7 @@ export function initEnvironment(view) {
       scene.fog.density = 0;
     }
     setTerrainLightingEnabled(on);
+    invalidateMaterials();
     view.notifyChange(view.camera3D);
   }
 
@@ -189,6 +202,7 @@ export function initEnvironment(view) {
     _shadows = on;
     renderer.shadowMap.enabled = on && _enabled;
     renderer.shadowMap.needsUpdate = true;
+    invalidateMaterials();
     view.notifyChange(view.camera3D);
   }
 
