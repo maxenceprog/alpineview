@@ -31,7 +31,7 @@ const PLANAR_CONTROLS = {
 };
 
 const view = new itowns.PlanarView(viewerDiv, extent, {
-  maxSubdivisionLevel: 13,
+  maxSubdivisionLevel: 12,
   segments: 64,
   controls: PLANAR_CONTROLS,
   placement: {

@@ -332,9 +332,6 @@ function installLabelOcclusion(view, poiLayer) {
     const moved = !camera.matrixWorld.equals(lastCamMatrix);
     if (!lastPass || (moved && now - lastPass > THROTTLE)) recompute();
     eachLabel((label) => { if (label._occluded) label.visible = false; });
-    if (moved) {
-      clearTimeout(trailer);
-      trailer = setTimeout(settle, THROTTLE + 20);
-    }
+
   });
 }

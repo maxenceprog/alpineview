@@ -14,7 +14,7 @@ import {
 import { fetchWmtsCanvas } from "./wmts.js";
 
 export const DRACO_BASE_LEVEL = 10;
-export const DRACO_MAX_Z = 3;
+export const DRACO_MAX_Z = 2;
 export const DRACO_MIN_Z = -2;
 
 const CRS = "EPSG:2154";
@@ -513,13 +513,6 @@ export class DracoTileLayer extends itowns.GeometryLayer {
       return;
     }
 
-    // Don't queue new tiles mid-fly: an animated travel sweeps the whole path
-    // and would fetch + bake imagery for every tile passed, none of them seen.
-    // Cached meshes still render; the destination loads once the travel ends
-    // (STATE.TRAVEL === 3, not re-exported from the itowns package root).
-    if (this.view?.controls?.state === CONTROLS_STATE_TRAVEL) {
-      return;
-    }
 
     // Load nearest first: the scheduler dequeues highest priority first, so use
     // the negated camera distance. Currently-shown tiles get a boost on top, to

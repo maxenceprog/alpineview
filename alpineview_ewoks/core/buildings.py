@@ -146,7 +146,9 @@ def build_buildings(
         laspy.DecompressionSelection.base()
         | laspy.DecompressionSelection.CLASSIFICATION
     )
-    classification = laspy.read(str(laz), decompression_selection=selection).classification
+    classification = laspy.read(
+        str(laz), decompression_selection=selection
+    ).classification
     if not np.any(np.asarray(classification) == BUILDING_CLASS):
         log.info("%s: no building-classified points", laz.name)
         return _write_empty_city(final)

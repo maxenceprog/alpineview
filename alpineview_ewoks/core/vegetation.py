@@ -201,9 +201,7 @@ def trunk_mesh(
     return cyl
 
 
-def vegetation_outputs(
-    x_km: int, y_km: int, out_dir: str = DEFAULT_OUT
-) -> list[str]:
+def vegetation_outputs(x_km: int, y_km: int, out_dir: str = DEFAULT_OUT) -> list[str]:
     """Existing .veg.drc tile paths for cell (x_km, y_km); empty if none."""
     y0 = y_km - 1
     paths = []
