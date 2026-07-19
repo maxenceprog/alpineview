@@ -125,6 +125,8 @@ view.addLayer(new BuildingsLayer("buildings", view));
 
 initPoi(view);
 
+import("./consoleControls.js").then(({ initConsoleControls }) => initConsoleControls(view));
+
 if (__TEST_CONTROLS__) {
   import("./testControls.js").then(({ initTestControls }) => initTestControls(view));
 }

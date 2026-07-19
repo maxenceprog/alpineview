@@ -1,3 +1,4 @@
+import json
 import os
 from email.utils import parsedate
 from pathlib import Path
@@ -58,6 +59,34 @@ def is_not_modified(response_headers: Headers, request_headers: Headers) -> bool
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/meta")
+def get_meta(x: int, y: int, limit: int = 1):
+    """Build metadata for the z=0 tile (x, y), latest `limit` entries last.
+
+    Args are web tile indices (y = south edge); meta.jsonl keys cells by their
+    LAZ NW-corner name (y = north edge), hence the +1.
+    """
+    path = DATA_DIR / "tiles" / "meta.jsonl"
+    if not path.is_file():
+        raise HTTPException(status_code=404)
+    cell = {"x_km": x, "y_km": y + 1}
+    entries = []
+    with path.open() as f:
+        for line in f:
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if entry.get("cell") == cell:
+                entries.append(entry)
+    return {
+        "tile": {"x": x, "y": y},
+        "cell": cell,
+        "count": len(entries),
+        "entries": entries[-limit:],
+    }
 
 
 @app.get("/{layer}/{path:path}")

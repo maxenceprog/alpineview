@@ -5,6 +5,9 @@ import { viteStaticCopy } from "vite-plugin-static-copy";
 // Asset layers served by alpineview_api, in dev as in prod.
 export const API_LAYERS = ["tiles", "vegetation", "buildings", "dem"];
 
+// Non-asset API routes proxied the same way (build metadata, see /meta in alpineview_api).
+export const API_ROUTES = ["meta"];
+
 // Dev: the local alpineview_api the test_serve scripts start (see ../test_serve).
 // Proxied rather than called cross-origin, so the app stays same-origin and keeps
 // the dev server's HTTP/2 — and so API_BASE_URL is empty, as on a same-host deploy.
@@ -43,7 +46,7 @@ export const servePlugins = () => [
 ];
 
 const apiProxy = () =>
-  Object.fromEntries(API_LAYERS.map((layer) => [
+  Object.fromEntries([...API_LAYERS, ...API_ROUTES].map((layer) => [
     `/${layer}`,
     { target: DEV_API_URL, changeOrigin: true },
   ]));
