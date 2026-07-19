@@ -19,6 +19,7 @@
 #include "mesh_clip.h"
 #include "mesh_lod.h"
 #include "mesh_ply.h"
+#include "mesh_simplify.h"
 #include "mesh_utils.h"
 #include "vertex_table.h"
 
@@ -64,6 +65,9 @@ struct Timings
 	unsigned int read_and_filter = 0;
 	unsigned int estim_nml = 0;
 	unsigned int poisson_recon = 0;
+	unsigned int trim = 0;		   /* surfacetrimmer */
+	unsigned int coarse_recon = 0; /* coarse LOD Poisson re-runs */
+	unsigned int lod = 0;		   /* load + km transform + Draco tiling */
 	unsigned int total = 0;
 };
 
@@ -95,7 +99,7 @@ static void set_default_cfg(struct Cfg &cfg)
 	cfg.downsample.voxel_size = -1.f; /* auto: 2 x estimated scale */
 	cfg.downsample.cone_deg = 35.f;
 	cfg.downsample.min_pts = 0; /* auto */
-	cfg.lod.max_level = 2;
+	cfg.lod.max_level = 0;
 	cfg.lod.skirt_depth = 50.f;
 }
 
@@ -116,11 +120,8 @@ static void print_usage(const char *prog)
 		"Reconstruction:\n"
 		"  --depth N            Poisson octree depth (default: 10)\n"
 		"  --weight F           Poisson point weight (default: 4)\n"
-		"  --trim F             SurfaceTrimmer density threshold; removes\n"
-		"                       faces grown in low-density (e.g. water)\n"
-		"                       regions. 0 disables (default: 0.1)\n"
-		"  --aratio F           SurfaceTrimmer island removal: max relative\n"
-		"                       area of components to drop (default: 0.005)\n"
+		"  --trim F             Trim enabled if trim > 0.0"
+		"  --aratio F           legacy (ignored)"
 		"  --clean N            cleanup level 0/1/2 (default: 1)\n"
 		"\n"
 		"Toggles (prefix with --no- to disable):\n"
@@ -341,7 +342,8 @@ static void print_timings(const Timings &tt)
 {
 	unsigned div = 1000000;
 	unsigned int other = tt.total - tt.read_and_filter - tt.estim_nml -
-						 tt.poisson_recon;
+						 tt.poisson_recon - tt.trim - tt.coarse_recon -
+						 tt.lod;
 	printf("\n");
 	printf("Timings :\n");
 	printf("---------\n");
@@ -354,6 +356,13 @@ static void print_timings(const Timings &tt)
 	printf("Poisson     : ");
 	printf("%3d s (%.1f%%)\n", tt.poisson_recon / div,
 		   100.f * tt.poisson_recon / tt.total);
+	printf("Trim        : ");
+	printf("%3d s (%.1f%%)\n", tt.trim / div, 100.f * tt.trim / tt.total);
+	printf("Coarse recon: ");
+	printf("%3d s (%.1f%%)\n", tt.coarse_recon / div,
+		   100.f * tt.coarse_recon / tt.total);
+	printf("LOD tiling  : ");
+	printf("%3d s (%.1f%%)\n", tt.lod / div, 100.f * tt.lod / tt.total);
 	printf("Other       : ");
 	printf("%3d s (%.1f%%)\n", other / div, 100.f * other / tt.total);
 	printf("Total       : ");
@@ -907,6 +916,50 @@ static void rescale_and_offset_mesh(Mesh &mesh, MBuf &data,
 	}
 }
 
+/* Run the PoissonRecon binary.*/
+static int run_poisson_recon(const std::string &recon_in,
+							 const std::string &recon_out, int depth, const struct Cfg &cfg)
+{
+	const char *verbose = cfg.verbose ? "--verbose" : "";
+	const char *format =
+		"poissonrecon --in %s --out %s --scale 1.0 --depth %d "
+		"--pointWeight %.1f %s --parallel %d --density --samplesPerNode 1.0 "
+		"--performance";
+	size_t len = recon_in.size() + recon_out.size() + strlen(format) + 64;
+	std::string cmd(len, '\0');
+	int written = snprintf(&cmd[0], len, format, recon_in.c_str(),
+						   recon_out.c_str(), depth, cfg.weight, verbose,
+						   cfg.parallel ? 0 : 2);
+	cmd.resize(written);
+	return system(cmd.c_str());
+}
+
+/* Turn a Poisson output mesh into a points-only PLY usable as the input of a
+ * coarser Poisson run: derive per-vertex normals from the mesh faces
+ * (compute_mesh_normals) and re-add the two [0,1] cube corners as zero-normal
+ * points so the re-run keeps the same tile-consistent unit cube (Poisson's
+ * IsValid drops the zero-normal corners after they have fixed the box). */
+static int build_coarse_poisson_input(const std::string &in_ply,
+									  const std::string &out_ply)
+{
+	Mesh mesh;
+	MBuf data;
+	if (load_ply(mesh, data, in_ply.c_str()) || mesh.index_count == 0)
+		return (-1);
+	data.reserve_vertices(mesh.vertex_count + 2);
+	compute_mesh_normals(mesh, data);
+	uint32_t c = mesh.vertex_count;
+	data.positions[c] = Vec3{0.f, 0.f, 0.f};
+	data.normals[c] = Vec3{0.f, 0.f, 0.f};
+	data.positions[c + 1] = Vec3{1.f, 1.f, 1.f};
+	data.normals[c + 1] = Vec3{0.f, 0.f, 0.f};
+	mesh.vertex_count = c + 2;
+	mesh.index_count = 0; /* points only: Poisson ignores faces */
+	write_ply(out_ply.c_str(), mesh, data);
+	data.clear();
+	return (0);
+}
+
 static int build_surface_mesh(const struct Cfg &cfg, Timings &tt)
 {
 	/* Re-use existing output ? */
@@ -924,21 +977,7 @@ static int build_surface_mesh(const struct Cfg &cfg, Timings &tt)
 	chrono.start();
 	std::string recon_in =
 		get_filename(cfg.x0, cfg.y0, cfg.out_dir, "points.ply");
-	/* --verbose is a valueless flag in PoissonRecon (CmdLineReadable):
-	 * pass it only when enabled, with no argument. (--confidence is gone
-	 * with the old per-point normal quality: normals are now unit,
-	 * scanline-oriented vectors.) */
-	const char *verbose = cfg.verbose ? "--verbose" : "";
-	const char *format =
-		"poissonrecon --in %s --out %s --scale 1.0 --depth %d "
-		"--pointWeight %.1f %s --parallel %d --density  --samplesPerNode 1.0 --performance";
-	size_t len = recon_in.size() + recon_out.size() + strlen(format) + 64;
-
-	std::string cmd(len, '\0');
-	int written = snprintf(&cmd[0], len, format, recon_in.c_str(),
-						   recon_out.c_str(), cfg.depth, cfg.weight, verbose, cfg.parallel ? 0 : 2);
-	cmd.resize(written);
-	int ret = system(cmd.c_str());
+	int ret = run_poisson_recon(recon_in, recon_out, cfg.depth, cfg);
 
 	if (cfg.clean >= 2)
 	{
@@ -995,57 +1034,116 @@ int postprocess_surface_mesh(const Cfg &cfg, Timings &tt)
 	std::string recon_out =
 		get_filename(cfg.x0, cfg.y0, cfg.out_dir, "poisson.ply");
 	const bool do_trim = cfg.trim > 0.f;
+	Timer chrono;
 
-	if (do_trim)
-	{
-		char cmd[255];
-		snprintf(cmd, sizeof(cmd),
-				 "surfacetrimmer --in %s --out %s --trim %.2f "
-				 "--verbose --removeIslands --aRatio %g",
-				 recon_out.c_str(), recon_out.c_str(), cfg.trim,
-				 cfg.aratio);
-		system(cmd);
-	}
-
-	/* Load from Poisson Recon */
-	Mesh mesh;
-	MBuf data;
-	load_ply(mesh, data, recon_out.c_str());
-	printf("A total of %d (%.2f M) Tri after poisson reconstruct.\n",
-		   mesh.index_count / 3, 1e-6 * mesh.index_count / 3);
-
-	/* Recut mesh to 1km boundary */
+	/* The transform maps the Poisson [0,1] cube back to km; every LOD level
+	 * needs it, so read and validate it once. A missing .transf next to a
+	 * cached poisson.ply would rescale with garbage (~1e9 coords, freezing any
+	 * WebGL viewer), so bail rather than write bad tiles. */
 	struct Transform transf;
 	if (read_transform(transf, cfg))
 	{
-		/* No .transf next to the cached poisson.ply: rescaling with an
-		 * uninitialised transform would emit ~1e9 coordinates and freeze
-		 * any WebGL viewer. Bail instead of writing garbage tiles. */
 		printf("Error: missing/unreadable transform for %04d_%04d; "
 			   "cannot rescale mesh.\n",
 			   cfg.x0, cfg.y0);
 		return (-1);
 	}
-	recut_mesh(mesh, data, transf);
-	printf("A total of %d (%.2f M) Tri after buffered boundary "
-		   "recut.\n",
-		   mesh.index_count / 3, 1e-6 * mesh.index_count / 3);
 
-	/* Rescale and offset (scale is now 1 = 1km for x, y and z) */
-	rescale_and_offset_mesh(mesh, data, transf, cfg);
+	const int maxlv = cfg.lod.max_level;
 
-	if (cfg.optimize)
+	/* Per-level source meshes. The finest level (maxlv) is the depth-cfg.depth
+	 * reconstruction (recon_out). Each coarser level re-meshes the previous
+	 * level's Poisson output one octree depth lower: normals are re-derived
+	 * from that mesh's faces (build_coarse_poisson_input) and it is
+	 * reconstructed at depth cfg.depth-(maxlv-z). This replaces vertex-cluster
+	 * decimation of the finest mesh with a native coarse reconstruction. */
+	std::vector<std::string> level_ply(maxlv >= 0 ? maxlv + 1 : 0);
+	if (maxlv >= 0)
+		level_ply[maxlv] = recon_out;
+	for (int z = maxlv - 1; z >= 0; --z)
 	{
-		/* Necessary to compact ? */
-		compact_mesh(mesh, data);
-		optimize_mesh(mesh, data);
+		chrono.start();
+		char ext[32];
+		snprintf(ext, sizeof(ext), "poisson.%d.ply", z);
+		std::string out = get_filename(cfg.x0, cfg.y0, cfg.out_dir, ext);
+		std::string coarse_in =
+			get_filename(cfg.x0, cfg.y0, cfg.out_dir, "coarse_points.ply");
+		int depth = cfg.depth - (maxlv - z) - 1;
+		if (build_coarse_poisson_input(level_ply[z + 1], coarse_in) ||
+			run_poisson_recon(coarse_in, out, depth, cfg))
+		{
+			printf("Warning: coarse Poisson for z=%d (depth %d) failed; "
+				   "reusing z=%d source.\n",
+				   z, depth, z + 1);
+			level_ply[z] = level_ply[z + 1];
+		}
+		else
+			level_ply[z] = out;
+		if (cfg.clean >= 2)
+			remove(coarse_in.c_str());
+		tt.coarse_recon += chrono.stop();
 	}
 
-	/* LOD Draco web tiles (levels 0..cfg.lod.max_level). */
-	if (cfg.lod.max_level >= 0)
+	/* Load, transform to km and tile each level from its own mesh. */
+	for (int z = 0; z <= maxlv; ++z)
 	{
-		write_lod_tiles(mesh, data, cfg.x0, cfg.y0, cfg.lod,
+		chrono.start();
+		Mesh mesh;
+		MBuf data;
+		load_ply(mesh, data, level_ply[z].c_str());
+		if (z == maxlv)
+			printf("A total of %d (%.2f M) Tri after poisson "
+				   "reconstruct.\n",
+				   mesh.index_count / 3, 1e-6 * mesh.index_count / 3);
+
+		recut_mesh(mesh, data, transf);
+
+		if (z == maxlv)
+		{
+			if (do_trim)
+			{
+				Timer trim;
+				trim.start();
+				uint32_t tri_before = mesh.index_count / 3;
+				uint32_t num_cc =
+					select_principal_connected_component(mesh, data);
+				tt.trim += trim.stop();
+				if (num_cc > 1)
+					printf("  LOD z=%d : %u components, kept %u/%u Tri\n", z,
+						   num_cc, mesh.index_count / 3, tri_before);
+			}
+			uint32_t tri_before = mesh.index_count / 3;
+			Timer simp;
+			simp.start();
+			simplify_mesh_qem(mesh, data, 0.8f, 2.0, cfg.verbose);
+			unsigned int simp_us = simp.stop();
+			uint32_t tri_after = mesh.index_count / 3;
+			printf("Simplify QEM: %u -> %u Tri (ratio %.3f, target 0.5) "
+				   "in %.2f s\n",
+				   tri_before, tri_after,
+				   tri_before ? (float)tri_after / tri_before : 0.f,
+				   1e-6 * simp_us);
+		}
+
+		rescale_and_offset_mesh(mesh, data, transf, cfg);
+
+		if (cfg.optimize)
+		{
+			Timer opt;
+			opt.start();
+			compact_mesh(mesh, data);
+			optimize_mesh(mesh, data);
+			printf("  LOD z=%d : compact+optimize in %.2f s\n", z,
+				   1e-6 * opt.stop());
+		}
+
+		write_lod_level(mesh, data, cfg.x0, cfg.y0, z, cfg.lod.skirt_depth,
 						cfg.out_dir.c_str(), cfg.verbose);
+
+		if (cfg.clean >= 2 && z != maxlv)
+			remove(level_ply[z].c_str());
+		data.clear();
+		tt.lod += chrono.stop();
 	}
 
 	if (cfg.clean)

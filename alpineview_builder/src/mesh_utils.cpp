@@ -6,6 +6,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <unordered_map>
+#include <vector>
+
 #include "aabb.h"
 #include "array.h"
 #include "mesh.h"
@@ -314,4 +317,77 @@ void skip_degenerate_tris(Mesh &mesh, MBuf &data)
 		idx[new_idx_count++] = i2;
 	}
 	mesh.index_count = new_idx_count;
+}
+
+static uint32_t uf_find(std::vector<uint32_t> &parent, uint32_t i)
+{
+	while (parent[i] != i) {
+		parent[i] = parent[parent[i]];
+		i = parent[i];
+	}
+	return (i);
+}
+
+static void uf_union(std::vector<uint32_t> &parent, uint32_t a, uint32_t b)
+{
+	a = uf_find(parent, a);
+	b = uf_find(parent, b);
+	if (a != b)
+		parent[b] = a;
+}
+
+uint32_t select_principal_connected_component(Mesh &mesh, MBuf &data)
+{
+	size_t tri_count = mesh.index_count / 3;
+	if (tri_count == 0)
+		return (0);
+
+	uint32_t *indices = data.indices + mesh.index_offset;
+
+	/* Union triangles sharing an (undirected) edge. */
+	std::vector<uint32_t> parent(tri_count);
+	for (size_t i = 0; i < tri_count; ++i)
+		parent[i] = i;
+
+	std::unordered_map<uint64_t, uint32_t> edge_owner;
+	edge_owner.reserve(3 * tri_count);
+	for (size_t i = 0; i < tri_count; ++i) {
+		for (int e = 0; e < 3; ++e) {
+			uint32_t a = indices[3 * i + e];
+			uint32_t b = indices[3 * i + (e + 1) % 3];
+			uint64_t key = a < b ? ((uint64_t)a << 32) | b
+					     : ((uint64_t)b << 32) | a;
+			auto it = edge_owner.find(key);
+			if (it == edge_owner.end())
+				edge_owner.emplace(key, (uint32_t)i);
+			else
+				uf_union(parent, it->second, (uint32_t)i);
+		}
+	}
+
+	std::unordered_map<uint32_t, uint32_t> counts;
+	for (size_t i = 0; i < tri_count; ++i)
+		counts[uf_find(parent, (uint32_t)i)]++;
+
+	uint32_t num_cc = (uint32_t)counts.size();
+	if (num_cc <= 1)
+		return (num_cc);
+
+	uint32_t root_max = counts.begin()->first;
+	for (const auto &kv : counts) {
+		if (kv.second > counts[root_max])
+			root_max = kv.first;
+	}
+
+	size_t new_index_count = 0;
+	for (size_t i = 0; i < tri_count; ++i) {
+		if (uf_find(parent, (uint32_t)i) != root_max)
+			continue;
+		indices[new_index_count++] = indices[3 * i + 0];
+		indices[new_index_count++] = indices[3 * i + 1];
+		indices[new_index_count++] = indices[3 * i + 2];
+	}
+	mesh.index_count = new_index_count;
+
+	return (num_cc);
 }

@@ -7,8 +7,10 @@
 #include <string.h>
 
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
+#include "chrono.h"
 #include "mesh_clip.h"
 
 #include <draco/compression/encode.h>
@@ -103,13 +105,15 @@ static TriMesh vertex_cluster(const TriMesh &m, const Vec3d &lo,
 	 * (this includes the outer tile boundary, shared with adjacent km tiles). */
 	const double sx = (hi.x - lo.x) / n;
 	const double sy = (hi.y - lo.y) / n;
-	auto near_grid_line = [&](double v, double origin, double step) {
+	auto near_grid_line = [&](double v, double origin, double step)
+	{
 		if (step <= 0)
 			return false;
 		double f = (v - origin) / step;
 		return fabs(f - round(f)) * step <= voxel;
 	};
-	auto on_boundary = [&](const Vec3d &v) {
+	auto on_boundary = [&](const Vec3d &v)
+	{
 		return near_grid_line(v.x, lo.x, sx) || near_grid_line(v.y, lo.y, sy);
 	};
 
@@ -163,15 +167,40 @@ static TriMesh vertex_cluster(const TriMesh &m, const Vec3d &lo,
 	return out;
 }
 
-static TriMesh clip_cell(const TriMesh &m, double x0, double y0, double x1,
-			 double y1)
+/* Binary subdivision of [i0, i1) along one axis: each recursion level walks the
+ * triangles once, so an n-way split costs O(|m| log n) instead of O(|m| n). */
+static void split_range(TriMesh &m, int axis, double base, double step, int i0,
+						int i1, std::vector<TriMesh> &out)
 {
-	TriMesh a, b, c, d;
-	split_mesh(m, 0, x0, nullptr, &a); /* keep x >= x0 */
-	split_mesh(a, 0, x1, &b, nullptr); /* keep x <= x1 */
-	split_mesh(b, 1, y0, nullptr, &c); /* keep y >= y0 */
-	split_mesh(c, 1, y1, &d, nullptr); /* keep y <= y1 */
-	return d;
+	if (i1 - i0 == 1)
+	{
+		out[i0] = std::move(m);
+		return;
+	}
+	int mid = (i0 + i1) / 2;
+	TriMesh lo_part, hi_part;
+	split_mesh(m, axis, base + mid * step, &lo_part, &hi_part);
+	m = TriMesh();
+	split_range(lo_part, axis, base, step, i0, mid, out);
+	split_range(hi_part, axis, base, step, mid, i1, out);
+}
+
+/* Cut m into the n x n cell grid of [lo, hi]; cells[dy * n + dx] matches
+ * cell_bounds(lo, hi, dx, dy, n). */
+static void clip_grid(const TriMesh &m, const Vec3d &lo, const Vec3d &hi, int n,
+					  std::vector<TriMesh> &cells)
+{
+	cells.assign((size_t)n * n, TriMesh());
+	std::vector<TriMesh> cols(n), col_cells(n);
+	TriMesh work = m;
+	split_range(work, 0, lo.x, (hi.x - lo.x) / n, 0, n, cols);
+	for (int dx = 0; dx < n; ++dx)
+	{
+		split_range(cols[dx], 1, lo.y, (hi.y - lo.y) / n, 0, n,
+					col_cells);
+		for (int dy = 0; dy < n; ++dy)
+			cells[(size_t)dy * n + dx] = std::move(col_cells[dy]);
+	}
 }
 
 /******************************************************************************
@@ -323,6 +352,59 @@ static bool save_buf(const std::vector<char> &buf, const char *out_dir, int x,
 	return ok;
 }
 
+int write_lod_level(const Mesh &mesh, const MBuf &data, int x_km, int y_km,
+					int z, float skirt_depth, const char *out_dir, bool verbose)
+{
+	if (mesh.index_count == 0)
+		return 0;
+
+	Timer chrono;
+	unsigned int t_clip = 0, t_skirt = 0, t_draco = 0, t_save = 0;
+
+	chrono.start();
+	const double skirt_km = skirt_depth / 1000.0;
+	TriMesh level = to_trimesh(mesh, data);
+	Vec3d lo, hi;
+	aabb(level, lo, hi);
+	unsigned int t_prep = chrono.stop();
+
+	int n = 1 << z;
+	int written = 0;
+	std::vector<TriMesh> cells;
+	chrono.start();
+	clip_grid(level, lo, hi, n, cells);
+	t_clip = chrono.stop();
+	for (int dy = 0; dy < n; ++dy)
+	{
+		for (int dx = 0; dx < n; ++dx)
+		{
+			TriMesh cell = std::move(cells[(size_t)dy * n + dx]);
+			if (cell.faces.empty())
+				continue;
+			chrono.start();
+			std::vector<char> buf = encode_draco(cell);
+			t_draco += chrono.stop();
+			int y_south = y_km - 1;
+			int tx = x_km * n + dx;
+			int ty = y_south * n + dy;
+			chrono.start();
+			bool ok = save_buf(buf, out_dir, tx, ty, z);
+			t_save += chrono.stop();
+			if (ok)
+				written++;
+		}
+	}
+	if (verbose)
+	{
+		unsigned d = 1000; /* us -> ms */
+		printf("  LOD z=%d : %dx%d grid, native poisson -> %d tiles "
+			   "(prep %ums clip %ums skirt %ums draco %ums save %ums)\n",
+			   z, n, n, written, t_prep / d, t_clip / d, t_skirt / d,
+			   t_draco / d, t_save / d);
+	}
+	return written;
+}
+
 int write_lod_tiles(const Mesh &mesh, const MBuf &data, int x_km, int y_km,
 					const LodCfg &cfg, const char *out_dir, bool verbose)
 {
@@ -357,13 +439,15 @@ int write_lod_tiles(const Mesh &mesh, const MBuf &data, int x_km, int y_km,
 		}
 
 		int level_written = 0;
+		std::vector<TriMesh> cells;
+		clip_grid(level, lo, hi, n, cells);
 		for (int dy = 0; dy < n; ++dy)
 		{
 			for (int dx = 0; dx < n; ++dx)
 			{
 				double x0, y0, x1, y1;
 				cell_bounds(lo, hi, dx, dy, n, x0, y0, x1, y1);
-				TriMesh cell = clip_cell(level, x0, y0, x1, y1);
+				TriMesh cell = std::move(cells[(size_t)dy * n + dx]);
 				if (cell.faces.empty())
 					continue;
 				if (skirt_km > 0.0000001)

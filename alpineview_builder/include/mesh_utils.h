@@ -23,6 +23,11 @@ void join_mesh_from_vertices(Mesh& dst_m, MBuf& dst_d, const Mesh& src_m,
 
 void skip_degenerate_tris(Mesh &mesh, MBuf &data);
 
+/* Drop every edge-connected component but the largest one (by triangle count).
+ * Only mesh.index_count is updated; orphaned vertices are left for
+ * compact_mesh. Returns the number of components found. */
+uint32_t select_principal_connected_component(Mesh &mesh, MBuf &data);
+
 void compact_mesh(Mesh& mesh, MBuf& data, uint32_t *remap);
 
 void copy_indices(MBuf& dst, size_t dst_off, const MBuf& src, size_t src_off,
