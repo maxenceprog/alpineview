@@ -37,7 +37,7 @@ const CONTROLS_STATE_TRAVEL = 3;
 // footprint instead: subdivide once the tile spans more than this many pixels, so a
 // level is one halving finer than the screen needs. Higher = coarser, fewer tiles and
 // requests; lower = finer, more of both.
-const SUBDIVIDE_SCREEN_PX = 384;
+const SUBDIVIDE_SCREEN_PX = 300;
 
 const _priorityCenter = new THREE.Vector3();
 const _subCenter = new THREE.Vector3();
@@ -571,16 +571,19 @@ export class DracoTileLayer extends itowns.GeometryLayer {
     itowns.ObjectRemovalHelper.removeChildrenAndCleanupRecursively(this, mesh);
   }
 
-  reload() {
+  // (x_km, y_km) = the 1 km cell a tile belongs to; omitted = every tile.
+  reload(x_km, y_km) {
+    const inCell = (mesh) =>
+      x_km == null ||
+      (mesh.userData.tile.ox === x_km && mesh.userData.tile.oy === y_km);
     _cacheBust = Date.now();
-    for (const mesh of [...this.meshCache.values()]) {
+    for (const mesh of [...this.meshCache.values()].filter(inCell)) {
       const node = mesh.userData.node;
       if (node) {
         this.removeNodeMesh(node);
       }
       this.disposeMesh(mesh);
     }
-    this.meshCache.clear();
     this.displayed.clear();
     this._covered = new WeakMap();
     this.view?.tileLayer.object3d.traverse((node) => {
