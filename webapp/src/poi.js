@@ -302,6 +302,14 @@ function installLabelOcclusion(view, poiLayer) {
     }
   };
 
+  // iTowns may clamp label.coordinates.z to the DEM; the Camptocamp altitude is authoritative.
+  const labelWorldPosition = (label, out) => {
+    const el = label.content.querySelector(".poi-label");
+    const elevation = el?.dataset.elevation != null ? Number(el.dataset.elevation) : NaN;
+    if (!Number.isFinite(elevation)) return label.getWorldPosition(out);
+    return out.set(label.coordinates.x, label.coordinates.y, elevation);
+  };
+
   const recompute = () => {
     const dim = g.getWindowSize();
     const w = dim.x | 0, h = dim.y | 0;
@@ -309,7 +317,7 @@ function installLabelOcclusion(view, poiLayer) {
     view.readDepthBuffer(0, 0, w, h, buffer);
     camera.getWorldDirection(forward);
     eachLabel((label) => {
-      label.getWorldPosition(world);
+      labelWorldPosition(label, world);
       ndc.copy(world).project(camera);
       if (ndc.x < -1 || ndc.x > 1 || ndc.y < -1 || ndc.y > 1 || ndc.z > 1) {
         label._occluded = false;
