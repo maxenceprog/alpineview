@@ -60,7 +60,7 @@ export function initEnvironment(view) {
   scene.add(ambient);
 
   const sun = new THREE.DirectionalLight(0xfff4e0, 1.2);
-  sun.castShadow = true;
+  sun.castShadow = false;
   sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.camera.left = -10000;
   sun.shadow.camera.right = 10000;
@@ -168,25 +168,12 @@ export function initEnvironment(view) {
 
   let savedFogDensity = scene.fog.density;
 
-  // three caches programs with USE_SHADOWMAP / NUM_DIR_LIGHT_SHADOWS baked in;
-  // toggling shadowMap.enabled or the light's visibility empties the shadow
-  // uniform arrays without invalidating them.
-  function invalidateMaterials() {
-    scene.traverse((o) => {
-      const m = o.material;
-      if (!m) return;
-      if (Array.isArray(m)) m.forEach((x) => (x.needsUpdate = true));
-      else m.needsUpdate = true;
-    });
-  }
-
   function setEnabled(on) {
     _enabled = on;
     ambient.visible = on;
     sun.visible = on;
     fill.visible = on;
     skySphere.visible = on;
-    renderer.shadowMap.enabled = on && _shadows;
     if (on) {
       scene.fog.density = savedFogDensity;
     } else {
@@ -194,15 +181,27 @@ export function initEnvironment(view) {
       scene.fog.density = 0;
     }
     setTerrainLightingEnabled(on);
-    invalidateMaterials();
+    applyShadowState();
     view.notifyChange(view.camera3D);
+  }
+
+  // three bakes USE_SHADOWMAP / NUM_DIR_LIGHT_SHADOWS into cached programs and
+  // keyed material properties. Changing the flags without dropping those caches
+  // leaves a program expecting directionalShadowMatrix[1] while the light state
+  // array is empty -> crash on upload. Emptying the cache forces a clean
+  // recompile against the new state.
+  function applyShadowState() {
+    const active = _shadows && _enabled;
+    renderer.shadowMap.enabled = active;
+    sun.castShadow = active;
+    renderer.shadowMap.needsUpdate = true;
+    renderer.renderLists.dispose();
+    renderer.properties.dispose();
   }
 
   function setShadowsEnabled(on) {
     _shadows = on;
-    renderer.shadowMap.enabled = on && _enabled;
-    renderer.shadowMap.needsUpdate = true;
-    invalidateMaterials();
+    applyShadowState();
     view.notifyChange(view.camera3D);
   }
 

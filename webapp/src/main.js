@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { IS_MOBILE } from "./deviceInfo.js";
 import { DracoTileLayer } from "./dracoLayer.js";
 import { initEnvironment } from "./environment.js";
+import { initHdAvailability } from "./hdAvailability.js";
 import { setBrightness } from "./layers.js";
 import { BuildingsLayer } from "./overlays.js";
 import { initPoi, searchWaypoints, showPoiPanel } from "./poi.js";
@@ -157,6 +158,7 @@ document.getElementById("help-close").addEventListener("click", () => {
 document.getElementById("help-toggle").addEventListener("click", () => {
   helpPanel.classList.toggle("hidden");
 });
+initHdAvailability(helpPanel, view);
 
 const sunDateInput = document.getElementById("sun-date");
 const sunTimeInput = document.getElementById("sun-time");

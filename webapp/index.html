@@ -378,6 +378,38 @@
       display: block;
     }
 
+    #credits-banner {
+      position: fixed;
+      bottom: 8px;
+      right: 10px;
+      z-index: 11;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(10, 20, 35, 0.35);
+      padding: 4px 8px;
+      border-radius: 8px;
+    }
+
+    #credits-banner img {
+      height: 20px;
+      width: auto;
+      opacity: 0.85;
+    }
+
+    #credits-banner a {
+      display: flex;
+      align-items: center;
+      font: 11px system-ui, sans-serif;
+      color: #cdd8e6;
+      text-decoration: none;
+      opacity: 0.75;
+    }
+
+    #credits-banner a:hover {
+      opacity: 1;
+    }
+
     /* Mobile: bigger touch targets and a simple vertical stack so the
          toggles, search bar and panels stop overlapping on narrow screens. */
     @media (max-width: 640px) {
@@ -531,6 +563,15 @@
     <label for="fog-density">Brume</label>
     <input type="range" id="fog-density" min="0" max="0.5" step="0.01" value="0.05" />
     <span id="fog-density-value">0.05</span>
+  </div>
+  <div id="credits-banner">
+    <a href="https://github.com/maxenceprog/alpineview/blob/master/NOTICE.md" target="_blank" rel="noopener">
+      <img src="/credits/ign-logo.svg" alt="IGN" />
+    </a>
+    <a href="https://github.com/maxenceprog/alpineview/blob/master/NOTICE.md" target="_blank" rel="noopener">
+      <img src="/credits/camptocamp-logo.png" alt="Camptocamp" />
+    </a>
+    <a href="https://github.com/maxenceprog/alpineview/blob/master/NOTICE.md" target="_blank" rel="noopener">Crédits</a>
   </div>
   <script type="module" src="/src/main.js"></script>
 </body>

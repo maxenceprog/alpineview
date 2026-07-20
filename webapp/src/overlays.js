@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import * as itowns from "itowns";
 import { API_BASE_URL } from "./apiConfig.js";
+import { bomHas, loadBom } from "./bom.js";
 import { loadCityBuildings } from "./buildings.js";
 import { getSunDir } from "./environment.js";
 
@@ -37,6 +38,10 @@ export class BuildingsLayer extends itowns.Layer {
     this.object3d.name = id;
     this._nodeCells = new Map();
     this._cells = new Map();
+    this._bomBuildings = null;
+    loadBom(`${API_BASE_URL}/buildings/bom_buildings.txt`).then((set) => {
+      this._bomBuildings = set;
+    });
   }
 
   update(context, layer, node) {
@@ -49,26 +54,34 @@ export class BuildingsLayer extends itowns.Layer {
 
     let cell = this._cells.get(cellKey);
     if (!cell) {
-      cell = { status: "loading", group: null, refCount: 0 };
-      this._cells.set(cellKey, cell);
+      // A cell absent from the bom was built with no buildings (or never
+      // built): skip both the .city.jsonl fetch and its paired WMTS canvas
+      // fetch, since loadCityBuildings would just discard them.
+      if (!bomHas(this._bomBuildings, ox, oy)) {
+        cell = { status: "empty", group: null, refCount: 0 };
+        this._cells.set(cellKey, cell);
+      } else {
+        cell = { status: "loading", group: null, refCount: 0 };
+        this._cells.set(cellKey, cell);
 
-      loadCityBuildings(`${API_BASE_URL}/buildings/${cellLazStem(ox, oy)}.city.jsonl`, {
-        x0: ox, y0: oy, sunDir: getSunDir(), upAxis: UP_AXIS,
-      }).then((mesh) => {
-        if (this._cells.get(cellKey) !== cell) return;
-        if (!mesh) { cell.status = "empty"; return; }
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        cell.group = wrapForItowns(mesh);
-        cell.status = "done";
-        if (cell.refCount > 0) {
-          this.object3d.add(cell.group);
-          this.view.notifyChange(this.parent ?? this);
-        }
-      }).catch((err) => {
-        console.error("[itowns buildings] loader threw:", err);
-        cell.status = "failed";
-      });
+        loadCityBuildings(`${API_BASE_URL}/buildings/${cellLazStem(ox, oy)}.city.jsonl`, {
+          x0: ox, y0: oy, sunDir: getSunDir(), upAxis: UP_AXIS,
+        }).then((mesh) => {
+          if (this._cells.get(cellKey) !== cell) return;
+          if (!mesh) { cell.status = "empty"; return; }
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          cell.group = wrapForItowns(mesh);
+          cell.status = "done";
+          if (cell.refCount > 0) {
+            this.object3d.add(cell.group);
+            this.view.notifyChange(this.parent ?? this);
+          }
+        }).catch((err) => {
+          console.error("[itowns buildings] loader threw:", err);
+          cell.status = "failed";
+        });
+      }
     }
     cell.refCount++;
 

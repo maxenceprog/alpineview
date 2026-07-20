@@ -4,9 +4,8 @@
 import * as THREE from "three";
 import { API_BASE_URL } from "./apiConfig.js";
 import { DRACO_BASE_LEVEL } from "./dracoLayer.js";
+import { itownsPlacement } from "./utils.js";
 
-const GOTO_RANGE = 5000;
-const GOTO_TILT = 80;
 
 export function initConsoleControls(view) {
   const centerL93 = () => {
@@ -48,10 +47,10 @@ export function initConsoleControls(view) {
   };
 
   // Same indices as read_meta/reload, so the tile lands under the camera whole.
-  window.goto = (x, y, range = GOTO_RANGE) => {
+  window.goto = (x, y) => {
     const tx = Math.floor(x);
     const ty = Math.floor(y);
-    itownsPlacement(view, (tx + 0.5) * 1000, (ty + 0.5) * 1000, range);
+    itownsPlacement(view, (tx + 0.5) * 1000, (ty + 0.5) * 1000);
     console.log(`[goto] centre of tile (${tx}, ${ty})`);
   };
 
@@ -82,18 +81,4 @@ export function initConsoleControls(view) {
   };
 
   console.log("[console] read_meta(x, y), goto(x, y), reload(x, y), which(lod) available");
-}
-
-function itownsPlacement(view, x, y, range) {
-  const target = new THREE.Vector3(x, y, 0);
-  // tilt is measured from the ground plane, as in PlanarView's `placement`.
-  const tilt = THREE.MathUtils.degToRad(GOTO_TILT);
-  view.camera3D.position.set(
-    x,
-    y - range * Math.cos(tilt),
-    range * Math.sin(tilt),
-  );
-  view.camera3D.lookAt(target);
-  view.camera3D.updateMatrixWorld(true);
-  view.notifyChange(view.camera3D);
 }

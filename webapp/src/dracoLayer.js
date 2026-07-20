@@ -2,8 +2,10 @@ import * as itowns from "itowns";
 import * as THREE from "three";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { API_BASE_URL } from "./apiConfig.js";
+import { bomHas, loadBom } from "./bom.js";
 import { IS_MOBILE } from "./deviceInfo.js";
 import { processGeometry } from "./geometryWorkerPool.js";
+import { showInfoToast } from "./infoToast.js";
 import {
   buildVerticalDiffuseMaterial,
   disposeLayerMaterials,
@@ -36,8 +38,8 @@ const bustSuffix = () => (_cacheBust ? `?v=${_cacheBust}` : "");
 // requests; lower = finer, more of both.
 // Hysteresis: subdivide only above the high threshold, merge back only below the low
 // one, so a tile straddling a single boundary doesn't thrash every frame.
-const SUBDIVIDE_SCREEN_PX = 350;
-const MERGE_SCREEN_PX = 250;
+const SUBDIVIDE_SCREEN_PX = 300;
+const MERGE_SCREEN_PX = 200;
 
 const _priorityCenter = new THREE.Vector3();
 const _subCenter = new THREE.Vector3();
@@ -71,11 +73,15 @@ function bakeUVs(geometry, ox, oy, { west, east, south, north }) {
   geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
 }
 
-async function loadTileTexture(geometry, { tx, ty, z, ox, oy }) {
+function tileExtent({ tx, ty, z }) {
   const s = 2 ** -z * 1000;
-  const extent = { west: tx * s, east: (tx + 1) * s, south: ty * s, north: (ty + 1) * s };
+  return { west: tx * s, east: (tx + 1) * s, south: ty * s, north: (ty + 1) * s };
+}
+
+async function loadTileTexture(geometry, key) {
+  const extent = tileExtent(key);
   const canvas = await fetchWmtsCanvas(extent);
-  bakeUVs(geometry, ox, oy, extent);
+  bakeUVs(geometry, key.ox, key.oy, extent);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.flipY = false;
@@ -87,6 +93,9 @@ async function loadTileTexture(geometry, { tx, ty, z, ox, oy }) {
 function isTileMissing(err) {
   return !!err.isTileMissing || err.response?.status === 404;
 }
+
+const MISSING_DATA_MESSAGE = "Pas de données HD disponibles pour cette zone";
+const MISSING_DATA_TOAST_COOLDOWN_MS = 5000;
 
 async function parseDraco(buffer) {
   if (
@@ -160,7 +169,10 @@ export class DracoTileSource extends itowns.Source {
 }
 
 const cacheKey = ({ tx, ty, z }) => `${tx}.${ty}.${z}`;
-const MAX_CACHED_MESHES = IS_MOBILE ? 50 : 200;
+// Capped per LOD level rather than globally: rotating the camera can burst-load many
+// tiles at one level (sweeping across an area), which would otherwise evict cached
+// meshes at other, unrelated levels under a single shared LRU budget.
+const MESHES_PER_LEVEL = IS_MOBILE ? 25 : 50;
 
 function isWanted(node) {
   return !!node.parent && node.visible;
@@ -224,9 +236,25 @@ export class DracoTileLayer extends itowns.GeometryLayer {
     this.isDracoTileLayer = true;
     this.displayed = new Set();
     this._covered = new WeakMap();
+    // z (LOD level) -> Map(cacheKey -> mesh), so eviction budget is per level.
     this.meshCache = new Map();
     this.view = view;
     this.protocol = "draco";
+    this._bomHd = null;
+    this._bomLd = null;
+    this._bomVegetation = null;
+    this._lastMissingDataToast = 0;
+    loadBom(`${API_BASE_URL}/tiles/bom_hd.txt`).then((set) => {
+      this._bomHd = set;
+      view?.notifyChange(this, true);
+    });
+    loadBom(`${API_BASE_URL}/tiles/bom_ld.txt`).then((set) => {
+      this._bomLd = set;
+      view?.notifyChange(this, true);
+    });
+    loadBom(`${API_BASE_URL}/vegetation/bom_vegetation.txt`).then((set) => {
+      this._bomVegetation = set;
+    });
 
     if (view) {
       view.mainLoop.scheduler.addProtocolProvider(this.protocol, DracoProvider);
@@ -261,7 +289,43 @@ export class DracoTileLayer extends itowns.GeometryLayer {
     node.screenSize = (context.camera._preSSE * groundSize) / distance;
     const alreadySubdivided = node.children.some((n) => n.layer === layer);
     const threshold = alreadySubdivided ? MERGE_SCREEN_PX : SUBDIVIDE_SCREEN_PX;
-    return node.screenSize > threshold;
+    const wantsFiner = node.screenSize > threshold;
+
+    // Only gate a node that hasn't subdivided yet: once children exist, the bom
+    // must have allowed it already, and re-blocking here would just thrash the
+    // hysteresis test above every frame.
+    if (wantsFiner && !alreadySubdivided && !this.finerDataAvailable(node)) {
+      this.reportMissingData();
+      return false;
+    }
+    return wantsFiner;
+  }
+
+  // The bom is keyed per cell, not per LOD, so a node's own (ox, oy) — stable
+  // across every z at that cell — is enough to tell whether the next level in
+  // (whichever domain it falls in, HD z>=0 or LD z<0) has been built.
+  finerDataAvailable(node) {
+    const key = tileKey(node.extent);
+    const childZ = key.z + 1;
+    // Above the draco root (e.g. the initial far-out camera, well below
+    // DRACO_MIN_Z): ordinary quadtree descent toward the draco domain, not a
+    // "no HD data" situation — the bom doesn't apply yet, let it subdivide.
+    if (childZ < DRACO_MIN_Z) {
+      return true;
+    }
+    if (childZ >= 0) {
+      return bomHas(this._bomHd, key.ox, key.oy);
+    }
+    return bomHas(this._bomLd, Math.floor(key.ox / 4), Math.floor(key.oy / 4));
+  }
+
+  reportMissingData() {
+    const now = Date.now();
+    if (now - this._lastMissingDataToast < MISSING_DATA_TOAST_COOLDOWN_MS) {
+      return;
+    }
+    this._lastMissingDataToast = now;
+    showInfoToast(MISSING_DATA_MESSAGE);
   }
 
   // A node only ever fetches its own mesh once it stops wanting to be finer (see the
@@ -339,6 +403,39 @@ export class DracoTileLayer extends itowns.GeometryLayer {
     };
   }
 
+
+  readTerrainDepthBuffer(x, y, width, height, buffer) {
+    const g = this.view.mainLoop.gfxEngine;
+    const shown = [];
+    const hiddenLd = [];
+    for (const mesh of this.object3d.children) {
+      if (mesh.userData.tile.z < 0) {
+        if (mesh.visible) {
+          mesh.visible = false;
+          hiddenLd.push(mesh);
+        }
+        continue;
+      }
+      mesh.material.mode = MODE_DEPTH;
+      for (const child of mesh.children) {
+        if (child.visible) {
+          child.visible = false;
+          shown.push(child);
+        }
+      }
+    }
+    buffer = g.renderViewToBuffer(
+      { camera: this.view.camera, scene: this.object3d },
+      { x, y, width, height, buffer },
+    );
+    for (const mesh of this.object3d.children) {
+      if (mesh.userData.tile.z >= 0) mesh.material.mode = MODE_FINAL;
+    }
+    for (const mesh of hiddenLd) mesh.visible = true;
+    for (const child of shown) child.visible = true;
+    return buffer;
+  }
+
   // itowns detaches a node's children when it is culled or stops subdividing, without
   // disposing them or emitting 'dispose': a mesh outlives its node, and the node replacing
   // it is a new object wanting the same tile. Meshes are therefore kept per tile rather
@@ -346,9 +443,11 @@ export class DracoTileLayer extends itowns.GeometryLayer {
   // here: an update pass may traverse a single subtree, leaving every other node's mesh to
   // hold the state its own update() last gave it.
   preUpdate() {
-    for (const mesh of this.meshCache.values()) {
-      if (this.isOrphaned(mesh)) {
-        mesh.visible = false;
+    for (const level of this.meshCache.values()) {
+      for (const mesh of level.values()) {
+        if (this.isOrphaned(mesh)) {
+          mesh.visible = false;
+        }
       }
     }
     for (const node of this.displayed) {
@@ -358,10 +457,20 @@ export class DracoTileLayer extends itowns.GeometryLayer {
     }
   }
 
+  levelCache(z) {
+    let level = this.meshCache.get(z);
+    if (!level) {
+      level = new Map();
+      this.meshCache.set(z, level);
+    }
+    return level;
+  }
+
   cacheMesh(key, mesh) {
-    this.evictOrphanedMeshes();
+    const level = this.levelCache(mesh.userData.tile.z);
+    this.evictOrphanedMeshes(level);
     mesh.userData.cacheKey = key;
-    this.meshCache.set(key, mesh);
+    level.set(key, mesh);
     this.object3d.add(mesh);
   }
 
@@ -391,23 +500,23 @@ export class DracoTileLayer extends itowns.GeometryLayer {
   }
 
   markRecentlyUsed(mesh) {
-    this.meshCache.delete(mesh.userData.cacheKey);
-    this.meshCache.set(mesh.userData.cacheKey, mesh);
+    const level = this.levelCache(mesh.userData.tile.z);
+    level.delete(mesh.userData.cacheKey);
+    level.set(mesh.userData.cacheKey, mesh);
   }
 
   isOrphaned(mesh) {
     return !mesh.userData.node?.parent;
   }
 
-  evictOrphanedMeshes() {
-    for (const [key, mesh] of this.meshCache) {
-      if (this.meshCache.size < MAX_CACHED_MESHES) {
+  evictOrphanedMeshes(level) {
+    for (const [, mesh] of level) {
+      if (level.size < MESHES_PER_LEVEL) {
         return;
       }
       if (!this.isOrphaned(mesh)) {
         continue;
       }
-      this.meshCache.delete(key);
       this.disposeMesh(mesh);
     }
   }
@@ -433,6 +542,9 @@ export class DracoTileLayer extends itowns.GeometryLayer {
   }
 
   async addVegetation(tileMesh, key) {
+    if (!bomHas(this._bomVegetation, key.ox, key.oy)) {
+      return;
+    }
     const geometry = await loadVegetationGeometry(key);
     if (!geometry) {
       return;
@@ -517,8 +629,9 @@ export class DracoTileLayer extends itowns.GeometryLayer {
       return;
     }
 
-    const key = cacheKey(tileKey(tiles[0]));
-    const cached = this.meshCache.get(key);
+    const rawKey = tileKey(tiles[0]);
+    const key = cacheKey(rawKey);
+    const cached = this.levelCache(rawKey.z).get(key);
     if (cached) {
       state.finish();
       this.attachMeshToNode(node, cached);
@@ -588,10 +701,18 @@ export class DracoTileLayer extends itowns.GeometryLayer {
   }
 
   disposeMesh(mesh) {
-    this.meshCache.delete(mesh.userData.cacheKey);
+    this.levelCache(mesh.userData.tile.z).delete(mesh.userData.cacheKey);
     this.object3d.remove(mesh);
     disposeLayerMaterials(mesh);
     itowns.ObjectRemovalHelper.removeChildrenAndCleanupRecursively(this, mesh);
+  }
+
+  allCachedMeshes() {
+    const meshes = [];
+    for (const level of this.meshCache.values()) {
+      meshes.push(...level.values());
+    }
+    return meshes;
   }
 
   // (x_km, y_km) = the 1 km cell a tile belongs to; omitted = every tile.
@@ -600,7 +721,7 @@ export class DracoTileLayer extends itowns.GeometryLayer {
       x_km == null ||
       (mesh.userData.tile.ox === x_km && mesh.userData.tile.oy === y_km);
     _cacheBust = Date.now();
-    for (const mesh of [...this.meshCache.values()].filter(inCell)) {
+    for (const mesh of this.allCachedMeshes().filter(inCell)) {
       const node = mesh.userData.node;
       if (node) {
         this.removeNodeMesh(node);

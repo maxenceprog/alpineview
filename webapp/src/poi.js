@@ -283,6 +283,7 @@ export function initPoi(view) {
 
 function installLabelOcclusion(view, poiLayer) {
   const g = view.mainLoop.gfxEngine;
+  const dracoLayer = view.getLayerById("draco");
   const camera = view.camera3D;
   const MARGIN = 60;
   const THROTTLE = 100;
@@ -310,12 +311,17 @@ function installLabelOcclusion(view, poiLayer) {
     return out.set(label.coordinates.x, label.coordinates.y, elevation);
   };
 
+  // One readDepthBuffer call per tick (each call re-renders the tile layer in depth
+  // mode before reading, so per-label calls multiply render+readback stalls instead of
+  // shrinking them). Instead: collect the screen footprint of the labels actually on
+  // screen, and read only that bounding rect in a single render+readback pass.
   const recompute = () => {
     const dim = g.getWindowSize();
     const w = dim.x | 0, h = dim.y | 0;
-    if (!buffer || buffer.length !== w * h * 4) buffer = new Uint8Array(w * h * 4);
-    view.readDepthBuffer(0, 0, w, h, buffer);
     camera.getWorldDirection(forward);
+
+    const onScreen = [];
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     eachLabel((label) => {
       labelWorldPosition(label, world);
       ndc.copy(world).project(camera);
@@ -325,11 +331,28 @@ function installLabelOcclusion(view, poiLayer) {
       }
       const sx = Math.min(w - 1, Math.max(0, Math.round((ndc.x * 0.5 + 0.5) * w)));
       const sy = Math.min(h - 1, Math.max(0, Math.round((-ndc.y * 0.5 + 0.5) * h)));
-      const idx = ((h - sy - 1) * w + sx) * 4;
-      const terrainZ = g.depthBufferRGBAValueToOrthoZ(buffer.subarray(idx, idx + 4), camera);
       const labelZ = toLabel.copy(world).sub(camera.position).dot(forward);
-      label._occluded = terrainZ > 0 && terrainZ < labelZ - MARGIN;
+      onScreen.push({ label, sx, sy, labelZ });
+      if (sx < minX) minX = sx;
+      if (sx > maxX) maxX = sx;
+      if (sy < minY) minY = sy;
+      if (sy > maxY) maxY = sy;
     });
+
+    if (onScreen.length) {
+      const rectW = maxX - minX + 1;
+      const rectH = maxY - minY + 1;
+      if (!buffer || buffer.length !== rectW * rectH * 4) buffer = new Uint8Array(rectW * rectH * 4);
+      dracoLayer.readTerrainDepthBuffer(minX, minY, rectW, rectH, buffer);
+      for (const { label, sx, sy, labelZ } of onScreen) {
+        const lx = sx - minX;
+        const ly = sy - minY;
+        const idx = ((rectH - ly - 1) * rectW + lx) * 4;
+        const terrainZ = g.depthBufferRGBAValueToOrthoZ(buffer.subarray(idx, idx + 4), camera);
+        label._occluded = terrainZ > 0 && terrainZ < labelZ - MARGIN;
+      }
+    }
+
     lastCamMatrix.copy(camera.matrixWorld);
     lastPass = performance.now();
   };
