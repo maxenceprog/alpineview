@@ -1,4 +1,4 @@
-#include "las_downsample.h"
+#include "las_resample.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -7,30 +7,27 @@
 #include <unordered_map>
 #include <vector>
 
-struct CellKey {
-	int32_t i, j;
-	bool operator==(const CellKey &o) const
-	{
-		return i == o.i && j == o.j;
-	}
-};
-struct CellKeyHash {
-	size_t operator()(const CellKey &c) const
-	{
-		return (size_t)(c.i * 73856093) ^ (size_t)(c.j * 19349663);
-	}
-};
-
-struct CellAccum {
-	Vec3 sum_pos{0.f, 0.f, 0.f};
-	Vec3 sum_nml{0.f, 0.f, 0.f};
-	int count = 0;
-};
-
 static CellKey cell_of(const Vec3 &p, float grid_res)
 {
 	return CellKey{(int32_t)floorf(p.x / grid_res),
 		       (int32_t)floorf(p.y / grid_res)};
+}
+
+Grid build_grid(const Vec3 *pos, const Vec3 *nml, size_t point_num,
+		float grid_res)
+{
+	Grid grid;
+	grid.reserve(point_num / 4 + 1);
+	for (size_t i = 0; i < point_num; ++i) {
+		CellAccum &c = grid[cell_of(pos[i], grid_res)];
+		c.sum_pos = c.sum_pos + pos[i];
+		c.count++;
+		if (dot(nml[i], nml[i]) > 0.f) {
+			c.sum_nml = c.sum_nml + nml[i];
+			c.nml_count++;
+		}
+	}
+	return grid;
 }
 
 size_t flat_area_thin(Vec3 *pos, Vec3 *nml, size_t point_num, float grid_res,
@@ -39,14 +36,7 @@ size_t flat_area_thin(Vec3 *pos, Vec3 *nml, size_t point_num, float grid_res,
 	if (grid_res <= 0.f || point_num == 0)
 		return point_num;
 
-	std::unordered_map<CellKey, CellAccum, CellKeyHash> grid;
-	grid.reserve(point_num / 4 + 1);
-	for (size_t i = 0; i < point_num; ++i) {
-		CellAccum &c = grid[cell_of(pos[i], grid_res)];
-		c.sum_pos = c.sum_pos + pos[i];
-		c.sum_nml = c.sum_nml + nml[i];
-		c.count++;
-	}
+	Grid grid = build_grid(pos, nml, point_num, grid_res);
 
 	std::unordered_map<CellKey, float, CellKeyHash> mean_z;
 	mean_z.reserve(grid.size());
@@ -104,7 +94,9 @@ size_t flat_area_thin(Vec3 *pos, Vec3 *nml, size_t point_num, float grid_res,
 			continue;
 		const CellAccum &c = kv.second;
 		Vec3 mean_pos = c.sum_pos * (1.f / c.count);
-		Vec3 mean_nml = c.sum_nml * (1.f / c.count);
+		Vec3 mean_nml = c.nml_count > 0
+					? c.sum_nml * (1.f / c.nml_count)
+					: Vec3{0.f, 0.f, 0.f};
 		float len = sqrtf(dot(mean_nml, mean_nml));
 		if (len > 0.f)
 			mean_nml = mean_nml * (1.f / len);
@@ -126,4 +118,50 @@ size_t flat_area_thin(Vec3 *pos, Vec3 *nml, size_t point_num, float grid_res,
 	}
 
 	return out;
+}
+
+size_t fix_zero_normals(const Vec3 *pos, Vec3 *nml, size_t point_num,
+			const Grid &grid, float grid_res, bool verbose)
+{
+	size_t fixed = 0;
+	size_t zero_total = 0;
+	for (size_t i = 0; i < point_num; ++i) {
+		if (dot(nml[i], nml[i]) > 0.f)
+			continue;
+		++zero_total;
+
+		CellKey key = cell_of(pos[i], grid_res);
+		Vec3 sum_nml{0.f, 0.f, 0.f};
+		int nml_count = 0;
+		for (int dj = -1; dj <= 1; ++dj) {
+			for (int di = -1; di <= 1; ++di) {
+				auto it = grid.find(
+					CellKey{key.i + di, key.j + dj});
+				if (it == grid.end())
+					continue;
+				sum_nml = sum_nml + it->second.sum_nml;
+				nml_count += it->second.nml_count;
+			}
+		}
+		if (nml_count == 0)
+			continue;
+
+		Vec3 mean_nml = sum_nml * (1.f / nml_count);
+		float len = sqrtf(dot(mean_nml, mean_nml));
+		if (len <= 0.f)
+			continue;
+		mean_nml = mean_nml * (1.f / len);
+		if (mean_nml.z < 0.f)
+			mean_nml = mean_nml * -1.f;
+		nml[i] = mean_nml;
+		++fixed;
+	}
+
+	if (verbose) {
+		printf("Grid normal fix-up          : grid %g : %zu recovered, "
+		       "%zu still zero\n",
+		       grid_res, fixed, zero_total - fixed);
+	}
+
+	return fixed;
 }

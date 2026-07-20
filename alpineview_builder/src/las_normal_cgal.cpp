@@ -18,6 +18,7 @@
 #include <cstdio>
 
 #include "chrono.h"
+#include "las_resample.h"
 #include "las_source.h"
 
 using Kernel = CGAL::Exact_predicates_inexact_constructions_kernel;
@@ -146,10 +147,10 @@ static void gather_neighborhood(const Index_tree &tree,
 	}
 }
 
-size_t cgal_estimate_and_orient_normals(Vec3 *pos, size_t point_num,
-										std::vector<LasPoint> &points,
-										double neighbor_radius, Vec3 *nml,
-										bool verbose)
+void cgal_estimate_and_orient_normals(Vec3 *pos, size_t point_num,
+									  std::vector<LasPoint> &points,
+									  double neighbor_radius, double grid_res,
+									  Vec3 *nml, bool verbose)
 {
 	Timer chrono;
 
@@ -234,7 +235,8 @@ size_t cgal_estimate_and_orient_normals(Vec3 *pos, size_t point_num,
 	 *      scanner). Decided only when the beam is not grazing the surface.
 	 *   2. +Z    -- for what the beam left open, when clearly non-vertical.
 	 * Both gates abstain rather than guess, so a point that clears neither
-	 * still carries the PCA's arbitrary sign and is dropped below. */
+	 * still carries the PCA's arbitrary sign and gets a placeholder normal
+	 * below instead. */
 	chrono.start();
 	int source_num = las_get_sources(points);
 	std::vector<SourceStat> stats(source_num);
@@ -286,27 +288,39 @@ size_t cgal_estimate_and_orient_normals(Vec3 *pos, size_t point_num,
 		}
 	}
 
-	/* Drop what neither gate settled: its sign is the PCA's arbitrary one,
-	 * and feeding that to Poisson is worse than feeding nothing. */
-	size_t out = 0;
+	/* What neither gate settled still carries the PCA/jet fit's arbitrary
+	 * sign; write a (0,0,0) placeholder instead -- feeding a coin-flipped
+	 * normal to Poisson is worse than feeding nothing. No compaction: every
+	 * point stays, so pos/nml/points all stay index-aligned. */
 	for (size_t i = 0; i < point_num; ++i)
 	{
 		if (oriented[i] >= EOriented)
 		{
-			pos[out] = pos[i];
-			nml[out].x = (float)nmls[i].x();
-			nml[out].y = (float)nmls[i].y();
-			nml[out].z = (float)nmls[i].z();
-			out++;
+			nml[i].x = (float)nmls[i].x();
+			nml[i].y = (float)nmls[i].y();
+			nml[i].z = (float)nmls[i].z();
+		}
+		else
+		{
+			nml[i] = Vec3{0.f, 0.f, 0.f};
 		}
 	}
+
+	/* Recover what's left from nearby resolved normals via the grid
+	 * (las_resample.h) built over this pass's result, on the hypothesis
+	 * that the terrain is tight (single-valued, no overhangs) within a few
+	 * cells. */
+	Grid grid = build_grid(pos, nml, point_num, (float)grid_res);
+	size_t recovered = fix_zero_normals(pos, nml, point_num, grid,
+										(float)grid_res, verbose);
+
 	if (verbose)
 	{
 		printf("Eval. normal orientations  : %d/%d flight lines valid, "
-			   "%zu by beam + %zu by +Z, %zu dropped, %.2f s\n",
-			   valid, source_num, by_scan, by_z, point_num - out,
+			   "%zu by beam + %zu by +Z, %zu recovered by grid, %zu still "
+			   "zero, %.2f s\n",
+			   valid, source_num, by_scan, by_z, recovered,
+			   point_num - by_scan - by_z - recovered,
 			   1e-6 * chrono.stop());
 	}
-
-	return out;
 }

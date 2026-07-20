@@ -18,7 +18,7 @@ add_executable(alpineview_builder
 	las_read.cpp
 	las_normal_cgal.cpp
 	las_source.cpp
-	las_downsample.cpp
+	las_resample.cpp
 	copc.cpp
 	mesh.cpp
 	mesh_clip.cpp

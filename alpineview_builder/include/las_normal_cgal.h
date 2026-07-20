@@ -52,14 +52,22 @@ double cgal_estimate_scale(const Vec3 *pos, size_t point_num,
  * they abstain rather than guess when the test is too close to zero (on a
  * cliff the beam grazes the surface, so dot(normal, beam) ~ 0 and its sign is
  * noise). A point that clears neither gate, or whose flight line came out
- * degenerate, still carries the PCA's arbitrary sign; those points are
- * dropped -- feeding a coin-flipped normal to Poisson is worse than feeding
- * nothing. The pre-CGAL pipeline instead recovered them by majority-vote
- * propagation from oriented neighbors (see las_normal.cpp).
+ * degenerate, still carries the PCA's arbitrary sign, so it's given a
+ * placeholder (0,0,0) normal instead -- feeding a coin-flipped normal to
+ * Poisson is worse than feeding nothing.
  *
- * `pos` and `nml` are compacted in place; returns the surviving point count,
- * which no longer matches `points`. */
-size_t cgal_estimate_and_orient_normals(Vec3 *pos, size_t point_num,
-					std::vector<LasPoint> &points,
-					double neighbor_radius, Vec3 *nml,
-					bool verbose);
+ * What clears neither gate is then recovered where possible by
+ * las_resample.h's build_grid()/fix_zero_normals(): a 2D grid of `grid_res`
+ * cells (same units as `pos`, e.g. a real-world distance converted through
+ * the caller's transform) whose cells average nearby resolved normals and
+ * orient the result up (+Z), on the hypothesis that the terrain is tight
+ * (single-valued, no overhangs) at that scale. Whatever still has no
+ * resolved neighbor is left at (0,0,0).
+ *
+ * `pos` is untouched and `nml` is filled in place for every point -- no
+ * points are dropped or reordered, so the count returned by the caller
+ * still matches `points`. */
+void cgal_estimate_and_orient_normals(Vec3 *pos, size_t point_num,
+				      std::vector<LasPoint> &points,
+				      double neighbor_radius, double grid_res,
+				      Vec3 *nml, bool verbose);

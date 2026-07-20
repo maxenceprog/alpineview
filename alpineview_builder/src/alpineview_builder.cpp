@@ -24,7 +24,7 @@
 #include "vertex_table.h"
 
 #include "copc.h"
-#include "las_downsample.h"
+#include "las_resample.h"
 #include "las_normal_cgal.h"
 #include "las_read.h"
 
@@ -129,7 +129,7 @@ static void print_usage(const char *prog)
 		"  --optimize           optimize final mesh (default: on)\n"
 		"  --encode             write encoded .bin mesh (default: off)\n"
 		"\n"
-		"Downsampling (grid thinning, see las_downsample.h):\n"
+		"Downsampling (grid thinning, see las_resample.h):\n"
 		"  --downsample         enable thinning (default: off)\n"
 		"  --ds-grid F          grid cell size, m (default: 1)\n"
 		"  --ds-radius N        neighbor radius, cells (default: 5)\n"
@@ -721,7 +721,7 @@ static int send_points_to_unit_cube(const std::vector<struct LasPoint> &points,
  * target tile, and then compute combined position + normal point
  * set from it: CGAL scale estimate -> PCA normals -> scanline
  * orientation (las_normal_cgal.h), then optional grid
- * thinning (las_downsample.h).
+ * thinning (las_resample.h).
  */
 static int build_oriented_point_set(const struct Cfg &cfg, Timings &tt)
 {
@@ -780,7 +780,6 @@ static int build_oriented_point_set(const struct Cfg &cfg, Timings &tt)
 	printf("Set positions & transform  : ");
 	/* Rescale and offset positions into buffer */
 	Mesh mesh;
-	mesh.vertex_count = points.size();
 	MBuf data;
 	data.vtx_attr = VtxAttr::PN;
 	data.reserve_vertices(points.size() + 2); /* +2 for dummy box corners */
@@ -800,9 +799,12 @@ static int build_oriented_point_set(const struct Cfg &cfg, Timings &tt)
 	double nml_radius = 2.0 * range_scale;
 	printf("Estimated range scale      : %g (radius %g)\n", range_scale,
 		   nml_radius);
+	/* Grid fix-up cell size: 1 m, mapped to unit-cube units the same way as
+	 * --ds-grid below (1 unit = 100000 cm / scale). */
+	double nml_grid_res = 1.0 * 100.f * 1e-5f * transf.scale;
 	cgal_estimate_and_orient_normals(data.positions, points.size(), points,
-									 nml_radius, data.normals, cfg.verbose);
-
+									 nml_radius, nml_grid_res, data.normals,
+									 cfg.verbose);
 	mesh.vertex_count = points.size();
 	tt.estim_nml = chrono.stop();
 
@@ -911,7 +913,7 @@ static int run_poisson_recon(const std::string &recon_in,
 	const char *verbose = cfg.verbose ? "--verbose" : "";
 	const char *format =
 		"poissonrecon --in %s --out %s --scale 1.0 --depth %d "
-		"--pointWeight %.1f %s --parallel %d --samplesPerNode 1.0 "
+		"--pointWeight %.1f %s --parallel %d --samplesPerNode 2.0 "
 		"--performance";
 	size_t len = recon_in.size() + recon_out.size() + strlen(format) + 64;
 	std::string cmd(len, '\0');
