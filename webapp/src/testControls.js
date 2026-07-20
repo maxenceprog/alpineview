@@ -1,8 +1,7 @@
 // Dev-only console helpers (npm run test_build_and_serve). Typed in the browser
-// console: build(x, y) rebuilds a cell via the /debug/build route, which(lod)
-// names the tile at the centre of the screen.
+// console: build(x, y) rebuilds a cell via the /debug/build route. Common commands
+// (which, goto, reload, read_meta) live in consoleControls.js (available in prod too).
 import * as THREE from "three";
-import { DRACO_BASE_LEVEL } from "./dracoLayer.js";
 
 export function initTestControls(view) {
   function centerL93() {
@@ -11,25 +10,6 @@ export function initTestControls(view) {
     if (!p) throw new Error("nothing under the centre of the screen");
     return p;
   }
-
-  window.which = (lod = 0) => {
-    const p = centerL93();
-    const scale = 2 ** lod;
-    const tx = Math.floor((p.x / 1000) * scale);
-    const ty = Math.floor((p.y / 1000) * scale);
-    const info = {
-      tx,
-      ty,
-      z: lod,
-      level: DRACO_BASE_LEVEL + lod,
-      tile: `tile.${tx}.${ty}.${lod}.drc`,
-      x: p.x / 1000,
-      y: p.y / 1000,
-      altitude: p.z,
-    };
-    console.log(`[which] ${info.tile}  x=${info.x.toFixed(3)} y=${info.y.toFixed(3)} km  alt=${p.z.toFixed(1)} m`);
-    return info;
-  };
 
   window.build = async (x, y) => {
     if (x == null || y == null) {
@@ -53,5 +33,5 @@ export function initTestControls(view) {
     console.log("[build] done");
   };
 
-  console.log("[testControls] build(x, y) and which(lod) available");
+  console.log("[testControls] build(x, y) available");
 }
