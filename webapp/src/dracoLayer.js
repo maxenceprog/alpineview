@@ -28,16 +28,16 @@ const _extent = new itowns.Extent(CRS, 0, 0, 0, 0);
 let _cacheBust = 0;
 const bustSuffix = () => (_cacheBust ? `?v=${_cacheBust}` : "");
 
-// itowns' PlanarControls STATE.TRAVEL, the animated fly/zoom state.
-const CONTROLS_STATE_TRAVEL = 3;
-
 // itowns subdivides on screen-space error scaled by `subdivisionThreshold` (256,
 // "the texture size") — a DEM/imagery notion irrelevant to our meshes, which carry
 // their own baked texture. We drive subdivision purely off the tile's on-screen
 // footprint instead: subdivide once the tile spans more than this many pixels, so a
 // level is one halving finer than the screen needs. Higher = coarser, fewer tiles and
 // requests; lower = finer, more of both.
-const SUBDIVIDE_SCREEN_PX = 300;
+// Hysteresis: subdivide only above the high threshold, merge back only below the low
+// one, so a tile straddling a single boundary doesn't thrash every frame.
+const SUBDIVIDE_SCREEN_PX = 350;
+const MERGE_SCREEN_PX = 250;
 
 const _priorityCenter = new THREE.Vector3();
 const _subCenter = new THREE.Vector3();
@@ -241,25 +241,48 @@ export class DracoTileLayer extends itowns.GeometryLayer {
 
   // Replace itowns' texture-resolution SSE with a plain screen-footprint test, so the
   // draco meshes subdivide on how big a tile is on screen, not on a 256 px texture size.
-  // Drives both real subdivision and the load gate below (both call tileLayer.subdivision).
+  // Shared by the real subdivision predicate below and the load gate in update() — both
+  // need "does this node want to be finer than itself", independently of whether itowns
+  // is actually allowed to merge its children yet (see _patchSubdivision).
+  screenSizeWantsFiner(context, layer, node) {
+    if (node.level < layer.minSubdivisionLevel) {
+      return true;
+    }
+    if (node.level >= layer.maxSubdivisionLevel) {
+      return false;
+    }
+    node.extent.planarDimensions(_subDim);
+    const groundSize = Math.max(_subDim.x, _subDim.y);
+    _subCenter.copy(node.boundingSphere.center).applyMatrix4(node.matrixWorld);
+    const distance = Math.max(
+      1,
+      context.camera.camera3D.position.distanceTo(_subCenter),
+    );
+    node.screenSize = (context.camera._preSSE * groundSize) / distance;
+    const alreadySubdivided = node.children.some((n) => n.layer === layer);
+    const threshold = alreadySubdivided ? MERGE_SCREEN_PX : SUBDIVIDE_SCREEN_PX;
+    return node.screenSize > threshold;
+  }
+
+  // A node only ever fetches its own mesh once it stops wanting to be finer (see the
+  // load gate in update()) — ancestors passed through while zooming in never fetch at
+  // all, only the finest leaf does. So on zoom-out, the first node to want to merge back
+  // typically has no mesh of its own yet. iTowns' own subdivision() controls both "should
+  // this node be finer" *and* "may itowns delete the finer children right now" — if we
+  // let it merge before this node's mesh is ready, the fine mesh (and its children) get
+  // deleted on the spot, and the display falls back to whatever ancestor mesh happens to
+  // be cached — possibly many levels coarser, an ugly pop. So: hold the merge (keep
+  // reporting "still subdividing", keeping the finer children and their mesh alive) until
+  // this node's own mesh has landed or definitively failed to load.
   _patchSubdivision(view) {
     const tileLayer = view.tileLayer;
     tileLayer.subdivision = (context, layer, node) => {
-      if (node.level < layer.minSubdivisionLevel) {
+      if (this.screenSizeWantsFiner(context, layer, node)) {
         return true;
       }
-      if (node.level >= layer.maxSubdivisionLevel) {
-        return false;
-      }
-      node.extent.planarDimensions(_subDim);
-      const groundSize = Math.max(_subDim.x, _subDim.y);
-      _subCenter.copy(node.boundingSphere.center).applyMatrix4(node.matrixWorld);
-      const distance = Math.max(
-        1,
-        context.camera.camera3D.position.distanceTo(_subCenter),
-      );
-      node.screenSize = (context.camera._preSSE * groundSize) / distance;
-      return node.screenSize > SUBDIVIDE_SCREEN_PX;
+      const alreadySubdivided = node.children.some((n) => n.layer === layer);
+      const ready = !!node.link[this.id] || !!node.layerUpdateState[this.id]?.finished;
+      return alreadySubdivided && !ready;
     };
   }
 
@@ -509,7 +532,7 @@ export class DracoTileLayer extends itowns.GeometryLayer {
     // zoom-in — thousands of tile requests, and the coarse ones stitch huge
     // grids. Only final-LOD leaves (subdivision() == false) fetch; a cached
     // coarser mesh (attached above) still stands in while children load.
-    if (this.parent.subdivision(context, this.parent, node)) {
+    if (this.screenSizeWantsFiner(context, this.parent, node)) {
       return;
     }
 
