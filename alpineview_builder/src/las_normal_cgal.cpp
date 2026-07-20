@@ -217,11 +217,7 @@ size_t cgal_estimate_and_orient_normals(Vec3 *pos, size_t point_num,
 			n = jn;
 			++refit;
 		}
-		/* Plane_3::orthogonal_vector() is not unit, and both the gates
-		 * below and downstream (normal_space_thin's cone test,
-		 * Poisson) assume it is. */
-		double len = sqrt(n.squared_length());
-		nmls[i] = len > 0 ? n / len : Vector_3(0, 0, 1);
+		nmls[i] = n;
 		qual[i] = (float)quality;
 	}
 	if (verbose)

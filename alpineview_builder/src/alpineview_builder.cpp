@@ -96,9 +96,9 @@ static void set_default_cfg(struct Cfg &cfg)
 	cfg.encode = false;
 	cfg.use_las = false;
 	cfg.downsample.enabled = false;
-	cfg.downsample.voxel_size = -1.f; /* auto: 2 x estimated scale */
-	cfg.downsample.cone_deg = 35.f;
-	cfg.downsample.min_pts = 0; /* auto */
+	cfg.downsample.grid_res = 1.f;
+	cfg.downsample.neighbor_radius = 5;
+	cfg.downsample.slope_deg = 45.f;
 	cfg.lod.max_level = 0;
 	cfg.lod.skirt_depth = 50.f;
 }
@@ -129,13 +129,11 @@ static void print_usage(const char *prog)
 		"  --optimize           optimize final mesh (default: on)\n"
 		"  --encode             write encoded .bin mesh (default: off)\n"
 		"\n"
-		"Downsampling (normal-space voxel thinning, see las_downsample.h):\n"
+		"Downsampling (grid thinning, see las_downsample.h):\n"
 		"  --downsample         enable thinning (default: off)\n"
-		"  --ds-voxel F         voxel size, m; <= 0 auto = 2 x estimated\n"
-		"                       scale (default: auto)\n"
-		"  --ds-cone F          normal cluster half-angle, deg (default: 35)\n"
-		"  --ds-min-pts N       density floor, pts per voxel; <= 0 auto\n"
-		"                       (default: auto)\n"
+		"  --ds-grid F          grid cell size, m (default: 1)\n"
+		"  --ds-radius N        neighbor radius, cells (default: 5)\n"
+		"  --ds-slope F         slope threshold, deg (default: 45)\n"
 		"\n"
 		"Input format:\n"
 		"  --las                Use input .las, .laz\n"
@@ -258,23 +256,23 @@ static int process_args(int argc, const char **argv, struct Cfg &cfg)
 				return (-1);
 			cfg.clean = atoi(val);
 		}
-		else if (strcmp(arg, "--ds-voxel") == 0)
+		else if (strcmp(arg, "--ds-grid") == 0)
 		{
 			if (!(val = flag_value(argc, argv, &i)))
 				return (-1);
-			cfg.downsample.voxel_size = atof(val);
+			cfg.downsample.grid_res = atof(val);
 		}
-		else if (strcmp(arg, "--ds-cone") == 0)
+		else if (strcmp(arg, "--ds-radius") == 0)
 		{
 			if (!(val = flag_value(argc, argv, &i)))
 				return (-1);
-			cfg.downsample.cone_deg = atof(val);
+			cfg.downsample.neighbor_radius = atoi(val);
 		}
-		else if (strcmp(arg, "--ds-min-pts") == 0)
+		else if (strcmp(arg, "--ds-slope") == 0)
 		{
 			if (!(val = flag_value(argc, argv, &i)))
 				return (-1);
-			cfg.downsample.min_pts = atoi(val);
+			cfg.downsample.slope_deg = atof(val);
 		}
 		else if (strcmp(arg, "--lod") == 0)
 		{
@@ -327,10 +325,10 @@ static void print_cfg(const struct Cfg &cfg)
 		   cfg.trim > 0.f ? "on" : "off", cfg.trim, cfg.aratio);
 	if (cfg.downsample.enabled)
 	{
-		printf("Downsample  : voxel=%s cone=%.0fdeg floor=%s\n",
-			   cfg.downsample.voxel_size > 0 ? "manual" : "auto",
-			   cfg.downsample.cone_deg,
-			   cfg.downsample.min_pts > 0 ? "manual" : "auto");
+		printf("Downsample  : grid=%gm radius=%d slope=%.0fdeg\n",
+			   cfg.downsample.grid_res,
+			   cfg.downsample.neighbor_radius,
+			   cfg.downsample.slope_deg);
 	}
 	else
 	{
@@ -722,8 +720,8 @@ static int send_points_to_unit_cube(const std::vector<struct LasPoint> &points,
 /* Gather neighboring las files to build a 100m buffer of the
  * target tile, and then compute combined position + normal point
  * set from it: CGAL scale estimate -> PCA normals -> scanline
- * orientation (las_normal_cgal.h), then optional normal-space
- * voxel thinning (las_downsample.h).
+ * orientation (las_normal_cgal.h), then optional grid
+ * thinning (las_downsample.h).
  */
 static int build_oriented_point_set(const struct Cfg &cfg, Timings &tt)
 {
@@ -808,27 +806,17 @@ static int build_oriented_point_set(const struct Cfg &cfg, Timings &tt)
 	mesh.vertex_count = points.size();
 	tt.estim_nml = chrono.stop();
 
-	/* Optional normal-space voxel thinning. Auto parameters derive from
-	 * the estimated scale: voxel = 2 x scale puts ~4 points in a
-	 * nominal-density voxel, floor = half that nominal count so anything
-	 * at or below half the nominal density (sparse steep faces) is never
-	 * thinned. A manual --ds-voxel is given in metres and mapped to
-	 * unit-cube units through the transform (1 unit = 100000 cm / scale). */
+	/* Optional grid thinning. --ds-grid is given in metres and
+	 * mapped to unit-cube units through the transform (1 unit = 100000 cm
+	 * / scale). */
 	if (cfg.downsample.enabled)
 	{
-		float voxel = cfg.downsample.voxel_size > 0
-						  ? cfg.downsample.voxel_size * 100.f * 1e-5f *
-								transf.scale
-						  : (float)(2.0 * range_scale);
-		int min_pts = cfg.downsample.min_pts;
-		if (min_pts <= 0)
-		{
-			double nominal = (voxel / range_scale) * (voxel / range_scale);
-			min_pts = (int)std::max(2L, lround(0.5 * nominal));
-		}
-		mesh.vertex_count = normal_space_thin(
-			data.positions, data.normals, mesh.vertex_count, voxel,
-			cfg.downsample.cone_deg, min_pts, cfg.verbose);
+		float grid_res = cfg.downsample.grid_res * 100.f * 1e-5f *
+						 transf.scale;
+		mesh.vertex_count = flat_area_thin(
+			data.positions, data.normals, mesh.vertex_count, grid_res,
+			cfg.downsample.neighbor_radius, cfg.downsample.slope_deg,
+			cfg.verbose);
 	}
 
 	/* Add dummy points for bounding box to perfectly match unit
@@ -923,7 +911,7 @@ static int run_poisson_recon(const std::string &recon_in,
 	const char *verbose = cfg.verbose ? "--verbose" : "";
 	const char *format =
 		"poissonrecon --in %s --out %s --scale 1.0 --depth %d "
-		"--pointWeight %.1f %s --parallel %d --density --samplesPerNode 1.0 "
+		"--pointWeight %.1f %s --parallel %d --samplesPerNode 1.0 "
 		"--performance";
 	size_t len = recon_in.size() + recon_out.size() + strlen(format) + 64;
 	std::string cmd(len, '\0');

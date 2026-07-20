@@ -7,104 +7,121 @@
 #include <unordered_map>
 #include <vector>
 
-/* Spatial hash for a 3D voxel index (Teschner et al.). */
-struct VoxelKey {
-	int32_t i, j, k;
-	bool operator==(const VoxelKey &o) const
+struct CellKey {
+	int32_t i, j;
+	bool operator==(const CellKey &o) const
 	{
-		return i == o.i && j == o.j && k == o.k;
+		return i == o.i && j == o.j;
 	}
 };
-struct VoxelKeyHash {
-	size_t operator()(const VoxelKey &v) const
+struct CellKeyHash {
+	size_t operator()(const CellKey &c) const
 	{
-		return (size_t)(v.i * 73856093) ^ (size_t)(v.j * 19349663) ^
-		       (size_t)(v.k * 83492791);
+		return (size_t)(c.i * 73856093) ^ (size_t)(c.j * 19349663);
 	}
 };
 
-size_t normal_space_thin(Vec3 *pos, Vec3 *nml, size_t point_num, float voxel,
-			 float cone_deg, int min_pts, bool verbose)
+struct CellAccum {
+	Vec3 sum_pos{0.f, 0.f, 0.f};
+	Vec3 sum_nml{0.f, 0.f, 0.f};
+	int count = 0;
+};
+
+static CellKey cell_of(const Vec3 &p, float grid_res)
 {
-	if (voxel <= 0.f || point_num == 0)
+	return CellKey{(int32_t)floorf(p.x / grid_res),
+		       (int32_t)floorf(p.y / grid_res)};
+}
+
+size_t flat_area_thin(Vec3 *pos, Vec3 *nml, size_t point_num, float grid_res,
+		      int neighbor_radius, float slope_deg, bool verbose)
+{
+	if (grid_res <= 0.f || point_num == 0)
 		return point_num;
 
-	std::unordered_map<VoxelKey, std::vector<uint32_t>, VoxelKeyHash> voxels;
-	voxels.reserve(point_num / 4 + 1);
+	std::unordered_map<CellKey, CellAccum, CellKeyHash> grid;
+	grid.reserve(point_num / 4 + 1);
 	for (size_t i = 0; i < point_num; ++i) {
-		VoxelKey key{(int32_t)floorf(pos[i].x / voxel),
-			     (int32_t)floorf(pos[i].y / voxel),
-			     (int32_t)floorf(pos[i].z / voxel)};
-		voxels[key].push_back((uint32_t)i);
+		CellAccum &c = grid[cell_of(pos[i], grid_res)];
+		c.sum_pos = c.sum_pos + pos[i];
+		c.sum_nml = c.sum_nml + nml[i];
+		c.count++;
 	}
 
-	std::vector<bool> keep(point_num, true);
-	const float cos_cone = cosf(cone_deg * (float)M_PI / 180.f);
-	std::vector<std::vector<uint32_t>> clusters;
-	std::vector<Vec3> cluster_nml_sum;
-	for (const auto &kv : voxels) {
-		const std::vector<uint32_t> &idx = kv.second;
-		if ((int)idx.size() <= min_pts)
-			continue; /* density floor: keep the whole voxel */
+	std::unordered_map<CellKey, float, CellKeyHash> mean_z;
+	mean_z.reserve(grid.size());
+	for (const auto &kv : grid)
+		mean_z[kv.first] = kv.second.sum_pos.z / kv.second.count;
 
-		/* Greedy normal clustering: join the first cluster whose mean
-		 * normal is within cone_deg, else start a new one. */
-		clusters.clear();
-		cluster_nml_sum.clear();
-		for (uint32_t i : idx) {
-			const Vec3 &n = nml[i];
-			bool placed = false;
-			for (size_t c = 0; c < clusters.size(); ++c) {
-				const Vec3 &s = cluster_nml_sum[c];
-				float slen = sqrtf(dot(s, s));
-				if (slen > 0.f && dot(s, n) / slen > cos_cone) {
-					clusters[c].push_back(i);
-					cluster_nml_sum[c] = s + n;
-					placed = true;
-					break;
+	std::unordered_map<CellKey, bool, CellKeyHash> is_flat;
+	is_flat.reserve(grid.size());
+	for (const auto &kv : grid) {
+		const CellKey &key = kv.first;
+		CellKey max_key = key, min_key = key;
+		float max_z = mean_z[key], min_z = mean_z[key];
+		for (int dj = -neighbor_radius; dj <= neighbor_radius; ++dj) {
+			for (int di = -neighbor_radius; di <= neighbor_radius;
+			     ++di) {
+				CellKey nk{key.i + di, key.j + dj};
+				auto it = mean_z.find(nk);
+				if (it == mean_z.end())
+					continue;
+				if (it->second > max_z) {
+					max_z = it->second;
+					max_key = nk;
 				}
-			}
-			if (!placed) {
-				clusters.push_back({i});
-				cluster_nml_sum.push_back(n);
+				if (it->second < min_z) {
+					min_z = it->second;
+					min_key = nk;
+				}
 			}
 		}
+		float dx = (float)(max_key.i - min_key.i) * grid_res;
+		float dy = (float)(max_key.j - min_key.j) * grid_res;
+		float horiz = sqrtf(dx * dx + dy * dy);
+		float slope = horiz > 0.f
+				  ? atan2f(fabsf(max_z - min_z), horiz) *
+					180.f / (float)M_PI
+				  : 0.f;
+		is_flat[key] = slope < slope_deg;
+	}
 
-		for (uint32_t i : idx)
-			keep[i] = false;
-		for (const std::vector<uint32_t> &cluster : clusters) {
-			Vec3 centroid{0.f, 0.f, 0.f};
-			for (uint32_t i : cluster)
-				centroid = centroid + pos[i];
-			centroid = centroid * (1.f / cluster.size());
-			uint32_t best = cluster[0];
-			float best_d2 = dot(pos[best] - centroid,
-					    pos[best] - centroid);
-			for (uint32_t i : cluster) {
-				float d2 = dot(pos[i] - centroid,
-					       pos[i] - centroid);
-				if (d2 < best_d2) {
-					best = i;
-					best_d2 = d2;
-				}
-			}
-			keep[best] = true;
+	std::vector<Vec3> out_pos;
+	std::vector<Vec3> out_nml;
+	out_pos.reserve(point_num);
+	out_nml.reserve(point_num);
+
+	for (size_t i = 0; i < point_num; ++i) {
+		CellKey key = cell_of(pos[i], grid_res);
+		if (!is_flat[key]) {
+			out_pos.push_back(pos[i]);
+			out_nml.push_back(nml[i]);
 		}
 	}
 
-	size_t out = 0;
-	for (size_t i = 0; i < point_num; ++i) {
-		if (keep[i]) {
-			pos[out] = pos[i];
-			nml[out] = nml[i];
-			out++;
-		}
+	for (const auto &kv : grid) {
+		if (!is_flat[kv.first])
+			continue;
+		const CellAccum &c = kv.second;
+		Vec3 mean_pos = c.sum_pos * (1.f / c.count);
+		Vec3 mean_nml = c.sum_nml * (1.f / c.count);
+		float len = sqrtf(dot(mean_nml, mean_nml));
+		if (len > 0.f)
+			mean_nml = mean_nml * (1.f / len);
+		out_pos.push_back(mean_pos);
+		out_nml.push_back(mean_nml);
+	}
+
+	size_t out = out_pos.size();
+	for (size_t i = 0; i < out; ++i) {
+		pos[i] = out_pos[i];
+		nml[i] = out_nml[i];
 	}
 
 	if (verbose) {
-		printf("Normal-space thinning      : voxel %g cone %.0f deg "
-		       "floor %d : %zu -> %zu pts (%.1f%%)\n",
-		       voxel, cone_deg, min_pts, point_num, out,
+		printf("Grid thinning               : grid %g radius %d "
+		       "slope %.0f deg : %zu -> %zu pts (%.1f%%)\n",
+		       grid_res, neighbor_radius, slope_deg, point_num, out,
 		       point_num ? 100.0 * out / point_num : 0.0);
 	}
 
