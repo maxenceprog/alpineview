@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -67,11 +68,24 @@ class AlpineviewBuilderError(Exception):
     """Raised when alpineview_builder exits with a non-zero code."""
 
 
-def _check_elevation(laz_file, min_elevation: float):
+def _check_elevation(laz_file, min_elevation: float | None):
     if min_elevation is not None and laz_file.header.z_max < min_elevation:
         raise ElevationUnderThreshold(
             f"z_max={laz_file.header.z_max:.1f} m < threshold {min_elevation:.1f} m"
         )
+
+
+def check_elevation(x_km: int, y_km: int, min_elevation: float | None, cache_dir: str):
+    if min_elevation is None:
+        return
+    tile: TileInfo = find_tile_lamb(x_km * 1000, (y_km - 1) * 1000)
+    dest = Path(cache_dir) / (tile.name.removesuffix(".copc.laz") + ".laz")
+    if dest.exists():
+        with laspy.open(dest, decompression_selection=0) as laz_file:
+            _check_elevation(laz_file, min_elevation)
+    else:
+        with CopcReader.open(tile.url) as reader:
+            _check_elevation(reader, min_elevation)
 
 
 def _query_and_cache(
@@ -96,16 +110,16 @@ def _query_and_cache(
     dest = Path(cache_dir) / (tile.name.removesuffix(".copc.laz") + ".laz")
     if dest.exists():
         try:
-            with laspy.open(dest, decompression_selection=0) as laz_file:
-                _check_elevation(laz_file, min_elevation)
+            with laspy.open(dest, decompression_selection=0):
+                pass
             return dest
         except laspy.errors.LaspyException:
-            log.info("las read", exc_info=True)
+            log.info("las read exception", exc_info=True)
             pass
     local_copc = Path(cache_dir) / tile.name
     if local_copc.exists():
         log.info("COPC query %s at %d m resolution …", tile.name, resolution)
-        return _query_copc(local_copc, dest, resolution, min_elevation)
+        return _query_copc(local_copc, dest, resolution)
 
     if not download_from_ign:
         raise RuntimeError(f"{local_copc} is not in cache")
@@ -119,29 +133,19 @@ def _query_and_cache(
             size / 1e6,
             resolution,
         )
-        return _query_copc(tile.url, dest, resolution, min_elevation)
+        return _query_copc(tile.url, dest, resolution)
 
     download_tile(tile, cache_dir)
     log.info("COPC query %s at %d m resolution …", tile.name, resolution)
     try:
-        return _query_copc(local_copc, dest, resolution, min_elevation)
+        return _query_copc(local_copc, dest, resolution)
     finally:
         local_copc.unlink(missing_ok=True)
 
 
-def _query_copc(
-    source: Path | str, dest: Path, resolution: int, min_elevation: float | None
-) -> Path:
+def _query_copc(source: Path | str, dest: Path, resolution: int) -> Path:
     """Query a COPC *source* (local path or remote URL) at *resolution* → dest .laz."""
     with CopcReader.open(source) as reader:
-        _check_elevation(reader, min_elevation)
-        elevation_diff = reader.header.z_max - reader.header.z_min
-        if elevation_diff < 200:
-            log.info(
-                "Lower resolution because elevation_diff is low: %.1f", elevation_diff
-            )
-            resolution += 1
-
         points = reader.query(resolution=resolution)
         src_header = reader.header
 
@@ -203,7 +207,7 @@ def download_cell_and_neighbours(
     the tile. Waits for every download to finish before raising, so a failure
     doesn't cut off downloads already in flight.
     """
-    from concurrent.futures import ThreadPoolExecutor
+    check_elevation(x_km, y_km, min_elevation, cache_dir)
 
     with ThreadPoolExecutor(max_workers=5) as pool:
         centre_future = pool.submit(
@@ -313,9 +317,6 @@ def run_alpineview_builder(
     aratio: float,
     clean: int,
     downsample: bool,
-    ds_voxel: float,
-    ds_cone: float,
-    ds_min_pts: int,
 ) -> str:
     """Run alpineview_builder for cell (x_km, y_km); .drc LODs land in `out_dir`.
 
@@ -359,15 +360,7 @@ def run_alpineview_builder(
     if parallel:
         cmd.append("--parallel")
     if downsample:
-        cmd += [
-            "--downsample",
-            "--ds-voxel",
-            str(ds_voxel),
-            "--ds-cone",
-            str(ds_cone),
-            "--ds-min-pts",
-            str(ds_min_pts),
-        ]
+        cmd += ["--downsample"]
     cmd_str = " ".join(cmd)
     log.info(cmd_str)
     proc = subprocess.run(cmd, env=env, capture_output=True, text=True)

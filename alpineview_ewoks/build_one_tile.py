@@ -26,7 +26,7 @@ def main(argv: list[str] | None = None) -> None:
     if not args.no_servers:
         build_tiles_utils.run_servers()
 
-    result = client.submit_build_tile(args.x, args.y, True, True)
+    result = client.submit_build_tile(args.x, args.y, True, True, True)
     print(result)
 
 

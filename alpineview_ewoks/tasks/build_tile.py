@@ -45,16 +45,6 @@ class BuildTilesInputs(BaseInputModel):
     downsample: bool = Field(
         default=True, description="Enable normal-space voxel thinning before meshing"
     )
-    ds_voxel: float = Field(
-        default=-1.0,
-        description="Thinning voxel size in metres; <= 0 = auto (2x estimated point-cloud scale)",
-    )
-    ds_cone: float = Field(
-        default=10.0, description="Thinning normal-cluster half-angle, degrees"
-    )
-    ds_min_pts: int = Field(
-        default=0, description="Thinning density floor (points per voxel); <= 0 = auto"
-    )
     force: bool = Field(
         default=False, description="Rebuild even if the cell's tiles already exist"
     )
@@ -94,7 +84,4 @@ class BuildTiles(Task, input_model=BuildTilesInputs, output_model=BuildTilesOutp
             aratio=self.inputs.aratio,
             clean=self.inputs.clean,
             downsample=self.inputs.downsample,
-            ds_voxel=self.inputs.ds_voxel,
-            ds_cone=self.inputs.ds_cone,
-            ds_min_pts=self.inputs.ds_min_pts,
         )

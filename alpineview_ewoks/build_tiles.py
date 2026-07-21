@@ -24,7 +24,7 @@ from .core.tiles import (
 )
 from .read_meta import built_cells, cells_built_at
 
-DEFAULT_MIN_ELEVATION = 2500.0
+DEFAULT_MIN_ELEVATION = 1100.0
 
 MAX_PENDING = 7
 
@@ -130,6 +130,7 @@ def main(argv: list[str] | None = None) -> None:
                 args.cache,
                 resolution=args.resolution,
                 min_elevation=args.min_elevation,
+                download_from_ign=True,
             )
         except Exception as error:  # noqa: BLE001
             log.error("download failed for (%d, %d): %s", x, y, error)
