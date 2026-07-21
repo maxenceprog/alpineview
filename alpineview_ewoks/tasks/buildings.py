@@ -6,7 +6,12 @@ from ewoks import BaseInputModel, Task
 from ewokscore.model import BaseOutputModel
 from pydantic import Field
 
-from ..core.buildings import DEFAULT_OUT, DEFAULT_ROOFER, build_buildings
+from ..core.buildings import (
+    DEFAULT_OUT,
+    DEFAULT_ROOFER,
+    build_buildings,
+    has_building_points,
+)
 
 
 class BuildBuildingsInputs(BaseInputModel):
@@ -25,7 +30,7 @@ class BuildBuildingsInputs(BaseInputModel):
 class BuildBuildingsOutputs(BaseOutputModel):
     city_path: str | None = Field(
         default=None,
-        description="Path to the .city.jsonl (header-only when the cell has no buildings)",
+        description="Path to the .city.jsonl, or None when the cell has no buildings",
     )
 
 
@@ -42,6 +47,8 @@ class BuildBuildings(
             if existing.exists():
                 self.outputs.city_path = str(existing)
                 return
+        if not has_building_points(self.inputs.laz_path):
+            return
         self.outputs.city_path = build_buildings(
             self.inputs.laz_path, self.inputs.out_dir, self.inputs.roofer_bin
         )

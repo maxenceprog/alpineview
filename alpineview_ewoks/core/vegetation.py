@@ -56,6 +56,18 @@ DEFAULT_GREEN = np.array([36, 87, 25], dtype=np.uint8)  # fallback, no ortho mat
 log = logging.getLogger("build.vegetation")
 
 
+def has_vegetation_points(laz_path: str) -> bool:
+    """Whether the LAZ has any vegetation-classified (class 5) points."""
+    selection = (
+        laspy.DecompressionSelection.base()
+        | laspy.DecompressionSelection.CLASSIFICATION
+    )
+    classification = laspy.read(
+        str(laz_path), decompression_selection=selection
+    ).classification
+    return bool(np.isin(np.asarray(classification), VEG_CLASSES).any())
+
+
 def class_points(las: laspy.LasData, classes: tuple[int, ...]) -> np.ndarray:
     mask = np.isin(np.asarray(las.classification), classes)
     return np.column_stack(
@@ -215,26 +227,6 @@ def vegetation_outputs(x_km: int, y_km: int, out_dir: str = DEFAULT_OUT) -> list
     return paths
 
 
-def write_empty_tiles(x_km: int, y_km: int, out_dir: str = DEFAULT_OUT) -> list[str]:
-    """Mark cell (x_km, y_km) as built with no trees: 16 zero-byte .veg.drc.
-
-    The webapp rejects them at the DRACO magic-bytes check and silently skips
-    them, while vegetation_outputs() sees the cell as done.
-    """
-    out = Path(out_dir)
-    out.mkdir(parents=True, exist_ok=True)
-    y0 = y_km - 1
-    paths = []
-    for i in range(TILES_PER_SIDE):
-        for j in range(TILES_PER_SIDE):
-            tx = x_km * TILES_PER_SIDE + i
-            ty = y0 * TILES_PER_SIDE + j
-            path = out / f"tile.{tx}.{ty}.{LOD_Z}.veg.drc"
-            path.touch()
-            paths.append(str(path))
-    return paths
-
-
 def build_vegetation(
     laz_path: str,
     out_dir: str = DEFAULT_OUT,
@@ -243,18 +235,16 @@ def build_vegetation(
 ) -> list[str]:
     """Segment and mesh a cell's trees → LOD-2 .veg.drc tile paths.
 
-    A cell without exploitable vegetation still succeeds: it gets zero-byte
-    .veg.drc tiles so later runs see it as built.
+    Returns an empty list if the cell has no exploitable vegetation.
     """
     name = Path(laz_path).name
-    cell_x_km, cell_y_km = (int(p) for p in name.split("_")[2:4])
 
     las = laspy.read(str(laz_path))
     veg = class_points(las, VEG_CLASSES)
     ground = class_points(las, (GROUND_CLASS,))
     if len(veg) == 0 or len(ground) == 0:
         log.info("%s: no vegetation or no ground points", name)
-        return write_empty_tiles(cell_x_km, cell_y_km, out_dir)
+        return []
     log.info("%s: %d veg points, %d ground points", name, len(veg), len(ground))
 
     heights = height_above_ground(veg, ground)
@@ -262,7 +252,7 @@ def build_vegetation(
     veg, heights = veg[keep], heights[keep]
     if len(veg) == 0:
         log.info("%s: nothing above %.1f m", name, MIN_HEIGHT_ABOVE_GROUND)
-        return write_empty_tiles(cell_x_km, cell_y_km, out_dir)
+        return []
 
     # Local metres relative to the 1 km cell origin: needed for Draco (float32)
     # and keeps every later step in small, well-conditioned coordinates.
@@ -333,6 +323,6 @@ def build_vegetation(
         paths.append(str(path))
     if not paths:
         log.info("%s: no crowns reconstructed", name)
-        return write_empty_tiles(cell_x_km, cell_y_km, out_dir)
+        return []
     log.info("%s: wrote %d LOD-%d tiles", name, len(paths), LOD_Z)
     return paths

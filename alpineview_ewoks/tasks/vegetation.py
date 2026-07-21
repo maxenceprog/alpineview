@@ -11,6 +11,7 @@ from ..core.vegetation import (
     DEFAULT_MIN_TREE_POINTS,
     DEFAULT_OUT,
     build_vegetation,
+    has_vegetation_points,
     vegetation_outputs,
 )
 
@@ -52,6 +53,8 @@ class BuildVegetation(
             if existing:
                 self.outputs.veg_tiles = existing
                 return
+        if not has_vegetation_points(self.inputs.laz_path):
+            return
         self.outputs.veg_tiles = build_vegetation(
             self.inputs.laz_path,
             self.inputs.out_dir,

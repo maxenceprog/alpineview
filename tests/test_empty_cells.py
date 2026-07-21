@@ -1,15 +1,12 @@
-"""Cells without vegetation (class 5) or buildings (class 6) succeed with
-info-level logs and produce empty marker outputs so re-runs skip them."""
-
-import json
-import logging
+"""Cells without vegetation (class 5) or buildings (class 6) points make their
+tasks early-return without ever calling into the (network-bound) build step."""
 
 import laspy
 import numpy as np
 import pytest
 
-from alpineview_ewoks.core.buildings import build_buildings
-from alpineview_ewoks.core.vegetation import build_vegetation, vegetation_outputs
+from alpineview_ewoks.core.buildings import has_building_points
+from alpineview_ewoks.core.vegetation import has_vegetation_points
 from alpineview_ewoks.tasks.buildings import BuildBuildings
 from alpineview_ewoks.tasks.vegetation import BuildVegetation
 
@@ -32,33 +29,33 @@ def ground_only_laz(tmp_path):
     return path
 
 
-def test_vegetation_no_class5_succeeds(ground_only_laz, tmp_path, caplog):
+def test_vegetation_no_class5_early_returns(ground_only_laz, tmp_path, monkeypatch):
+    assert has_vegetation_points(str(ground_only_laz)) is False
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("build_vegetation should not be called")
+
+    monkeypatch.setattr(
+        "alpineview_ewoks.tasks.vegetation.build_vegetation", fail_if_called
+    )
+
     out = tmp_path / "veg"
-    with caplog.at_level(logging.INFO, logger="reconstruction.vegetation"):
-        paths = build_vegetation(str(ground_only_laz), str(out))
-
-    assert len(paths) == 16
-    assert all(p.endswith(".veg.drc") for p in paths)
-    assert all((out / p.split("/")[-1]).stat().st_size == 0 for p in paths)
-    assert not [r for r in caplog.records if r.levelno > logging.INFO]
-    assert vegetation_outputs(959, 6433, str(out)) == paths
-
     task = BuildVegetation(inputs=dict(laz_path=str(ground_only_laz), out_dir=str(out)))
     task.execute()
-    assert sorted(task.outputs.veg_tiles) == sorted(paths)
+    assert task.outputs.veg_tiles == []
 
 
-def test_buildings_no_class6_succeeds(ground_only_laz, tmp_path, caplog):
+def test_buildings_no_class6_early_returns(ground_only_laz, tmp_path, monkeypatch):
+    assert has_building_points(str(ground_only_laz)) is False
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("build_buildings should not be called")
+
+    monkeypatch.setattr(
+        "alpineview_ewoks.tasks.buildings.build_buildings", fail_if_called
+    )
+
     out = tmp_path / "buildings"
-    with caplog.at_level(logging.INFO, logger="reconstruction.buildings"):
-        city_path = build_buildings(str(ground_only_laz), str(out))
-
-    assert city_path.endswith(".city.jsonl")
-    lines = [line for line in open(city_path).read().split("\n") if line.strip()]
-    assert len(lines) == 1
-    assert json.loads(lines[0])["type"] == "CityJSON"
-    assert not [r for r in caplog.records if r.levelno > logging.INFO]
-
     task = BuildBuildings(inputs=dict(laz_path=str(ground_only_laz), out_dir=str(out)))
     task.execute()
-    assert task.outputs.city_path == city_path
+    assert task.outputs.city_path is None

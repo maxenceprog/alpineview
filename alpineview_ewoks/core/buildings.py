@@ -27,13 +27,20 @@ _LAYER = "BDTOPO_V3:batiment"
 _PAGE_SIZE = 2000
 _FOOTPRINT_PAD_M = 50.0
 BUILDING_CLASS = 6
-_EMPTY_CITY_HEADER = (
-    '{"type":"CityJSON","version":"2.0",'
-    '"transform":{"scale":[0.001,0.001,0.001],"translate":[0,0,0]},'
-    '"CityObjects":{},"vertices":[]}\n'
-)
 
 log = logging.getLogger("reconstruction.buildings")
+
+
+def has_building_points(laz_path: str) -> bool:
+    """Whether the LAZ has any building-classified (class 6) points."""
+    selection = (
+        laspy.DecompressionSelection.base()
+        | laspy.DecompressionSelection.CLASSIFICATION
+    )
+    classification = laspy.read(
+        str(laz_path), decompression_selection=selection
+    ).classification
+    return bool(np.any(np.asarray(classification) == BUILDING_CLASS))
 
 
 def fetch_footprints(x0: float, y0: float, x1: float, y1: float) -> list[dict]:
@@ -119,44 +126,22 @@ def _cell_bbox_padded(x_km: int, y_km: int) -> tuple[float, float, float, float]
     return (x0 - p, y0 - p, x0 + 1000.0 + p, y0 + 1000.0 + p)
 
 
-def _write_empty_city(final: Path) -> str:
-    """Mark the cell as built with no buildings: header-only .city.jsonl.
-
-    The webapp overlay ignores files with fewer than 2 lines.
-    """
-    final.parent.mkdir(parents=True, exist_ok=True)
-    final.write_text(_EMPTY_CITY_HEADER)
-    return str(final)
-
-
 def build_buildings(
     laz_path: str, out_dir: str, roofer_bin: str = DEFAULT_ROOFER
-) -> str:
+) -> str | None:
     """Footprints + roofer → <out_dir>/<lazStem>.city.jsonl.
 
-    A cell without buildings still succeeds: it gets a header-only
-    .city.jsonl so later runs see it as built.
+    Returns None if the cell has no reconstructable buildings.
     """
     laz = Path(laz_path)
     stem = laz.name.replace(".copc.laz", "").replace(".laz", "")
     x_km, y_km = (int(p) for p in stem.split("_")[2:4])
     final = Path(out_dir) / f"{stem}.city.jsonl"
 
-    selection = (
-        laspy.DecompressionSelection.base()
-        | laspy.DecompressionSelection.CLASSIFICATION
-    )
-    classification = laspy.read(
-        str(laz), decompression_selection=selection
-    ).classification
-    if not np.any(np.asarray(classification) == BUILDING_CLASS):
-        log.info("%s: no building-classified points", laz.name)
-        return _write_empty_city(final)
-
     features = fetch_footprints(*_cell_bbox_padded(x_km, y_km))
     if not features:
         log.info("%s: no BDTOPO footprints", laz.name)
-        return _write_empty_city(final)
+        return None
 
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -180,6 +165,6 @@ def build_buildings(
         produced = sorted(roofer_out.glob("*.city.jsonl"))
         if not produced:
             log.info("%s: roofer produced no buildings", laz.name)
-            return _write_empty_city(final)
+            return None
         shutil.move(str(produced[0]), final)
     return str(final)
