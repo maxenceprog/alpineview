@@ -4,7 +4,25 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>3dalpsview.fr</title>
+  <title>lidalps3d.fr — Visualisation 3D des Alpes françaises (LiDAR HD)</title>
+  <meta name="description"
+    content="Explorez les Alpes françaises en 3D à partir des données LiDAR HD de l'IGN : relief, sommets, vallées, bâtiments et végétation, avec fonds de carte IGN." />
+  <meta name="keywords"
+    content="Alpes, Alpes françaises, 3D, LiDAR, LiDAR HD, IGN, relief, montagne, carte 3D, visualisation 3D, topographie, sommets, randonnée, alpinisme, Lambert-93, modèle numérique de terrain, MNT, nuage de points, Savoie, Haute-Savoie, Isère, Mont Blanc, Écrins, Vanoise" />
+  <meta name="author" content="lidalps3d.fr" />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://lidalps3d.fr/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="lidalps3d.fr" />
+  <meta property="og:title" content="lidalps3d.fr — Visualisation 3D des Alpes françaises (LiDAR HD)" />
+  <meta property="og:description"
+    content="Explorez les Alpes françaises en 3D à partir des données LiDAR HD de l'IGN : relief, sommets, vallées, bâtiments et végétation." />
+  <meta property="og:url" content="https://lidalps3d.fr/" />
+  <meta property="og:locale" content="fr_FR" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="lidalps3d.fr — Visualisation 3D des Alpes françaises (LiDAR HD)" />
+  <meta name="twitter:description"
+    content="Explorez les Alpes françaises en 3D à partir des données LiDAR HD de l'IGN." />
   <style>
     html,
     body {
@@ -488,7 +506,7 @@
   <div id="help-panel">
     <button id="help-close" title="Fermer" aria-label="Fermer">×</button>
     <h2>Se déplacer</h2>
-    <p>Le relief est en 3D : approchez-vous, tournez autour, levez les yeux.</p>
+    <p>lidalps3d.fr. Relief 3D basé sur le nuage de points Lidar d'IGN.</p>
     <dl id="help-desktop">
       <dt><kbd>Clic gauche</kbd> + glisser</dt>
       <dd>Déplacer le terrain, comme une carte que l'on tire.</dd>
@@ -505,6 +523,12 @@
       <dt><kbd>Clic molette</kbd><br />ou <kbd>Espace</kbd></dt>
       <dd>Voler jusqu'au point visé, par exemple un sommet.</dd>
 
+      <dt><kbd>Clic sur un label</kbd></dt>
+      <dd>Infos via camptocamp.org.</dd>
+
+      <dt><kbd>Boutons en haut à gauche</kbd></dt>
+      <dd>Régler la lumière et les ombres, changer de type de carte.</dd>
+
       <dt><kbd>T</kbd></dt>
       <dd>Vue du dessus.</dd>
 
@@ -512,20 +536,20 @@
       <dd>Revenir à la vue de départ.</dd>
     </dl>
     <dl id="help-mobile">
-      <dt><kbd>1 doigt</kbd> + glisser</dt>
-      <dd>Déplacer le terrain, comme une carte que l'on tire.</dd>
+      <dt><kbd>1 doigt</kbd> </dt>
+      <dd>Orienter la caméra.</dd>
 
-      <dt><kbd>Pincer</kbd> à 2 doigts</dt>
-      <dd>Zoomer entre les deux doigts.</dd>
-
-      <dt><kbd>Tourner</kbd> à 2 doigts</dt>
-      <dd>Faire pivoter la vue autour du centre.</dd>
-
-      <dt><kbd>2 doigts</kbd> vers le haut/bas</dt>
-      <dd>Basculer l'angle de vue, se mettre au ras du sol.</dd>
+      <dt><kbd>2 doigts</kbd></dt>
+      <dd>Se deplacer, zoomer, tourner.</dd>
 
       <dt><kbd>Double-tap</kbd></dt>
-      <dd>Voler jusqu'au point visé, par exemple un sommet.</dd>
+      <dd>Voler jusqu'au point visé.</dd>
+
+      <dt><kbd>Clic sur un label</kbd></dt>
+      <dd>Infos via camptocamp.org.</dd>
+
+      <dt><kbd>Boutons en haut à gauche</kbd></dt>
+      <dd>Régler la lumière et les ombres, changer de type de carte.</dd>
     </dl>
   </div>
   <div id="poi-panel" class="hidden">
