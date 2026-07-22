@@ -34,7 +34,7 @@ import {
 } from "./tileSource.js";
 
 const MAX_MESHES = Math.ceil(
-  4 * Math.PI * LAYER_MAX_DIFF_ARRAY.reduce((total, maxDiff) => total + (0.75 * maxDiff) ** 2, 0),
+  4 * Math.PI * LAYER_MAX_DIFF_ARRAY.reduce((total, maxDiff) => total + maxDiff ** 2, 0),
 );
 
 const CAMERA_SETTLE_MS = 250;
@@ -187,10 +187,10 @@ export class DracoTileLayer extends itowns.GeometryLayer {
 
   preUpdate(context, sources) {
     this._trackCameraMotion(context.camera.camera3D);
-    // this.pruneCache();
     const fullPass = sources.has(undefined) || sources.size === 0 ||
       [...sources].some((s) => s.isCamera || s.layer !== this.parent);
     if (fullPass) {
+      this.pruneCache();
       for (const mesh of this.meshCache.values()) {
         mesh.visible = false;
       }
@@ -300,7 +300,7 @@ export class DracoTileLayer extends itowns.GeometryLayer {
           farthest = mesh;
         }
       }
-      if (!farthest) {
+      if (!farthest || maxRatio <= 1) {
         return;
       }
       this.disposeMesh(farthest);
