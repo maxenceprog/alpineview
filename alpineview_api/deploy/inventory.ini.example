@@ -1,2 +1,0 @@
-[api]
-your-vps-hostname-or-ip ansible_user=root
