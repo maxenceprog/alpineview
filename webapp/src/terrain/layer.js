@@ -187,7 +187,7 @@ export class DracoTileLayer extends itowns.GeometryLayer {
 
   preUpdate(context, sources) {
     this._trackCameraMotion(context.camera.camera3D);
-    this.pruneCache();
+    // this.pruneCache();
     const fullPass = sources.has(undefined) || sources.size === 0 ||
       [...sources].some((s) => s.isCamera || s.layer !== this.parent);
     if (fullPass) {
