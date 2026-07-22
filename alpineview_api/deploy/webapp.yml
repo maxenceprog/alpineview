@@ -3,6 +3,9 @@
   hosts: api
   become: true
   gather_facts: false
+  vars:
+    build_dir: /tmp/alpineview-build
+
   vars_files:
     - vars.yml
 
@@ -13,26 +16,37 @@
         state: reloaded
 
   tasks:
-    - name: Build webapp
+    - name: Install git
+      ansible.builtin.apt:
+        name: git
+        state: present
+      tags: build
+
+    - name: Checkout repository
+      ansible.builtin.git:
+        repo: "{{ repo_url }}"
+        dest: "{{ build_dir }}"
+        version: "{{ repo_version }}"
+        force: true
+      tags: build
+
+    - name: Install webapp dependencies
       ansible.builtin.command:
-        cmd: npm run build
-        chdir: "{{ playbook_dir }}/../../webapp"
-      environment:
-        VITE_API_BASE_URL: ""
-      delegate_to: localhost
-      become: false
+        cmd: npm ci
+        chdir: "{{ build_dir }}/webapp"
       changed_when: true
       when: build_webapp | bool
       tags: build
 
-    - name: Pack built webapp
+    - name: Build webapp
       ansible.builtin.command:
-        cmd: tar czf /tmp/alpineview-webapp.tar.gz -C dist .
-        chdir: "{{ playbook_dir }}/../../webapp"
-      delegate_to: localhost
-      become: false
+        cmd: npm run build
+        chdir: "{{ build_dir }}/webapp"
+      environment:
+        VITE_API_BASE_URL: ""
       changed_when: true
-      tags: upload
+      when: build_webapp | bool
+      tags: build
 
     - name: Wipe previous site content
       ansible.builtin.file:
@@ -49,13 +63,20 @@
         mode: "0755"
       tags: upload
 
-    - name: Upload built webapp
-      ansible.builtin.unarchive:
-        src: /tmp/alpineview-webapp.tar.gz
-        dest: "{{ site_root }}"
+    - name: Publish built webapp
+      ansible.builtin.command:
+        cmd: cp -a {{ build_dir }}/webapp/dist/. {{ site_root }}/
+      changed_when: true
+      notify: reload nginx
+      tags: upload
+
+    - name: Set site ownership
+      ansible.builtin.file:
+        path: "{{ site_root }}"
+        state: directory
         owner: www-data
         group: www-data
-      notify: reload nginx
+        recurse: true
       tags: upload
 
     - name: Create certbot webroot
