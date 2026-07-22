@@ -1,0 +1,116 @@
+---
+- name: Deploy alpineview webapp
+  hosts: api
+  become: true
+  gather_facts: false
+  vars_files:
+    - vars.yml
+
+  handlers:
+    - name: reload nginx
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded
+
+  tasks:
+    - name: Build webapp
+      ansible.builtin.command:
+        cmd: npm run build
+        chdir: "{{ playbook_dir }}/../../webapp"
+      environment:
+        VITE_API_BASE_URL: ""
+      delegate_to: localhost
+      become: false
+      changed_when: true
+      when: build_webapp | bool
+      tags: build
+
+    - name: Pack built webapp
+      ansible.builtin.command:
+        cmd: tar czf /tmp/alpineview-webapp.tar.gz -C dist .
+        chdir: "{{ playbook_dir }}/../../webapp"
+      delegate_to: localhost
+      become: false
+      changed_when: true
+      tags: upload
+
+    - name: Wipe previous site content
+      ansible.builtin.file:
+        path: "{{ site_root }}"
+        state: absent
+      tags: upload
+
+    - name: Create site root
+      ansible.builtin.file:
+        path: "{{ site_root }}"
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: "0755"
+      tags: upload
+
+    - name: Upload built webapp
+      ansible.builtin.unarchive:
+        src: /tmp/alpineview-webapp.tar.gz
+        dest: "{{ site_root }}"
+        owner: www-data
+        group: www-data
+      notify: reload nginx
+      tags: upload
+
+    - name: Create certbot webroot
+      ansible.builtin.file:
+        path: /var/www/certbot
+        state: directory
+        mode: "0755"
+      tags: nginx
+
+    - name: Check if site certificate already exists
+      ansible.builtin.stat:
+        path: /etc/letsencrypt/live/{{ site_domain }}/fullchain.pem
+      register: site_cert
+      tags: nginx
+
+    - name: Install nginx site (HTTP only, for ACME challenge)
+      ansible.builtin.template:
+        src: templates/nginx-webapp.conf.j2
+        dest: /etc/nginx/sites-available/{{ site_domain }}.conf
+        mode: "0644"
+      vars:
+        ssl_ready: false
+      when: not site_cert.stat.exists
+      tags: nginx
+
+    - name: Enable nginx site
+      ansible.builtin.file:
+        src: /etc/nginx/sites-available/{{ site_domain }}.conf
+        dest: /etc/nginx/sites-enabled/{{ site_domain }}.conf
+        state: link
+      tags: nginx
+
+    - name: Reload nginx before ACME challenge
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded
+      when: not site_cert.stat.exists
+      tags: nginx
+
+    - name: Obtain site certificate
+      ansible.builtin.command:
+        cmd: >
+          certbot certonly --webroot -w /var/www/certbot
+          -d {{ site_domain }} -d www.{{ site_domain }}
+          --email {{ certbot_email }}
+          --agree-tos --non-interactive
+        creates: /etc/letsencrypt/live/{{ site_domain }}/fullchain.pem
+      tags: nginx
+
+    - name: Install nginx site (HTTPS)
+      ansible.builtin.template:
+        src: templates/nginx-webapp.conf.j2
+        dest: /etc/nginx/sites-available/{{ site_domain }}.conf
+        mode: "0644"
+      vars:
+        ssl_ready: true
+      notify: reload nginx
+      tags: nginx

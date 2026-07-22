@@ -1,11 +1,15 @@
 ---
 # ---- Customize for your deployment ----
 api_domain: vps121630.serveur-vps.net
+site_domain: lidalps3d.fr
 certbot_email: changeme@example.com
 allowed_origins: "https://maxenceprog.github.io"
 
 # ---- Defaults, rarely need changing ----
 app_user: alpineview
+site_root: /var/www/{{ site_domain }}
+build_webapp: true
+api_layers: [tiles, vegetation, buildings, dem, meta]
 app_home: /opt/alpineview-api
 src_dir: /opt/alpineview-api/src
 venv_dir: /opt/alpineview-api/venv
