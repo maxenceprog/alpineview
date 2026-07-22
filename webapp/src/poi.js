@@ -291,7 +291,6 @@ function installLabelOcclusion(view, poiLayer) {
   let buffer = null;
   let lastPass = 0;
   let lastCamMatrix = new THREE.Matrix4();
-  let trailer = null;
   const world = new THREE.Vector3();
   const ndc = new THREE.Vector3();
   const forward = new THREE.Vector3();

@@ -1,9 +1,6 @@
-// Browser-console helpers available everywhere, prod included (main.js): read_meta,
-// goto, reload and which. Coordinates are Lambert-93 km = z=0 tile indices (y = south edge),
-// not the LAZ NW-corner cell naming meta.jsonl uses. Dev-only ones live in testControls.js.
 import * as THREE from "three";
 import { API_BASE_URL } from "./apiConfig.js";
-import { DRACO_BASE_LEVEL } from "./dracoLayer.js";
+import { DRACO_BASE_LEVEL } from "./terrain/grid.js";
 import { itownsPlacement } from "./utils.js";
 
 
@@ -80,5 +77,37 @@ export function initConsoleControls(view) {
     return info;
   };
 
-  console.log("[console] read_meta(x, y), goto(x, y), reload(x, y), which(lod) available");
+  window.mem = () => {
+    const layer = view.getLayerById("draco");
+    const stats = layer.cacheStats();
+    const renderer = view.mainLoop.gfxEngine.renderer;
+    const mb = (bytes) => +(bytes / 1024 / 1024).toFixed(1);
+
+    console.group(
+      `[mem] ${stats.meshes}/${stats.maxMeshes} meshes, ${stats.visible} drawn, ` +
+      `${mb(stats.bytes)} MB`,
+    );
+    console.table(stats.levels.map(({ zoom, meshes, visible, vegetation, bytes }) => ({
+      zoom,
+      tile: `${2 ** -zoom * 1000} m`,
+      meshes,
+      drawn: visible,
+      vegetation,
+      MB: mb(bytes),
+      "MB/mesh": +(bytes / meshes / 1024 / 1024).toFixed(2),
+    })));
+    console.log("gpu:", renderer.info.memory, renderer.info.render);
+    if (performance.memory) {
+      console.log(
+        `js heap: ${mb(performance.memory.usedJSHeapSize)} MB` +
+        ` / ${mb(performance.memory.jsHeapSizeLimit)} MB`,
+      );
+    }
+    console.groupEnd();
+    return stats;
+  };
+
+  console.log(
+    "[console] read_meta(x, y), goto(x, y), reload(x, y), which(lod), mem() available",
+  );
 }

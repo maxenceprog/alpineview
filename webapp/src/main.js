@@ -1,12 +1,12 @@
 import * as itowns from "itowns";
 import * as THREE from "three";
 import { IS_MOBILE } from "./deviceInfo.js";
-import { DracoTileLayer } from "./dracoLayer.js";
 import { initEnvironment } from "./environment.js";
 import { initHdAvailability } from "./hdAvailability.js";
 import { setBrightness } from "./layers.js";
 import { BuildingsLayer } from "./overlays.js";
 import { initPoi, searchWaypoints, showPoiPanel } from "./poi.js";
+import { DracoTileLayer } from "./terrain/layer.js";
 import { initTouchControls } from "./touchControls.js";
 import { setMapSource } from "./wmts.js";
 
@@ -149,11 +149,8 @@ document.getElementById("env-toggle").addEventListener("click", () => {
 });
 
 const helpPanel = document.getElementById("help-panel");
-const HELP_SEEN = "3dalpsview.helpSeen";
-helpPanel.classList.toggle("hidden", localStorage.getItem(HELP_SEEN) === "1");
 document.getElementById("help-close").addEventListener("click", () => {
   helpPanel.classList.add("hidden");
-  localStorage.setItem(HELP_SEEN, "1");
 });
 document.getElementById("help-toggle").addEventListener("click", () => {
   helpPanel.classList.toggle("hidden");
