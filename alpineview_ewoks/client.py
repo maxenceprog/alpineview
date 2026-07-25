@@ -1,3 +1,4 @@
+import json
 import os
 from copy import copy
 
@@ -56,24 +57,18 @@ GRAPH = {
     ],
 }
 
-# All values below are the task defaults (DownloadTileInputs, BuildTilesInputs,
-# BuildVegetationInputs); override here only to deviate from them.
-INPUTS: list = [
-    {"id": "tiles", "name": "depth", "value": 11},
-    # {"id": "tiles", "name": "weight", "value": 8},
-    # {"id": "tiles", "name": "lod", "value": 2},
-    {"id": "tiles", "name": "trim", "value": 1},
-    # {"id": "tiles", "name": "parallel", "value": False},
-    # {"id": "tiles", "name": "use_las", "value": True},
-    {"id": "tiles", "name": "optimize", "value": False},
-    # {"id": "tiles", "name": "encode", "value": False},
-    {"id": "tiles", "name": "skirt_depth", "value": 0.0},
-    # {"id": "tiles", "name": "aratio", "value": 0.05},
-    # {"id": "tiles", "name": "clean", "value": 2},
-    {"id": "tiles", "name": "downsample", "value": True},
-    # {"id": "vegetation", "name": "min_tree_height", "value": 2.0},
-    # {"id": "vegetation", "name": "min_tree_points", "value": 20},
-]
+_config_path = os.environ.get("ALPINEVIEW_LOCAL_CONFIG")
+if _config_path and os.path.exists(_config_path):
+    with open(_config_path) as _f:
+        _config = json.load(_f)
+else:
+    raise ValueError(f"No config found at path {_config_path}")
+
+BUILDER_OPTIONS: list = _config.get("BUILDER_OPTIONS", [])
+OTHER_INPUTS: list = _config.get("OTHER_INPUTS", [])
+
+print(BUILDER_OPTIONS)
+print(OTHER_INPUTS)
 
 
 def submit_build_tile(
@@ -83,16 +78,21 @@ def submit_build_tile(
 
     force: rebuild tiles/vegetation/buildings even when their outputs exist.
     """
-    inputs: list = copy(INPUTS)
-    inputs.extend(
-        [
+    build_opts = copy(BUILDER_OPTIONS)
+    if parallel:
+        build_opts.append("--parallel")
+    merged: dict = {
+        (item["id"], item["name"]): item
+        for item in [
             {"id": "download", "name": "x_km", "value": x},
             {"id": "download", "name": "y_km", "value": y},
             {"id": "download", "name": "download_from_ign", "value": download},
-            {"id": "tiles", "name": "parallel", "value": parallel},
-            {"id": "tiles", "name": "force", "value": force},
+            {"id": "tiles", "name": "builder_options", "value": build_opts},
+            {"id": "tiles", "name": "force", "value": True},
             {"id": "vegetation", "name": "force", "value": force},
             {"id": "buildings", "name": "force", "value": force},
         ]
-    )
-    return submit(args=(GRAPH,), kwargs=dict(inputs=inputs))
+    }
+    for item in OTHER_INPUTS:
+        merged[(item["id"], item["name"])] = item
+    return submit(args=(GRAPH,), kwargs={"inputs": list(merged.values())})

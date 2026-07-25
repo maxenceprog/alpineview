@@ -1,5 +1,7 @@
 """ewoks Tasks for the tiles build step (download + alpineview_builder)."""
 
+from typing import Sequence
+
 from ewoks import BaseInputModel, Task
 from ewokscore.model import BaseOutputModel
 from pydantic import Field
@@ -21,29 +23,9 @@ class BuildTilesInputs(BaseInputModel):
     out_dir: str = Field(
         default=DEFAULT_TILES_OUT, description="Where .drc tiles are written"
     )
-    depth: int = Field(default=10, description="Poisson reconstruction octree depth")
-    weight: float = Field(default=8.0, description="Poisson point-weight parameter")
-    lod: int = Field(
-        default=LOD_LEVEL, description="Highest Draco LOD level to write (0..lod)"
-    )
-    trim: float = Field(default=5.0, description="Poisson mesh density trim threshold")
-    parallel: bool = Field(
-        default=False, description="Run PoissonRecon with parallel octree construction"
-    )
-    use_las: bool = Field(
-        default=True, description="Read input as plain .las/.laz (no COPC)"
-    )
-    optimize: bool = Field(default=True, description="Optimize the final mesh")
-    encode: bool = Field(default=False, description="Write an encoded .bin mesh")
-    skirt_depth: float = Field(default=50.0, description="LOD tile skirt depth, metres")
-    aratio: float = Field(
-        default=0.05, description="Mesh simplification aspect-ratio threshold"
-    )
-    clean: int = Field(
-        default=2, description="Mesh cleanup level (small-component removal)"
-    )
-    downsample: bool = Field(
-        default=True, description="Enable normal-space voxel thinning before meshing"
+    builder_options: Sequence[str] = Field(
+        default=(),
+        description="alpineview_builder tuning knobs",
     )
     force: bool = Field(
         default=False, description="Rebuild even if the cell's tiles already exist"
@@ -64,7 +46,10 @@ class BuildTiles(Task, input_model=BuildTilesInputs, output_model=BuildTilesOutp
         self.outputs.y_km = self.inputs.y_km
         self.outputs.tiles_dir = self.inputs.out_dir
         if not self.inputs.force and cell_outputs_exist(
-            self.inputs.x_km, self.inputs.y_km, self.inputs.out_dir, self.inputs.lod
+            self.inputs.x_km,
+            self.inputs.y_km,
+            self.inputs.out_dir,
+            LOD_LEVEL,
         ):
             return
         run_alpineview_builder(
@@ -72,16 +57,5 @@ class BuildTiles(Task, input_model=BuildTilesInputs, output_model=BuildTilesOutp
             self.inputs.y_km,
             self.inputs.cache_dir,
             self.inputs.out_dir,
-            depth=self.inputs.depth,
-            weight=self.inputs.weight,
-            lod=self.inputs.lod,
-            trim=self.inputs.trim,
-            parallel=self.inputs.parallel,
-            use_las=self.inputs.use_las,
-            optimize=self.inputs.optimize,
-            encode=self.inputs.encode,
-            skirt_depth=self.inputs.skirt_depth,
-            aratio=self.inputs.aratio,
-            clean=self.inputs.clean,
-            downsample=self.inputs.downsample,
+            self.inputs.builder_options,
         )

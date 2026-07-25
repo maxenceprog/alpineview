@@ -18,6 +18,7 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Sequence
 
 import laspy
 from laspy import CopcReader
@@ -40,12 +41,8 @@ DEFAULT_VEGETATION_OUT = str(_REPO / "webapp" / "public" / "vegetation")
 
 # LOD_LEVEL/DEFAULT_RESOLUTION are shared with non-task callers (cosia.py,
 # cosia_satellite.py, pipeline.py's CLI defaults) so stay module constants.
-# alpineview_builder's own tuning knobs (depth, weight, trim, downsample, ...) do
-# not: run_alpineview_builder() below takes them as required arguments, and their
-# only default lives in BuildTilesInputs (tasks/tiles.py) — the ewoks task.
 LOD_LEVEL = 2
 DEFAULT_RESOLUTION = 1
-
 _NEIGHBOUR_OFFSETS = ((-1, 0), (1, 0), (0, -1), (0, 1))
 
 # Above this, a full download costs more than it saves: measured on a 570 MB
@@ -304,27 +301,12 @@ def run_alpineview_builder(
     y_km: int,
     cache_dir: str,
     out_dir: str,
-    *,
-    depth: int,
-    weight: float,
-    lod: int,
-    trim: float,
-    parallel: bool,
-    use_las: bool,
-    optimize: bool,
-    encode: bool,
-    skirt_depth: float,
-    aratio: float,
-    clean: int,
-    downsample: bool,
+    builder_options: Sequence[str] = tuple([]),
 ) -> str:
     """Run alpineview_builder for cell (x_km, y_km); .drc LODs land in `out_dir`.
 
     Appends one JSON line (command, stdout, repo commit, *inputs*) to
     `{out_dir}/meta.jsonl` under an flock, and returns that path.
-
-    No defaults: every alpineview_builder tuning knob is required here so it has
-    exactly one default, in BuildTilesInputs (tasks/tiles.py).
     """
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
@@ -337,30 +319,8 @@ def run_alpineview_builder(
         cache_dir,
         "--out-dir",
         out_dir,
-        "--depth",
-        str(depth),
-        "--weight",
-        str(weight),
-        "--lod",
-        str(lod),
-        "--trim",
-        str(trim),
-        "--aratio",
-        str(aratio),
-        "--clean",
-        str(clean),
-        "--skirt",
-        str(skirt_depth),
-        "--verbose",
-        "--optimize" if optimize else "--no-optimize",
-        "--encode" if encode else "--no-encode",
+        *(str(o) for o in builder_options),
     ]
-    if use_las:
-        cmd.append("--las")
-    if parallel:
-        cmd.append("--parallel")
-    if downsample:
-        cmd += ["--downsample"]
     cmd_str = " ".join(cmd)
     log.info(cmd_str)
     proc = subprocess.run(cmd, env=env, capture_output=True, text=True)

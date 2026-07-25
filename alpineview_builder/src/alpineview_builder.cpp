@@ -30,9 +30,10 @@
 
 /* Size of tile boundary buffer in cm */
 #define BDY_BUFFER 10000
-#define BDY_BUFFER_ADD 48000
 
-static const double ALTITUDE_THRESHOLD = 100.0;
+static const double ALTITUDE_THRESHOLD = 2000.0;
+
+static const int LEVEL0_DEPTH = 8;
 
 /******************************************************************************
  *
@@ -46,7 +47,8 @@ struct Cfg
 	int y0;
 	std::string base_dir;
 	std::string out_dir;
-	int depth;
+	int min_depth;
+	int max_depth;
 	float weight;
 	float trim;
 	float aratio;
@@ -85,22 +87,23 @@ static void set_default_cfg(struct Cfg &cfg)
 		cfg.base_dir = ".";
 	}
 	cfg.out_dir = ".";
-	cfg.depth = 10;
+	cfg.min_depth = 8;
+	cfg.max_depth = -1;
 	cfg.weight = 4.f;
-	cfg.trim = 0;
+	cfg.trim = 1.f;
 	cfg.parallel = false;
-	cfg.aratio = 0.005f;
+	cfg.aratio = -1.f;
 	cfg.clean = 2;
 	cfg.verbose = true;
 	cfg.optimize = true;
 	cfg.encode = false;
-	cfg.use_las = false;
-	cfg.downsample.enabled = false;
+	cfg.use_las = true;
+	cfg.downsample.enabled = true;
 	cfg.downsample.grid_res = 1.f;
 	cfg.downsample.neighbor_radius = 5;
 	cfg.downsample.slope_deg = 45.f;
-	cfg.lod.max_level = 0;
-	cfg.lod.skirt_depth = 50.f;
+	cfg.lod.max_level = -1;
+	cfg.lod.skirt_depth = -1.f;
 }
 
 static void print_usage(const char *prog)
@@ -118,7 +121,11 @@ static void print_usage(const char *prog)
 		"  --out-dir DIR        output directory (default: .)\n"
 		"\n"
 		"Reconstruction:\n"
-		"  --depth N            Poisson octree depth (default: 10)\n"
+		"  --min-depth N        Poisson octree depth of LOD level 0 "
+		"(default: 8)\n"
+		"  --max-depth N        Poisson octree depth of the finest LOD level;\n"
+		"                       -1 guesses it from altitude span and point\n"
+		"                       spacing (default: -1)\n"
 		"  --weight F           Poisson point weight (default: 4)\n"
 		"  --trim F             Trim enabled if trim > 0.0"
 		"  --aratio F           legacy (ignored)"
@@ -139,8 +146,6 @@ static void print_usage(const char *prog)
 		"  --las                Use input .las, .laz\n"
 		"\n"
 		"LOD Draco tiles (web output):\n"
-		"  --lod N              also write Draco LOD tiles for levels 0..N\n"
-		"                       into --out-dir (default: off)\n"
 		"  --skirt F            boundary skirt depth, m (default: 2; "
 		"0 disables)\n"
 		"\n"
@@ -226,11 +231,17 @@ static int process_args(int argc, const char **argv, struct Cfg &cfg)
 				return (-1);
 			cfg.out_dir = val;
 		}
-		else if (strcmp(arg, "--depth") == 0)
+		else if (strcmp(arg, "--min-depth") == 0)
 		{
 			if (!(val = flag_value(argc, argv, &i)))
 				return (-1);
-			cfg.depth = atoi(val);
+			cfg.min_depth = atoi(val);
+		}
+		else if (strcmp(arg, "--max-depth") == 0)
+		{
+			if (!(val = flag_value(argc, argv, &i)))
+				return (-1);
+			cfg.max_depth = atoi(val);
 		}
 		else if (strcmp(arg, "--weight") == 0)
 		{
@@ -274,12 +285,6 @@ static int process_args(int argc, const char **argv, struct Cfg &cfg)
 				return (-1);
 			cfg.downsample.slope_deg = atof(val);
 		}
-		else if (strcmp(arg, "--lod") == 0)
-		{
-			if (!(val = flag_value(argc, argv, &i)))
-				return (-1);
-			cfg.lod.max_level = atoi(val);
-		}
 		else if (strcmp(arg, "--skirt") == 0)
 		{
 			if (!(val = flag_value(argc, argv, &i)))
@@ -321,6 +326,15 @@ static void print_cfg(const struct Cfg &cfg)
 	printf("Data  dir   : %s\n", cfg.base_dir.c_str());
 	printf("Output dir  : %s\n", cfg.out_dir.c_str());
 	printf("Verbosity   : %d\n", cfg.verbose ? 1 : 0);
+	if (cfg.max_depth < 0)
+	{
+		printf("Depths      : min=%d max=auto\n", cfg.min_depth);
+	}
+	else
+	{
+		printf("Depths      : min=%d max=%d (%d LOD levels)\n", cfg.min_depth,
+			   cfg.max_depth, cfg.max_depth - cfg.min_depth + 1);
+	}
 	printf("Trim        : %s (trim=%.2f aratio=%g)\n",
 		   cfg.trim > 0.f ? "on" : "off", cfg.trim, cfg.aratio);
 	if (cfg.downsample.enabled)
@@ -620,8 +634,7 @@ static size_t read_and_filter_las_data(std::vector<struct LasPoint> &points,
 				}
 				continue;
 			}
-			double alt_span = info.max[2] - info.min[2];
-			double resolution = (alt_span < ALTITUDE_THRESHOLD) ? 1.0 : 0.0;
+			const double resolution = 1.0;
 			uint32_t cell_count = copc_set_target_bbox(copc, box, resolution);
 			for (uint32_t k = 0; k < cell_count; ++k)
 			{
@@ -670,7 +683,7 @@ static size_t read_and_filter_las_data(std::vector<struct LasPoint> &points,
 
 static int send_points_to_unit_cube(const std::vector<struct LasPoint> &points,
 									Vec3 *pos, struct Transform &t,
-									const Cfg cfg)
+									const Cfg cfg, double &max_alt)
 {
 	int min_z = INT_MAX, max_z = -INT_MAX;
 	for (size_t i = 0; i < points.size(); ++i)
@@ -679,7 +692,8 @@ static int send_points_to_unit_cube(const std::vector<struct LasPoint> &points,
 		max_z = MAX(max_z, points[i].z);
 	}
 	float span = (max_z - min_z) * 0.01f;
-	printf("(Altitude span : %.0f meters)\n", span);
+	max_alt = max_z * 0.01;
+	printf("(Altitude span : %.0f meters, max %.0f m)\n", span, max_alt);
 	float n;
 	if (span < 1250.f)
 	{
@@ -717,13 +731,54 @@ static int send_points_to_unit_cube(const std::vector<struct LasPoint> &points,
 	return (0);
 }
 
+static int guess_max_depth(double range_scale, double max_alt)
+{
+	int alt_cap = (max_alt < ALTITUDE_THRESHOLD) ? 10 : 11;
+	int scale_cap = (int)floor(log2(1.0 / (range_scale * 0.75)));
+	int depth = MIN(alt_cap, scale_cap);
+	printf("Guessing max depth :\n");
+	printf("  max altitude %.0f m (threshold %.0f m) -> depth <= %d\n", max_alt,
+		   ALTITUDE_THRESHOLD, alt_cap);
+	printf("  range scale %g -> depth <= %d (cell %g >= %g)\n", range_scale,
+		   scale_cap, 1.0 / (1 << scale_cap), range_scale);
+	printf("  max depth = %d\n", depth);
+	return depth;
+}
+
+static void resolve_lod_levels(struct Cfg &cfg)
+{
+	if (cfg.min_depth < LEVEL0_DEPTH)
+	{
+		printf("Warning: min depth %d below level-0 depth %d; clamping.\n",
+			   cfg.min_depth, LEVEL0_DEPTH);
+		cfg.min_depth = LEVEL0_DEPTH;
+	}
+	if (cfg.max_depth < cfg.min_depth)
+	{
+		printf("Warning: max depth %d below min depth %d; clamping to %d.\n",
+			   cfg.max_depth, cfg.min_depth, cfg.min_depth);
+		cfg.max_depth = cfg.min_depth;
+	}
+	cfg.lod.max_level = cfg.max_depth - LEVEL0_DEPTH;
+	printf("LOD levels                 : z=%d..%d (Poisson depths %d..%d)\n",
+		   cfg.min_depth - LEVEL0_DEPTH, cfg.lod.max_level, cfg.min_depth,
+		   cfg.max_depth);
+	for (int d = cfg.min_depth; d <= cfg.max_depth; ++d)
+	{
+		int z = d - LEVEL0_DEPTH;
+		int n = 1 << z;
+		printf("  depth %2d -> z=%d : %dx%d grid, %d tiles of %d m\n", d, z, n,
+			   n, n * n, 1000 / n);
+	}
+}
+
 /* Gather neighboring las files to build a 100m buffer of the
  * target tile, and then compute combined position + normal point
  * set from it: CGAL scale estimate -> PCA normals -> scanline
  * orientation (las_normal_cgal.h), then optional grid
  * thinning (las_resample.h).
  */
-static int build_oriented_point_set(const struct Cfg &cfg, Timings &tt)
+static int build_oriented_point_set(struct Cfg &cfg, Timings &tt)
 {
 
 	/* Re-use existing output ? Only trust the cached points.ply when its
@@ -741,6 +796,14 @@ static int build_oriented_point_set(const struct Cfg &cfg, Timings &tt)
 			if (!read_transform(cached, cfg))
 			{
 				printf("Using cached data in %s\n", recon_in.c_str());
+				if (cfg.max_depth < 0)
+				{
+					cfg.max_depth = 10;
+					printf("Cached point set: cannot guess max depth, "
+						   "using %d.\n",
+						   cfg.max_depth);
+				}
+				resolve_lod_levels(cfg);
 				return (0);
 			}
 			printf("Cached %s has no transform; regenerating.\n",
@@ -785,7 +848,8 @@ static int build_oriented_point_set(const struct Cfg &cfg, Timings &tt)
 	data.reserve_vertices(points.size() + 2); /* +2 for dummy box corners */
 
 	struct Transform transf;
-	if (send_points_to_unit_cube(points, data.positions, transf, cfg))
+	double max_alt = 0.0;
+	if (send_points_to_unit_cube(points, data.positions, transf, cfg, max_alt))
 	{
 		printf("Altitude span too large !\n");
 		return (-1);
@@ -799,6 +863,9 @@ static int build_oriented_point_set(const struct Cfg &cfg, Timings &tt)
 	double nml_radius = 2.0 * range_scale;
 	printf("Estimated range scale      : %g (radius %g)\n", range_scale,
 		   nml_radius);
+	if (cfg.max_depth < 0)
+		cfg.max_depth = guess_max_depth(range_scale, max_alt);
+	resolve_lod_levels(cfg);
 	/* Grid fix-up cell size: 1 m, mapped to unit-cube units the same way as
 	 * --ds-grid below (1 unit = 100000 cm / scale). */
 	double nml_grid_res = 1.0 * 100.f * 1e-5f * transf.scale;
@@ -967,7 +1034,7 @@ static int build_surface_mesh(const struct Cfg &cfg, Timings &tt)
 	chrono.start();
 	std::string recon_in =
 		get_filename(cfg.x0, cfg.y0, cfg.out_dir, "points.ply");
-	int ret = run_poisson_recon(recon_in, recon_out, cfg.depth, cfg);
+	int ret = run_poisson_recon(recon_in, recon_out, cfg.max_depth, cfg);
 
 	if (cfg.clean >= 2)
 	{
@@ -1021,6 +1088,7 @@ int write_encoded_mesh(const Mesh &mesh, const MBuf &data, const Cfg &cfg,
 
 int postprocess_surface_mesh(const Cfg &cfg, Timings &tt)
 {
+	std::vector<CellTile> tiles;
 	std::string recon_out =
 		get_filename(cfg.x0, cfg.y0, cfg.out_dir, "poisson.ply");
 	const bool do_trim = cfg.trim > 0.f;
@@ -1039,56 +1107,64 @@ int postprocess_surface_mesh(const Cfg &cfg, Timings &tt)
 		return (-1);
 	}
 
-	const int maxlv = cfg.lod.max_level;
+	const int min_depth = cfg.min_depth;
+	const int max_depth = cfg.max_depth;
+	const int nlv = max_depth - min_depth;
 
-	/* Per-level source meshes. The finest level (maxlv) is the depth-cfg.depth
-	 * reconstruction (recon_out). Each coarser level re-meshes the previous
-	 * level's Poisson output one octree depth lower: normals are re-derived
-	 * from that mesh's faces (build_coarse_poisson_input) and it is
-	 * reconstructed at depth cfg.depth-(maxlv-z). This replaces vertex-cluster
-	 * decimation of the finest mesh with a native coarse reconstruction. */
-	std::vector<std::string> level_ply(maxlv >= 0 ? maxlv + 1 : 0);
-	if (maxlv >= 0)
-		level_ply[maxlv] = recon_out;
-	for (int z = maxlv - 1; z >= 0; --z)
+	/* Per-level source meshes, indexed by depth-min_depth. The finest level is
+	 * the depth-cfg.max_depth reconstruction (recon_out). Each coarser level
+	 * re-meshes the previous level's Poisson output one octree depth lower:
+	 * normals are re-derived from that mesh's faces
+	 * (build_coarse_poisson_input) and it is reconstructed at that depth. This
+	 * replaces vertex-cluster decimation of the finest mesh with a native
+	 * coarse reconstruction. */
+	std::vector<std::string> level_ply(nlv + 1);
+	level_ply[nlv] = recon_out;
+	for (int i = nlv - 1; i >= 0; --i)
 	{
 		chrono.start();
+		int depth = min_depth + i;
 		char ext[32];
-		snprintf(ext, sizeof(ext), "poisson.%d.ply", z);
+		snprintf(ext, sizeof(ext), "poisson.%d.ply", depth);
 		std::string out = get_filename(cfg.x0, cfg.y0, cfg.out_dir, ext);
 		std::string coarse_in =
 			get_filename(cfg.x0, cfg.y0, cfg.out_dir, "coarse_points.ply");
-		int depth = cfg.depth - (maxlv - z) - 1;
-		if (build_coarse_poisson_input(level_ply[z + 1], coarse_in) ||
+		if (build_coarse_poisson_input(level_ply[i + 1], coarse_in) ||
 			run_poisson_recon(coarse_in, out, depth, cfg))
 		{
-			printf("Warning: coarse Poisson for z=%d (depth %d) failed; "
-				   "reusing z=%d source.\n",
-				   z, depth, z + 1);
-			level_ply[z] = level_ply[z + 1];
+			printf("Warning: coarse Poisson at depth %d failed; "
+				   "reusing depth %d source.\n",
+				   depth, depth + 1);
+			level_ply[i] = level_ply[i + 1];
 		}
 		else
-			level_ply[z] = out;
+			level_ply[i] = out;
 		if (cfg.clean >= 2)
 			remove(coarse_in.c_str());
 		tt.coarse_recon += chrono.stop();
 	}
 
-	/* Load, transform to km and tile each level from its own mesh. */
-	for (int z = 0; z <= maxlv; ++z)
+	/* Load, transform to km and tile each level from its own mesh. The web zoom
+	 * level of a depth is fixed: z = depth - LEVEL0_DEPTH, so the grid and the
+	 * tile names of a given depth never depend on the requested depth range. */
+	for (int i = 0; i <= nlv; ++i)
 	{
 		chrono.start();
+		int depth = min_depth + i;
+		int z = depth - LEVEL0_DEPTH;
+		printf("  LOD z=%d : depth %d, %dx%d grid\n", z, depth, 1 << z,
+			   1 << z);
 		Mesh mesh;
 		MBuf data;
-		load_ply(mesh, data, level_ply[z].c_str());
-		if (z == maxlv)
+		load_ply(mesh, data, level_ply[i].c_str());
+		if (i == nlv)
 			printf("A total of %d (%.2f M) Tri after poisson "
 				   "reconstruct.\n",
 				   mesh.index_count / 3, 1e-6 * mesh.index_count / 3);
 
 		recut_mesh(mesh, data, transf);
 
-		if (z == maxlv)
+		if (i == nlv)
 		{
 			if (do_trim)
 			{
@@ -1105,7 +1181,7 @@ int postprocess_surface_mesh(const Cfg &cfg, Timings &tt)
 			uint32_t tri_before = mesh.index_count / 3;
 			Timer simp;
 			simp.start();
-			simplify_mesh_qem(mesh, data, 0.8f, 2.0, cfg.verbose);
+			simplify_mesh_qem(mesh, data, 0.5f, 2.0, cfg.verbose);
 			unsigned int simp_us = simp.stop();
 			uint32_t tri_after = mesh.index_count / 3;
 			printf("Simplify QEM: %u -> %u Tri (ratio %.3f, target 0.5) "
@@ -1128,13 +1204,14 @@ int postprocess_surface_mesh(const Cfg &cfg, Timings &tt)
 		}
 
 		write_lod_level(mesh, data, cfg.x0, cfg.y0, z, cfg.lod.skirt_depth,
-						cfg.out_dir.c_str(), cfg.verbose);
+						cfg.out_dir.c_str(), cfg.verbose, tiles);
 
-		if (cfg.clean >= 2 && z != maxlv)
-			remove(level_ply[z].c_str());
+		if (cfg.clean >= 2 && i != nlv)
+			remove(level_ply[i].c_str());
 		data.clear();
 		tt.lod += chrono.stop();
 	}
+	write_cell_index(cfg.x0, cfg.y0, tiles, cfg.out_dir.c_str());
 
 	if (cfg.clean)
 	{

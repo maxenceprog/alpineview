@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -14,12 +15,22 @@
 #include "mesh_clip.h"
 
 #include <draco/compression/encode.h>
+#include <draco/mesh/mesh.h>
 #include <draco/mesh/triangle_soup_mesh_builder.h>
 
 /* Match DracoPy.encode_mesh_to_buffer defaults so the C++ output is
  * interchangeable with the existing Python-built webapp tiles. */
 static const int DRACO_QUANT_BITS = 14; /* quantization_bits=14 */
 static const int DRACO_SPEED = 9;		/* compression_level=1 -> 10-1 */
+static const int DRACO_NORMAL_BITS = 10;
+
+/* Content is baked as (world_L93 - ORIGIN) metres, matching
+ * scripts/tiles_to_glb_batch.py and build_root_tileset.py. Baking raw absolute
+ * L93 loses ~12-25 cm to float32; this global origin keeps it ~1 mm. */
+static const double KM = 1000.0;
+static const double ORIGIN_X = 900000.0;
+static const double ORIGIN_Y = 6400000.0;
+static const double ORIGIN_Z = 0.0;
 
 /******************************************************************************
  * Conversion + bounds
@@ -322,6 +333,183 @@ static std::vector<char> encode_draco(const TriMesh &m)
 }
 
 /******************************************************************************
+ * glTF (Draco) + 3D Tiles output
+ ******************************************************************************/
+
+static void compute_normals(TriMesh &m)
+{
+	m.normals.assign(m.verts.size(), Vec3d{0.0, 0.0, 0.0});
+	for (size_t f = 0; f < m.faces.size(); f += 3)
+	{
+		uint32_t ia = m.faces[f], ib = m.faces[f + 1], ic = m.faces[f + 2];
+		const Vec3d &a = m.verts[ia];
+		const Vec3d &b = m.verts[ib];
+		const Vec3d &c = m.verts[ic];
+		Vec3d e1{b.x - a.x, b.y - a.y, b.z - a.z};
+		Vec3d e2{c.x - a.x, c.y - a.y, c.z - a.z};
+		Vec3d n{e1.y * e2.z - e1.z * e2.y, e1.z * e2.x - e1.x * e2.z,
+				e1.x * e2.y - e1.y * e2.x};
+		for (uint32_t idx : {ia, ib, ic})
+		{
+			m.normals[idx].x += n.x;
+			m.normals[idx].y += n.y;
+			m.normals[idx].z += n.z;
+		}
+	}
+	double zsum = 0.0;
+	for (const Vec3d &n : m.normals)
+		zsum += n.z;
+	const double gflip = zsum < 0.0 ? -1.0 : 1.0;
+	for (Vec3d &n : m.normals)
+	{
+		n.x *= gflip;
+		n.y *= gflip;
+		n.z *= gflip;
+		double len = sqrt(n.x * n.x + n.y * n.y + n.z * n.z);
+		if (len == 0.0)
+		{
+			n = Vec3d{0.0, 0.0, 1.0};
+		}
+		else
+		{
+			n.x /= len;
+			n.y /= len;
+			n.z /= len;
+		}
+	}
+}
+
+static std::vector<char> encode_pn_draco(TriMesh &m, uint32_t &num_points,
+										 uint32_t &num_faces, uint32_t &pos_uid,
+										 uint32_t &nrm_uid)
+{
+	size_t ntri = m.faces.size() / 3;
+	if (ntri == 0)
+		return {};
+	if (m.normals.size() != m.verts.size())
+		compute_normals(m);
+
+	draco::TriangleSoupMeshBuilder builder;
+	builder.Start(ntri);
+	const int pos_att = builder.AddAttribute(
+		draco::GeometryAttribute::POSITION, 3, draco::DT_FLOAT32);
+	const int nrm_att = builder.AddAttribute(
+		draco::GeometryAttribute::NORMAL, 3, draco::DT_FLOAT32);
+
+	for (size_t f = 0; f < ntri; ++f)
+	{
+		float p[3][3];
+		float nml[3][3];
+		for (int t = 0; t < 3; ++t)
+		{
+			uint32_t vi = m.faces[3 * f + t];
+			const Vec3d &v = m.verts[vi];
+			const Vec3d &n = m.normals[vi];
+			p[t][0] = (float)v.x;
+			p[t][1] = (float)v.y;
+			p[t][2] = (float)v.z;
+			nml[t][0] = (float)n.x;
+			nml[t][1] = (float)n.y;
+			nml[t][2] = (float)n.z;
+		}
+		builder.SetAttributeValuesForFace(pos_att, draco::FaceIndex(f),
+										  p[0], p[1], p[2]);
+		builder.SetAttributeValuesForFace(nrm_att, draco::FaceIndex(f),
+										  nml[0], nml[1], nml[2]);
+	}
+
+	std::unique_ptr<draco::Mesh> mesh = builder.Finalize();
+	if (!mesh)
+		return {};
+
+	num_points = mesh->num_points();
+	num_faces = mesh->num_faces();
+	pos_uid = mesh->attribute(pos_att)->unique_id();
+	nrm_uid = mesh->attribute(nrm_att)->unique_id();
+
+	draco::Encoder encoder;
+	encoder.SetAttributeQuantization(draco::GeometryAttribute::POSITION,
+									 DRACO_QUANT_BITS);
+	encoder.SetAttributeQuantization(draco::GeometryAttribute::NORMAL,
+									 DRACO_NORMAL_BITS);
+	encoder.SetSpeedOptions(DRACO_SPEED, DRACO_SPEED);
+
+	draco::EncoderBuffer buf;
+	if (!encoder.EncodeMeshToBuffer(*mesh, &buf).ok())
+		return {};
+	return std::vector<char>(buf.data(), buf.data() + buf.size());
+}
+
+static std::string fnum(double v)
+{
+	char b[64];
+	snprintf(b, sizeof(b), "%.9g", v);
+	return std::string(b);
+}
+
+static void put_u32(std::vector<char> &v, uint32_t x)
+{
+	v.push_back((char)(x & 0xff));
+	v.push_back((char)((x >> 8) & 0xff));
+	v.push_back((char)((x >> 16) & 0xff));
+	v.push_back((char)((x >> 24) & 0xff));
+}
+
+static std::vector<char> make_glb(const std::vector<char> &draco, uint32_t np,
+								  uint32_t nf, uint32_t pos_uid,
+								  uint32_t nrm_uid, const Vec3d &lo,
+								  const Vec3d &hi)
+{
+	std::string json =
+		"{\"asset\":{\"version\":\"2.0\"},"
+		"\"extensionsUsed\":[\"KHR_draco_mesh_compression\"],"
+		"\"extensionsRequired\":[\"KHR_draco_mesh_compression\"],"
+		"\"scene\":0,\"scenes\":[{\"nodes\":[0]}],"
+		"\"nodes\":[{\"mesh\":0}],"
+		"\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0,"
+		"\"NORMAL\":1},\"indices\":2,\"material\":0,\"mode\":4,"
+		"\"extensions\":{\"KHR_draco_mesh_compression\":{\"bufferView\":0,"
+		"\"attributes\":{\"POSITION\":" +
+		std::to_string(pos_uid) + ",\"NORMAL\":" + std::to_string(nrm_uid) +
+		"}}}}]}],"
+		"\"materials\":[{\"pbrMetallicRoughness\":{\"baseColorFactor\":"
+		"[0.55,0.55,0.55,1.0],\"metallicFactor\":0.0,\"roughnessFactor\":1.0},"
+		"\"doubleSided\":true}],"
+		"\"accessors\":["
+		"{\"componentType\":5126,\"count\":" +
+		std::to_string(np) + ",\"type\":\"VEC3\",\"min\":[" + fnum(lo.x) + "," +
+		fnum(lo.y) + "," + fnum(lo.z) + "],\"max\":[" + fnum(hi.x) + "," +
+		fnum(hi.y) + "," + fnum(hi.z) + "]},"
+										"{\"componentType\":5126,\"count\":" +
+		std::to_string(np) + ",\"type\":\"VEC3\"},"
+							 "{\"componentType\":5125,\"count\":" +
+		std::to_string(nf * 3) + ",\"type\":\"SCALAR\"}],"
+								 "\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":" +
+		std::to_string(draco.size()) + "}],"
+									   "\"buffers\":[{\"byteLength\":" +
+		std::to_string(draco.size()) + "}]}";
+
+	while (json.size() % 4 != 0)
+		json.push_back(' ');
+	std::vector<char> bin(draco);
+	while (bin.size() % 4 != 0)
+		bin.push_back(0);
+
+	std::vector<char> glb;
+	uint32_t total = 12 + 8 + json.size() + 8 + bin.size();
+	put_u32(glb, 0x46546C67);
+	put_u32(glb, 2);
+	put_u32(glb, total);
+	put_u32(glb, json.size());
+	put_u32(glb, 0x4E4F534A);
+	glb.insert(glb.end(), json.begin(), json.end());
+	put_u32(glb, bin.size());
+	put_u32(glb, 0x004E4942);
+	glb.insert(glb.end(), bin.begin(), bin.end());
+	return glb;
+}
+
+/******************************************************************************
  * Driver
  ******************************************************************************/
 
@@ -352,20 +540,43 @@ static bool save_buf(const std::vector<char> &buf, const char *out_dir, int x,
 	return ok;
 }
 
+static bool save_glb(const std::vector<char> &buf, const char *out_dir, int x,
+					 int y, int z)
+{
+	if (buf.empty())
+		return false;
+	char path[512];
+	int base = strlen(out_dir);
+	bool slash = base && out_dir[base - 1] == '/';
+	snprintf(path, sizeof(path), "%s%stile.%d.%d.%d.glb", out_dir,
+			 slash ? "" : "/", x, y, z);
+	FILE *f = fopen(path, "wb");
+	if (!f)
+		return false;
+	bool ok = fwrite(buf.data(), 1, buf.size(), f) == buf.size();
+	fclose(f);
+	return ok;
+}
+
 int write_lod_level(const Mesh &mesh, const MBuf &data, int x_km, int y_km,
-					int z, float skirt_depth, const char *out_dir, bool verbose)
+					int z, float skirt_depth, const char *out_dir, bool verbose,
+					std::vector<CellTile> &tiles)
 {
 	if (mesh.index_count == 0)
 		return 0;
 
 	Timer chrono;
-	unsigned int t_clip = 0, t_skirt = 0, t_draco = 0, t_save = 0;
+	unsigned int t_clip = 0, t_draco = 0, t_save = 0;
 
 	chrono.start();
-	const double skirt_km = skirt_depth / 1000.0;
+
 	TriMesh level = to_trimesh(mesh, data);
 	Vec3d lo, hi;
 	aabb(level, lo, hi);
+	lo.x = 0.0;
+	lo.y = 0.0;
+	hi.x = 1.0;
+	hi.y = 1.0;
 	unsigned int t_prep = chrono.stop();
 
 	int n = 1 << z;
@@ -381,28 +592,66 @@ int write_lod_level(const Mesh &mesh, const MBuf &data, int x_km, int y_km,
 			TriMesh cell = std::move(cells[(size_t)dy * n + dx]);
 			if (cell.faces.empty())
 				continue;
+			for (Vec3d &v : cell.verts)
+			{
+				v.x = (x_km + v.x) * KM - ORIGIN_X;
+				v.y = (y_km - 1 + v.y) * KM - ORIGIN_Y;
+				v.z = v.z * KM - ORIGIN_Z;
+			}
+			Vec3d clo, chi;
+			aabb(cell, clo, chi);
 			chrono.start();
-			std::vector<char> buf = encode_draco(cell);
+			uint32_t np = 0, nf = 0, pos_uid = 0, nrm_uid = 0;
+			std::vector<char> draco =
+				encode_pn_draco(cell, np, nf, pos_uid, nrm_uid);
+			std::vector<char> glb =
+				make_glb(draco, np, nf, pos_uid, nrm_uid, clo, chi);
 			t_draco += chrono.stop();
 			int y_south = y_km - 1;
 			int tx = x_km * n + dx;
 			int ty = y_south * n + dy;
 			chrono.start();
-			bool ok = save_buf(buf, out_dir, tx, ty, z);
+			bool ok = save_glb(glb, out_dir, tx, ty, z);
 			t_save += chrono.stop();
 			if (ok)
+			{
 				written++;
+				tiles.push_back(CellTile{tx, ty, z, clo, chi});
+			}
 		}
 	}
 	if (verbose)
 	{
-		unsigned d = 1000; /* us -> ms */
+		unsigned d = 1000;
 		printf("  LOD z=%d : %dx%d grid, native poisson -> %d tiles "
-			   "(prep %ums clip %ums skirt %ums draco %ums save %ums)\n",
-			   z, n, n, written, t_prep / d, t_clip / d, t_skirt / d,
-			   t_draco / d, t_save / d);
+			   "(prep %ums clip %ums draco %ums save %ums)\n",
+			   z, n, n, written, t_prep / d, t_clip / d, t_draco / d,
+			   t_save / d);
 	}
 	return written;
+}
+
+int write_cell_index(int x_km, int y_km, const std::vector<CellTile> &tiles,
+					 const char *out_dir)
+{
+	char path[512];
+	int base = strlen(out_dir);
+	bool slash = base && out_dir[base - 1] == '/';
+	snprintf(path, sizeof(path), "%s%sbom.%d.%d.jsonl", out_dir,
+			 slash ? "" : "/", x_km, y_km);
+	FILE *f = fopen(path, "wb");
+	if (!f)
+		return -1;
+	for (const CellTile &t : tiles)
+	{
+		fprintf(f,
+				"{\"tx\":%d,\"ty\":%d,\"z\":%d,"
+				"\"lo\":[%.9g,%.9g,%.9g],\"hi\":[%.9g,%.9g,%.9g]}\n",
+				t.tx, t.ty, t.z, t.lo.x, t.lo.y, t.lo.z, t.hi.x, t.hi.y,
+				t.hi.z);
+	}
+	fclose(f);
+	return 0;
 }
 
 int write_lod_tiles(const Mesh &mesh, const MBuf &data, int x_km, int y_km,

@@ -43,3 +43,5 @@ data
 !webapp/public/credits/*.png
 
 *.drc
+webapp/public/ogc3d_test/
+webapp/public/tiled3d/

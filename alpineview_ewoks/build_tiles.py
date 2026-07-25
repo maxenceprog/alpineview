@@ -24,7 +24,7 @@ from .core.tiles import (
 )
 from .read_meta import built_cells, cells_built_at
 
-DEFAULT_MIN_ELEVATION = 1100.0
+DEFAULT_MIN_ELEVATION = 1000.0
 
 MAX_PENDING = 7
 
@@ -114,6 +114,9 @@ def main(argv: list[str] | None = None) -> None:
     if done:
         log.info("Skipping %d cells already built", len(done))
 
+    print(f"TILES TO BUILD : {len(tiles) - len(done)}")
+    print(f"TILES ALREADY BUILD : {len(done)}")
+
     build_tiles_utils.run_servers()
 
     pendings: dict = {}
@@ -130,7 +133,7 @@ def main(argv: list[str] | None = None) -> None:
                 args.cache,
                 resolution=args.resolution,
                 min_elevation=args.min_elevation,
-                download_from_ign=True,
+                download_from_ign=False,
             )
         except Exception as error:  # noqa: BLE001
             log.error("download failed for (%d, %d): %s", x, y, error)

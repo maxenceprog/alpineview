@@ -1,6 +1,9 @@
 #pragma once
 
+#include <vector>
+
 #include "mesh.h"
+#include "mesh_clip.h"
 
 /* Level-of-detail tiling + Draco compression.
  *
@@ -26,10 +29,25 @@ struct LodCfg {
 int write_lod_tiles(const Mesh &mesh, const MBuf &data, int x_km, int y_km,
 		    const LodCfg &cfg, const char *out_dir, bool verbose);
 
-/* Write the Draco tiles for a single zoom level `z` from `mesh`, at full
+/* One emitted 3D Tiles content tile: its web-grid index (tx,ty,z) and its
+ * axis-aligned bounds in the cell-local km content frame (x,y in [0,1], z in
+ * km). Collected across levels then written into the per-cell tileset.json. */
+struct CellTile {
+	int tx, ty, z;
+	Vec3d lo, hi;
+};
+
+/* Write the LOD glTF tiles for a single zoom level `z` from `mesh`, at full
  * resolution (no vertex-cluster simplification): the mesh is cropped into the
- * 2^z x 2^z sub-tile grid, skirted and Draco-encoded. Used when each level is
- * sourced from its own native (coarse) Poisson reconstruction rather than by
- * decimating the finest mesh. Returns the number of .drc files written. */
+ * 2^z x 2^z sub-tile grid, skirted and Draco-glTF-encoded. Each written tile is
+ * appended to `tiles`. Returns the number of .glb files written. */
 int write_lod_level(const Mesh &mesh, const MBuf &data, int x_km, int y_km,
-		    int z, float skirt_depth, const char *out_dir, bool verbose);
+		    int z, float skirt_depth, const char *out_dir, bool verbose,
+		    std::vector<CellTile> &tiles);
+
+/* Write the per-cell bill-of-materials sidecar (bom.{x_km}.{y_km}.jsonl): one
+ * JSON line per emitted tile with its web-grid index (tx,ty,z) and local km
+ * bounds. The 3D Tiles tree (transforms, geometricError, hierarchy) is built
+ * from these on the Python side. Returns 0 on success. */
+int write_cell_index(int x_km, int y_km, const std::vector<CellTile> &tiles,
+		     const char *out_dir);
