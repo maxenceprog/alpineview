@@ -35,6 +35,7 @@ const view = new itowns.View("EPSG:2154", viewerDiv);
 const dim = extent.planarDimensions();
 view.camera3D.near = 0.1;
 view.camera3D.far = 2 * Math.max(dim.x, dim.y);
+view.camera3D.fov = 80;
 view.camera3D.updateProjectionMatrix();
 itownsPlacement(view, x, y);
 view.controls = new itowns.PlanarControls(view, PLANAR_CONTROLS);
@@ -46,7 +47,7 @@ initTouchControls(view);
 itowns.enableDracoLoader(`${import.meta.env.BASE_URL}draco/`);
 const tilesLayer = new itowns.OGC3DTilesLayer("terrain3d", {
   source: new itowns.OGC3DTilesSource({ url: TILESET_URL }),
-  sseThreshold: 12,
+  sseThreshold: 10,
 });
 // itowns' OGC3DTilesLayer already registers the stock plugin under this same
 // name; invokeOnePlugin stops at the first match, so it must go before ours
