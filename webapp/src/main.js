@@ -1,14 +1,14 @@
+import { DebugTilesPlugin } from "3d-tiles-renderer/plugins";
 import * as itowns from "itowns";
 import * as THREE from "three";
-import { IS_MOBILE } from "./deviceInfo.js";
 import { initEnvironment } from "./environment.js";
-import { initHdAvailability } from "./hdAvailability.js";
-import { setBrightness } from "./layers.js";
-import { BuildingsLayer } from "./overlays.js";
-import { initPoi, searchWaypoints, showPoiPanel } from "./poi.js";
-import { DracoTileLayer } from "./terrain/layer.js";
+import { initBuildings } from "./overlays.js";
+import { initPoi } from "./poi.js";
+import { TILESET_URL } from "./tilesetCoverage.js";
+import { installWmtsDraping } from "./tilesTexture.js";
 import { initTouchControls } from "./touchControls.js";
-import { setMapSource } from "./wmts.js";
+import { initUi } from "./ui.js";
+import { itownsPlacement } from "./utils.js";
 
 itowns.CRS.defs(
   "EPSG:2154",
@@ -23,34 +23,55 @@ const x = 1000 * (parseFloat(params.get("x")) || 954.6);
 const y = 1000 * (parseFloat(params.get("y")) || 6438.5);
 
 const PLANAR_CONTROLS = {
-  // >0: at nadir the orbit offset aligns with camera.up and handleRotation's
-  // lookAt loses its azimuth to a degenerate cross product
   minZenithAngle: 5,
   maxZenithAngle: 130,
-  maxAltitude: 30000,
+  maxAltitude: 10000,
   zoomFactor: 1.4,
 };
 
-const view = new itowns.PlanarView(viewerDiv, extent, {
-  maxSubdivisionLevel: 12,
-  segments: 64,
-  controls: PLANAR_CONTROLS,
-  placement: {
-    coord: new itowns.Coordinates("EPSG:2154", x, y),
-    range: 5000,
-    tilt: 80,
-    heading: 0,
-  },
-});
+THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
 
+const view = new itowns.View("EPSG:2154", viewerDiv);
+const dim = extent.planarDimensions();
+view.camera3D.near = 0.1;
+view.camera3D.far = 2 * Math.max(dim.x, dim.y);
+view.camera3D.updateProjectionMatrix();
+itownsPlacement(view, x, y);
+view.controls = new itowns.PlanarControls(view, PLANAR_CONTROLS);
 
 window.view = view;
 
 initTouchControls(view);
 
+itowns.enableDracoLoader("/draco/");
+const tilesLayer = new itowns.OGC3DTilesLayer("terrain3d", {
+  source: new itowns.OGC3DTilesSource({ url: TILESET_URL }),
+  sseThreshold: 15,
+});
+// itowns' OGC3DTilesLayer already registers the stock plugin under this same
+// name; invokeOnePlugin stops at the first match, so it must go before ours
+// registers or GeometricErrorSUBTREELoader never runs.
+// tilesLayer.tilesRenderer.unregisterPlugin("IMPLICIT_TILING_PLUGIN");
+// tilesLayer.tilesRenderer.registerPlugin(new ImplicitTilingPlugin());
+const debugTiles = new DebugTilesPlugin({ displayBoxBounds: params.has("boxes") });
+tilesLayer.tilesRenderer.registerPlugin(debugTiles);
+tilesLayer.tilesRenderer.addEventListener("tile-load-error", (e) => {
+  console.warn("tile-load-error", e.url, e.error?.message ?? e.error);
+});
+view.addLayer(tilesLayer);
 
+window.tilesLayer = tilesLayer;
 
-
+// The tiles are the ground, so they answer every question the controls ask of
+// the terrain: depth picking, the drop test under a travel target, and the
+// occlusion test behind POI labels.
+const _pickCoords = new THREE.Vector2();
+view.getPickingPositionFromDepth = (mouseCoords, target = new THREE.Vector3()) => {
+  const coords = mouseCoords ?? _pickCoords.set(viewerDiv.clientWidth / 2, viewerDiv.clientHeight / 2);
+  const hits = tilesLayer.pickObjectsAt(view, coords);
+  if (!hits.length) return undefined;
+  return target.copy(hits[0].point);
+};
 
 {
   let lastMouseEvent = null;
@@ -65,15 +86,37 @@ initTouchControls(view);
     if (pickIsUsable(event)) initiateZoom.call(view.controls, event);
   };
 
+  // PlanarControls drags by unprojecting the mouse onto a horizontal plane at
+  // the grabbed point's altitude. Near-horizontal views make that ray almost
+  // parallel to the plane, so a few pixels become kilometres (and past the
+  // horizon the delta flips sign). Cap the per-frame step to a fraction of the
+  // camera's height above terrain.
+  const { initiateDrag, handleDragMovement } = view.controls;
+  const _dragBefore = new THREE.Vector3();
+  const _dragStep = new THREE.Vector3();
+  let dragStepCap = Infinity;
+  view.controls.initiateDrag = function () {
+    initiateDrag.call(this);
+    const ground = terrainZAt(this.camera.position.x, this.camera.position.y);
+    const height = ground === null ? this.camera.position.z : this.camera.position.z - ground;
+    dragStepCap = 0.25 * Math.max(height, 10);
+  };
+  view.controls.handleDragMovement = function () {
+    _dragBefore.copy(this.camera.position);
+    handleDragMovement.call(this);
+    _dragStep.subVectors(this.camera.position, _dragBefore);
+    if (_dragStep.length() > dragStepCap) {
+      this.camera.position.copy(_dragBefore).add(_dragStep.setLength(dragStepCap));
+    }
+  };
+
   const _ray = new THREE.Raycaster();
   const _down = new THREE.Vector3(0, 0, -1);
   const terrainZAt = (x, y) => {
-    const meshes = view.getLayerById("draco")?.object3d.children ?? [];
     _ray.set(new THREE.Vector3(x, y, 5000), _down);
-    const hits = _ray.intersectObjects(meshes, true);
+    const hits = _ray.intersectObject(tilesLayer.object3d, true);
     return hits.length ? hits[0].point.z : null;
   };
-
 
   view.controls.initiateSmartTravel = (event) => {
     const e = event ?? lastMouseEvent;
@@ -100,171 +143,75 @@ initTouchControls(view);
       moveTarget.z = Math.max(moveTarget.z, terrainAtEnd + controls.smartTravelHeightMin);
     }
 
-    controls.initiateTravel(moveTarget, "auto", target, true);
+    view.camera3D.position.copy(moveTarget);
+    view.camera3D.lookAt(target);
+    view.camera3D.updateMatrixWorld(true);
+    view.notifyChange(view.camera3D);
   };
 }
 
-view.mainLoop.scheduler.maxCommandsPerHost = 24;
-
-const dracoLayer = new DracoTileLayer("draco", { view });
-dracoLayer.priority = 10;
-view.addLayer(dracoLayer);
-
-let planVisible = false;
-document.getElementById("layer-toggle").addEventListener("click", () => {
-  planVisible = !planVisible;
-
-  setMapSource(planVisible ? "plan" : "ortho");
-  dracoLayer.refreshTextures();
-  view.notifyChange(view.tileLayer);
-});
-
 const { setSunDate, setEnabled, setShadowsEnabled } = initEnvironment(view);
-setBrightness(1.2);
+const { refreshTextures } = installWmtsDraping(view, tilesLayer);
 
-view.addLayer(new BuildingsLayer("buildings", view));
-
-initPoi(view);
-
-import("./consoleControls.js").then(({ initConsoleControls }) => initConsoleControls(view));
-
-if (__TEST_CONTROLS__) {
-  import("./testControls.js").then(({ initTestControls }) => initTestControls(view));
-}
-
-const envEnabledInput = document.getElementById("env-enabled");
-envEnabledInput.addEventListener("change", () => {
-  setEnabled(envEnabledInput.checked);
-});
-
-const shadowsInput = document.getElementById("shadows-enabled");
-shadowsInput.addEventListener("change", () => {
-  setShadowsEnabled(shadowsInput.checked);
-});
-
-const envPanel = document.getElementById("env-panel");
-if (IS_MOBILE) envPanel.classList.add("hidden");
-document.getElementById("env-toggle").addEventListener("click", () => {
-  envPanel.classList.toggle("hidden");
-});
-
-const helpPanel = document.getElementById("help-panel");
-document.getElementById("help-close").addEventListener("click", () => {
-  helpPanel.classList.add("hidden");
-});
-document.getElementById("help-toggle").addEventListener("click", () => {
-  helpPanel.classList.toggle("hidden");
-});
-initHdAvailability(helpPanel, view);
-
-const sunDateInput = document.getElementById("sun-date");
-const sunTimeInput = document.getElementById("sun-time");
-const sunTimeValue = document.getElementById("sun-time-value");
-
-function minutesToHHMM(minutes) {
-  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
-}
-
-function applySunInputs() {
-  const minutes = parseInt(sunTimeInput.value, 10);
-  sunTimeValue.textContent = minutesToHHMM(minutes);
-  const d = new Date(`${sunDateInput.value}T${minutesToHHMM(minutes)}:00`);
-  if (!isNaN(d)) setSunDate(d);
-}
-
-const noon = new Date();
-noon.setHours(12, 0, 0, 0);
-sunDateInput.value = `${noon.getFullYear()}-${String(noon.getMonth() + 1).padStart(2, "0")}-${String(noon.getDate()).padStart(2, "0")}`;
-applySunInputs();
-sunDateInput.addEventListener("change", applySunInputs);
-sunTimeInput.addEventListener("input", applySunInputs);
-
-const brightnessInput = document.getElementById("brightness");
-const brightnessValue = document.getElementById("brightness-value");
-brightnessInput.addEventListener("input", () => {
-  const v = parseFloat(brightnessInput.value);
-  setBrightness(v);
-  brightnessValue.textContent = v.toFixed(2);
-  view.notifyChange(view.camera3D);
-});
-
-const fogInput = document.getElementById("fog-density");
-const fogValue = document.getElementById("fog-density-value");
-fogInput.addEventListener("input", () => {
-  const v = parseFloat(fogInput.value);
-  view.scene.fog.density = v / 1000;
-  fogValue.textContent = v.toFixed(2);
-  view.notifyChange(view.camera3D);
-});
-
-const searchInput = document.getElementById("search-input");
-const searchBtn = document.getElementById("search-btn");
-const searchResultsEl = document.getElementById("search-results");
-const SEARCH_RESULT_LIMIT = 5;
-const SEARCH_DEBOUNCE_MS = 400;
-const SEARCH_MIN_CHARS = 3;
-let searchDebounceTimer = null;
-
-function hideSearchResults() {
-  searchResultsEl.classList.remove("visible");
-  searchResultsEl.innerHTML = "";
-}
-
-const SEARCH_RANGE = 3000;
-const SEARCH_PITCH = Math.PI / 4;
-
-function goToSearchResult(result) {
-  hideSearchResults();
-  showPoiPanel(result);
-  const target = new THREE.Vector3(result.x, result.y, result.elevation ?? 0);
-  const camPos = target.clone();
-  camPos.z += SEARCH_RANGE * Math.sin(SEARCH_PITCH);
-  camPos.y -= SEARCH_RANGE * Math.cos(SEARCH_PITCH);
-  view.controls.initiateTravel(camPos, "auto", target, true);
-  view.notifyChange(view.camera3D);
-}
-
-function renderSearchResults(results) {
-  searchResultsEl.innerHTML = "";
-  for (const result of results) {
-    const item = document.createElement("div");
-    item.className = "search-result";
-    item.textContent = [result.title, result.elevation ? `${result.elevation} m` : null, result.area]
-      .filter(Boolean).join(" · ");
-    item.addEventListener("click", () => goToSearchResult(result));
-    searchResultsEl.append(item);
+view.addFrameRequester(itowns.MAIN_LOOP_EVENTS.BEFORE_RENDER, () => {
+  const { downloadQueue, parseQueue, processNodeQueue } = tilesLayer.tilesRenderer;
+  if (downloadQueue?.running || parseQueue?.running || processNodeQueue?.running) {
+    view.notifyChange(tilesLayer);
   }
-  searchResultsEl.classList.toggle("visible", results.length > 0);
-}
+});
 
-async function doSearch({ jumpOnSingleResult } = {}) {
-  const q = searchInput.value.trim();
-  if (!q) return;
-  searchBtn.disabled = true;
-  try {
-    const results = await searchWaypoints(q, SEARCH_RESULT_LIMIT);
-    if (!results.length) { hideSearchResults(); return; }
-    if (results.length === 1 && jumpOnSingleResult) {
-      goToSearchResult(results[0]);
-    } else {
-      renderSearchResults(results);
-    }
-  } catch {
-    hideSearchResults();
-  } finally {
-    searchBtn.disabled = false;
+initBuildings(view);
+initPoi(view, tilesLayer);
+
+initUi(view, { setSunDate, setEnabled, setShadowsEnabled, refreshTextures });
+
+// Debug helper: jump to wherever the tileset actually is, whatever the placement.
+window.frameTileset = () => {
+  const sphere = new THREE.Sphere();
+  if (!tilesLayer.tilesRenderer.getBoundingSphere(sphere)) return;
+  const { center, radius } = sphere;
+  view.camera3D.position.set(center.x, center.y - radius * 2, center.z + radius * 2);
+  view.camera3D.lookAt(center);
+  view.camera3D.updateMatrixWorld(true);
+  view.notifyChange(view.camera3D);
+  console.log("tileset sphere", center.toArray().map(Math.round), "r", Math.round(radius));
+};
+
+// Implicit quadtree subdivision scales only the x/y axes of the root bounding
+// box, so every tile inherits the root's full z extent no matter how deep it
+// sits. boxes() shows it: a tile's declared volume against the mesh actually in
+// it. ?boxes=1 draws them, window.toggleBoxes() flips it at runtime.
+window.toggleBoxes = () => {
+  debugTiles.displayBoxBounds = !debugTiles.displayBoxBounds;
+  view.notifyChange(view.camera3D);
+  return debugTiles.displayBoxBounds;
+};
+
+window.boxReport = () => {
+  const declared = new THREE.Box3();
+  const rows = [];
+  tilesLayer.tilesRenderer.traverse((tile) => {
+    const scene = tile.engineData && tile.engineData.scene;
+    if (!scene || !tile.engineData.boundingVolume) return;
+    tile.engineData.boundingVolume.getAABB(declared);
+    const d = declared.getSize(new THREE.Vector3());
+    const a = new THREE.Box3().setFromObject(scene).getSize(new THREE.Vector3());
+    rows.push({
+      uri: tile.content && tile.content.uri,
+      ge: Number(tile.geometricError.toFixed(2)),
+      boxW: Math.round(d.x),
+      boxH: Math.round(d.z),
+      meshH: Math.round(a.z),
+      tallerBy: Number((d.z / Math.max(a.z, 1)).toFixed(1)),
+      flatness: Number((d.z / Math.max(d.x, 1)).toFixed(1)),
+    });
+  });
+  console.table(rows);
+  const n = rows.length;
+  if (n) {
+    const mean = (k) => (rows.reduce((s, r) => s + r[k], 0) / n).toFixed(1);
+    console.log(`${n} loaded tiles: box is on average ${mean("tallerBy")}x taller `
+      + `than its mesh, and ${mean("flatness")}x taller than it is wide`);
   }
-}
-
-searchBtn.addEventListener("click", () => doSearch({ jumpOnSingleResult: true }));
-searchInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") doSearch({ jumpOnSingleResult: true });
-});
-searchInput.addEventListener("input", () => {
-  clearTimeout(searchDebounceTimer);
-  if (searchInput.value.trim().length < SEARCH_MIN_CHARS) { hideSearchResults(); return; }
-  searchDebounceTimer = setTimeout(() => doSearch({ jumpOnSingleResult: false }), SEARCH_DEBOUNCE_MS);
-});
-document.addEventListener("click", (e) => {
-  if (!e.target.closest("#search-form")) hideSearchResults();
-});
+  return rows.length;
+};

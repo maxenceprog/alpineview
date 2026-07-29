@@ -1,15 +1,15 @@
 // Small info box, tucked at the end of the help panel: a Leaflet map of the
 // built extent, with a 1 km L93 cell lit up wherever LiDAR HD terrain is
-// actually built (bom_hd.txt — see bom.js), over a WMS Plan IGN backdrop.
-// The bbox is computed from the bom itself (its extent + a margin), not
+// actually built (derived from the tileset — see tilesetCoverage.js), over a
+// WMS Plan IGN backdrop.
+// The bbox is computed from the coverage itself (its extent + a margin), not
 // hardcoded, so it tracks whatever's actually been built. Clicking the map
 // starts a fast travel to that spot in the 3D scene.
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import * as THREE from "three";
-import { API_BASE_URL } from "./apiConfig.js";
-import { loadBom } from "./bom.js";
 import { l93ToWgs84, wgs84ToL93 } from "./proj.js";
+import { CELL_KM, loadTilesetCoverage } from "./tilesetCoverage.js";
 import { itownsPlacement } from "./utils.js";
 
 const MARGIN_KM = 20;
@@ -34,13 +34,13 @@ function travelTo(view, x, y) {
 }
 
 // bbox: {xmin, xmax, ymin, ymax}, L93 km, half-open on the max side (a cell
-// "x.y" covers [x, x+1) x [y, y+1)).
-function computeBbox(bom) {
+// "x.y" covers [x, x+CELL_KM) x [y, y+CELL_KM)).
+function computeBbox(coverage) {
   let xmin = Infinity;
   let xmax = -Infinity;
   let ymin = Infinity;
   let ymax = -Infinity;
-  for (const cell of bom) {
+  for (const cell of coverage) {
     const [xStr, yStr] = cell.split(".");
     const x = Number(xStr);
     const y = Number(yStr);
@@ -51,9 +51,9 @@ function computeBbox(bom) {
   }
   return padToAspect({
     xmin: xmin - MARGIN_KM,
-    xmax: xmax + 1 + MARGIN_KM,
+    xmax: xmax + CELL_KM + MARGIN_KM,
     ymin: ymin - MARGIN_KM,
-    ymax: ymax + 1 + MARGIN_KM,
+    ymax: ymax + CELL_KM + MARGIN_KM,
   });
 }
 
@@ -83,12 +83,12 @@ function latLng(xKm, yKm) {
 }
 
 async function drawMap(mapEl, container, view) {
-  const bom = await loadBom(`${API_BASE_URL}/tiles/bom_hd.txt`);
-  if (!bom || bom.size === 0) {
+  const coverage = await loadTilesetCoverage();
+  if (!coverage) {
     return;
   }
 
-  const bbox = computeBbox(bom);
+  const bbox = computeBbox(coverage);
   const bounds = L.latLngBounds(
     latLng(bbox.xmin, bbox.ymin),
     latLng(bbox.xmax, bbox.ymax),
@@ -100,7 +100,7 @@ async function drawMap(mapEl, container, view) {
     scrollWheelZoom: false,
   });
   // padding so edge cells aren't flush against the panel border, maxZoom so
-  // a small/sparse bom doesn't zoom in past what the WMS layer usefully renders.
+  // a small/sparse coverage doesn't zoom in past what the WMS layer usefully renders.
   const fit = () => map.fitBounds(bounds, { padding: [12, 12], maxZoom: MAX_ZOOM });
   fit();
 
@@ -128,14 +128,20 @@ async function drawMap(mapEl, container, view) {
   });
 
   const renderer = L.canvas();
-  for (const cell of bom) {
+  for (const cell of coverage) {
     const [xStr, yStr] = cell.split(".");
     const x = Number(xStr);
     const y = Number(yStr);
-    L.rectangle(L.latLngBounds(latLng(x, y), latLng(x + 1, y + 1)), {
-      renderer,
-      fillColor: "#654ade",
-    }).addTo(map);
+    L.rectangle(
+      L.latLngBounds(latLng(x, y), latLng(x + CELL_KM, y + CELL_KM)),
+      {
+        renderer,
+        color: "#654ade",
+        weight: 2,
+        fillColor: "#654ade",
+        fillOpacity: 0.25,
+      },
+    ).addTo(map);
   }
 }
 

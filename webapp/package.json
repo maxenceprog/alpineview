@@ -4,10 +4,10 @@
   "type": "module",
   "scripts": {
     "dev": "npm run test_serve",
-    "test_serve": "vite",
-    "test_build_and_serve": "vite --config vite.build_and_serve.config.js",
-    "build": "vite build",
-    "preview": "vite preview",
+    "test_serve": "vite --config vite.serve.js",
+    "test_build_and_serve": "vite --config vite.reconstruction_serve.js",
+    "build": "vite build --config vite.prod.js",
+    "preview": "vite preview --config vite.prod.js",
     "test": "vitest run",
     "test:smoke": "playwright test",
     "lint": "eslint ."
@@ -28,13 +28,13 @@
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.61.0",
     "@vitejs/plugin-basic-ssl": "^2.3.0",
-    "@vitest/browser": "^4.1.9",
-    "@vitest/coverage-v8": "^4.1.9",
+    "@vitest/browser": "^4.1.10",
+    "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^10.7.0",
     "globals": "^17.7.0",
     "happy-dom": "^20.10.6",
     "vite": "^6.0.0",
     "vite-plugin-static-copy": "^3.1.6",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.10"
   }
 }

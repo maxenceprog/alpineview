@@ -10,7 +10,9 @@ export function cellLazStem(x0, y0) {
   return `LHD_FXX_${pad(x0)}_${pad(y0 + 1)}_PTS_LAMB93_IGN69`;
 }
 
-const BUILDING_LEVEL = 11;
+const BUILDING_RADIUS_KM = 3;
+const BUILDING_DROP_KM = 5;
+const THROTTLE = 200;
 
 const UP_AXIS = new THREE.Vector3(0, 0, 1);
 
@@ -30,75 +32,85 @@ function disposeGroup(group) {
   });
 }
 
-export class BuildingsLayer extends itowns.Layer {
-  constructor(id, view) {
-    super(id, { source: false });
-    this.view = view;
-    this.object3d = new THREE.Group();
-    this.object3d.name = id;
-    this._nodeCells = new Map();
-    this._cells = new Map();
-    this._bomBuildings = null;
-    loadBom(`${API_BASE_URL}/buildings/bom_buildings.txt`).then((set) => {
-      this._bomBuildings = set;
+export function initBuildings(view) {
+  const root = new THREE.Group();
+  root.name = "buildings";
+  view.scene.add(root);
+
+  const camera = view.camera3D;
+  const cells = new Map();
+  let bom = null;
+  let bomReady = false;
+  loadBom(`${API_BASE_URL}/buildings/bom_buildings.txt`).then((set) => {
+    bom = set;
+    bomReady = true;
+    view.notifyChange(camera);
+  });
+
+  const load = (ox, oy, cell) => {
+    // A cell absent from the bom was built with no buildings (or never built):
+    // skip both the .city.jsonl fetch and its paired WMTS canvas fetch, since
+    // loadCityBuildings would just discard them.
+    if (!bomHas(bom, ox, oy)) {
+      cell.status = "empty";
+      return;
+    }
+    cell.status = "loading";
+    loadCityBuildings(`${API_BASE_URL}/buildings/${cellLazStem(ox, oy)}.city.jsonl`, {
+      x0: ox, y0: oy, sunDir: getSunDir(), upAxis: UP_AXIS,
+    }).then((mesh) => {
+      if (cells.get(`${ox}|${oy}`) !== cell) return;
+      if (!mesh) { cell.status = "empty"; return; }
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      cell.group = wrapForItowns(mesh);
+      cell.status = "done";
+      root.add(cell.group);
+      view.notifyChange(camera);
+    }).catch((err) => {
+      console.error("[buildings] loader threw:", err);
+      cell.status = "failed";
     });
-  }
+  };
 
-  update(context, layer, node) {
-    if (node.level !== BUILDING_LEVEL || this._nodeCells.has(node.id)) return;
+  const refresh = () => {
+    if (!bomReady) return;
+    const cx = camera.position.x / 1000;
+    const cy = camera.position.y / 1000;
 
-    const ox = Math.round(node.extent.west / 1000);
-    const oy = Math.round(node.extent.south / 1000);
-    const cellKey = `${ox}|${oy}`;
-    this._nodeCells.set(node.id, cellKey);
-
-    let cell = this._cells.get(cellKey);
-    if (!cell) {
-      // A cell absent from the bom was built with no buildings (or never
-      // built): skip both the .city.jsonl fetch and its paired WMTS canvas
-      // fetch, since loadCityBuildings would just discard them.
-      if (!bomHas(this._bomBuildings, ox, oy)) {
-        cell = { status: "empty", group: null, refCount: 0 };
-        this._cells.set(cellKey, cell);
-      } else {
-        cell = { status: "loading", group: null, refCount: 0 };
-        this._cells.set(cellKey, cell);
-
-        loadCityBuildings(`${API_BASE_URL}/buildings/${cellLazStem(ox, oy)}.city.jsonl`, {
-          x0: ox, y0: oy, sunDir: getSunDir(), upAxis: UP_AXIS,
-        }).then((mesh) => {
-          if (this._cells.get(cellKey) !== cell) return;
-          if (!mesh) { cell.status = "empty"; return; }
-          mesh.castShadow = true;
-          mesh.receiveShadow = true;
-          cell.group = wrapForItowns(mesh);
-          cell.status = "done";
-          if (cell.refCount > 0) {
-            this.object3d.add(cell.group);
-            this.view.notifyChange(this.parent ?? this);
-          }
-        }).catch((err) => {
-          console.error("[itowns buildings] loader threw:", err);
-          cell.status = "failed";
-        });
+    for (let ox = Math.floor(cx - BUILDING_RADIUS_KM); ox <= cx + BUILDING_RADIUS_KM; ox++) {
+      for (let oy = Math.floor(cy - BUILDING_RADIUS_KM); oy <= cy + BUILDING_RADIUS_KM; oy++) {
+        const key = `${ox}|${oy}`;
+        if (cells.has(key)) continue;
+        const cell = { status: "pending", group: null };
+        cells.set(key, cell);
+        load(ox, oy, cell);
       }
     }
-    cell.refCount++;
 
-    node.addEventListener("dispose", () => {
-      this._nodeCells.delete(node.id);
-      cell.refCount--;
-      if (cell.refCount <= 0) {
-        if (cell.group) {
-          this.object3d.remove(cell.group);
-          disposeGroup(cell.group);
-        }
-        this._cells.delete(cellKey);
+    for (const [key, cell] of [...cells]) {
+      const [ox, oy] = key.split("|").map(Number);
+      const dx = Math.max(0, Math.abs(ox + 0.5 - cx) - 0.5);
+      const dy = Math.max(0, Math.abs(oy + 0.5 - cy) - 0.5);
+      if (Math.hypot(dx, dy) <= BUILDING_DROP_KM) continue;
+      if (cell.group) {
+        root.remove(cell.group);
+        disposeGroup(cell.group);
       }
-    });
-
-    if (cell.status === "done" && cell.group && !cell.group.parent) {
-      this.object3d.add(cell.group);
+      cells.delete(key);
     }
-  }
+  };
+
+  let lastPass = 0;
+  const lastCamPosition = new THREE.Vector3(Infinity, Infinity, Infinity);
+
+  view.addFrameRequester(itowns.MAIN_LOOP_EVENTS.BEFORE_RENDER, () => {
+    const now = performance.now();
+    if (lastPass && (now - lastPass < THROTTLE || camera.position.equals(lastCamPosition))) return;
+    lastCamPosition.copy(camera.position);
+    lastPass = now;
+    refresh();
+  });
+
+  return root;
 }

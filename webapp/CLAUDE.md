@@ -136,9 +136,8 @@ gated on a usable pick, and smart travel drop-tests against it. Smart travel
 `src/ui.js` wires `index.html`'s chrome — map toggle, sun/light panel, help
 panel, search — to a view, taking `refreshTextures` as a parameter. `index.html`
 carries all CSS inline. `src/poi.js` is the Camptocamp waypoint layer: labels,
-the info panel, search, and label occlusion. Occlusion is pluggable:
-`raycastOcclusion(object3d)` for the tileset, and the resolver contract lets a
-depth-buffer implementation drop in.
+the info panel, and search. Everything runs only on frames where the camera
+matrix actually changed. Culling using terrain tiles bbox.
 
 Console helpers (`src/consoleControls.js`, prod too): `read_meta`, `goto`,
 `which`, `mem`. `src/testControls.js` adds `build(x, y)` under

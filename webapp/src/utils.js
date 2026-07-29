@@ -1,6 +1,6 @@
 import * as THREE from "three";
 const GOTO_TILT = 80;
-const GOTO_RANGE = 5000;
+const GOTO_RANGE = 8000;
 
 export function itownsPlacement(view, x, y) {
     const target = new THREE.Vector3(x, y, 0);

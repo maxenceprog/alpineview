@@ -37,7 +37,7 @@ export default [
     },
   },
   {
-    files: ["*.config.js", "vite.common.js", "eslint.config.js"],
+    files: ["*.config.js", "vite.common.js", "vite.serve.js", "vite.prod.js", "vite.reconstruction_serve.js", "eslint.config.js"],
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "module",

@@ -91,21 +91,6 @@ function loadImage(url) {
 }
 
 /**
- * Quadtree levels whose derived zoom the matrix set publishes, given the root tile size.
- * Outside this range the zoom would clamp, and a clamped-coarse zoom means stitching a
- * tile out of hundreds.
- */
-export function wmtsLevelRange(sourceKey, rootSizeM) {
-  const { zoom } = WMTS_SOURCES[sourceKey];
-  const levels = [];
-  for (let level = 0; level <= 20; level++) {
-    const z = zoomForSize(rootSizeM / 2 ** level);
-    if (z >= zoom.min && z <= zoom.max) levels.push(level);
-  }
-  return { min: levels[0], max: levels[levels.length - 1] };
-}
-
-/**
  * The one way to get IGN imagery. Returns a canvas covering exactly the given L93 extent
  * (metres, x=east/y=north), stitched from the WMTS tiles overlapping it at a zoom picked
  * from the extent's size. Tiles are drawn at their true offset and clipped to the extent,

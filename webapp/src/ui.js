@@ -1,0 +1,179 @@
+import * as THREE from "three";
+import { IS_MOBILE } from "./deviceInfo.js";
+import { initHdAvailability } from "./hdAvailability.js";
+import { setBrightness } from "./layers.js";
+import { searchWaypoints, showPoiPanel } from "./poi.js";
+import { setMapSource } from "./wmts.js";
+
+const SEARCH_RESULT_LIMIT = 5;
+const SEARCH_DEBOUNCE_MS = 400;
+const SEARCH_MIN_CHARS = 3;
+const SEARCH_RANGE = 3000;
+const SEARCH_PITCH = Math.PI / 4;
+
+function initLayerToggle(view, refreshTextures) {
+  let planVisible = false;
+  document.getElementById("layer-toggle").addEventListener("click", () => {
+    planVisible = !planVisible;
+    setMapSource(planVisible ? "plan" : "ortho");
+    refreshTextures();
+    view.notifyChange(view.camera3D);
+  });
+}
+
+function initEnvPanel(view, { setSunDate, setEnabled, setShadowsEnabled }) {
+  const envEnabledInput = document.getElementById("env-enabled");
+  envEnabledInput.addEventListener("change", () => {
+    setEnabled(envEnabledInput.checked);
+  });
+
+  const shadowsInput = document.getElementById("shadows-enabled");
+  shadowsInput.addEventListener("change", () => {
+    setShadowsEnabled(shadowsInput.checked);
+  });
+
+  const envPanel = document.getElementById("env-panel");
+  if (IS_MOBILE) envPanel.classList.add("hidden");
+  document.getElementById("env-toggle").addEventListener("click", () => {
+    envPanel.classList.toggle("hidden");
+  });
+
+  const sunDateInput = document.getElementById("sun-date");
+  const sunTimeInput = document.getElementById("sun-time");
+  const sunTimeValue = document.getElementById("sun-time-value");
+
+  function minutesToHHMM(minutes) {
+    return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+  }
+
+  function applySunInputs() {
+    const minutes = parseInt(sunTimeInput.value, 10);
+    sunTimeValue.textContent = minutesToHHMM(minutes);
+    const d = new Date(`${sunDateInput.value}T${minutesToHHMM(minutes)}:00`);
+    if (!isNaN(d)) setSunDate(d);
+  }
+
+  const noon = new Date();
+  noon.setHours(12, 0, 0, 0);
+  sunDateInput.value = `${noon.getFullYear()}-${String(noon.getMonth() + 1).padStart(2, "0")}-${String(noon.getDate()).padStart(2, "0")}`;
+  applySunInputs();
+  sunDateInput.addEventListener("change", applySunInputs);
+  sunTimeInput.addEventListener("input", applySunInputs);
+
+  const brightnessInput = document.getElementById("brightness");
+  const brightnessValue = document.getElementById("brightness-value");
+  setBrightness(parseFloat(brightnessInput.value));
+  brightnessInput.addEventListener("input", () => {
+    const v = parseFloat(brightnessInput.value);
+    setBrightness(v);
+    brightnessValue.textContent = v.toFixed(2);
+    view.notifyChange(view.camera3D);
+  });
+
+  const fogInput = document.getElementById("fog-density");
+  const fogValue = document.getElementById("fog-density-value");
+  fogInput.addEventListener("input", () => {
+    const v = parseFloat(fogInput.value);
+    view.scene.fog.density = v / 1000;
+    fogValue.textContent = v.toFixed(2);
+    view.notifyChange(view.camera3D);
+  });
+}
+
+function initHelpPanel(view) {
+  const helpPanel = document.getElementById("help-panel");
+  document.getElementById("help-close").addEventListener("click", () => {
+    helpPanel.classList.add("hidden");
+  });
+  document.getElementById("help-toggle").addEventListener("click", () => {
+    helpPanel.classList.toggle("hidden");
+  });
+  initHdAvailability(helpPanel, view);
+}
+
+function initSearch(view) {
+  const searchInput = document.getElementById("search-input");
+  const searchBtn = document.getElementById("search-btn");
+  const searchResultsEl = document.getElementById("search-results");
+  let searchDebounceTimer = null;
+
+  function hideSearchResults() {
+    searchResultsEl.classList.remove("visible");
+    searchResultsEl.innerHTML = "";
+  }
+
+  function goToSearchResult(result) {
+    hideSearchResults();
+    showPoiPanel(result);
+    const target = new THREE.Vector3(result.x, result.y, result.elevation ?? 0);
+    const camPos = target.clone();
+    camPos.z += SEARCH_RANGE * Math.sin(SEARCH_PITCH);
+    camPos.y -= SEARCH_RANGE * Math.cos(SEARCH_PITCH);
+    view.camera3D.position.copy(camPos);
+    view.camera3D.lookAt(target);
+    view.camera3D.updateMatrixWorld(true);
+    view.notifyChange(view.camera3D);
+  }
+
+  function renderSearchResults(results) {
+    searchResultsEl.innerHTML = "";
+    for (const result of results) {
+      const item = document.createElement("div");
+      item.className = "search-result";
+      item.textContent = [result.title, result.elevation ? `${result.elevation} m` : null, result.area]
+        .filter(Boolean).join(" · ");
+      item.addEventListener("click", () => goToSearchResult(result));
+      searchResultsEl.append(item);
+    }
+    searchResultsEl.classList.toggle("visible", results.length > 0);
+  }
+
+  async function doSearch({ jumpOnSingleResult } = {}) {
+    const q = searchInput.value.trim();
+    if (!q) return;
+    searchBtn.disabled = true;
+    try {
+      const results = await searchWaypoints(q, SEARCH_RESULT_LIMIT);
+      if (!results.length) { hideSearchResults(); return; }
+      if (results.length === 1 && jumpOnSingleResult) {
+        goToSearchResult(results[0]);
+      } else {
+        renderSearchResults(results);
+      }
+    } catch {
+      hideSearchResults();
+    } finally {
+      searchBtn.disabled = false;
+    }
+  }
+
+  searchBtn.addEventListener("click", () => doSearch({ jumpOnSingleResult: true }));
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") doSearch({ jumpOnSingleResult: true });
+  });
+  searchInput.addEventListener("input", () => {
+    clearTimeout(searchDebounceTimer);
+    if (searchInput.value.trim().length < SEARCH_MIN_CHARS) { hideSearchResults(); return; }
+    searchDebounceTimer = setTimeout(() => doSearch({ jumpOnSingleResult: false }), SEARCH_DEBOUNCE_MS);
+  });
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest("#search-form")) hideSearchResults();
+  });
+}
+
+/**
+ * Wires index.html's chrome — map toggle, sun/light panel, help, search — to a
+ * view. `refreshTextures` re-drapes whatever carries the WMTS imagery in this
+ * view, which differs between the Draco terrain and the 3D Tiles one.
+ */
+export function initUi(view, { setSunDate, setEnabled, setShadowsEnabled, refreshTextures }) {
+  initLayerToggle(view, refreshTextures);
+  initEnvPanel(view, { setSunDate, setEnabled, setShadowsEnabled });
+  initHelpPanel(view);
+  initSearch(view);
+
+  import("./consoleControls.js").then(({ initConsoleControls }) => initConsoleControls(view));
+  if (__TEST_CONTROLS__) {
+    import("./testControls.js").then(({ initTestControls }) => initTestControls(view));
+  }
+}

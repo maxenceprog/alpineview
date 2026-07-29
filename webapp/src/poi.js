@@ -2,13 +2,11 @@ import DOMPurify from "dompurify";
 import * as itowns from "itowns";
 import MarkdownIt from "markdown-it";
 import * as THREE from "three";
+import { createPoiOcclusion } from "./poiOcclusion.js";
 import { l93ToWebMercator, webMercatorToL93 } from "./proj.js";
 
 const KIND_CLASS = { summit: "poi-peak", pass: "poi-pass", hut: "poi-hut", access: "poi-parking" };
-const POI_ZOOM = { min: 10, max: 12 };
 const BLOCK_KM = 8;
-
-const ALPS_EXTENT = new itowns.Extent("EPSG:2154", 256000, 1280000, 5952000, 6976000);
 
 const WAYPOINTS_URL = "https://api.camptocamp.org/waypoints";
 const SEARCH_URL = "https://api.camptocamp.org/search";
@@ -95,60 +93,6 @@ export async function resolveEmbeddedImages(rawText) {
     const alt = caption.trim();
     return url ? `\n\n![${alt}](${url})\n\n` : alt;
   });
-}
-
-function poisToGeoJson(docs) {
-  return {
-    type: "FeatureCollection",
-    crs: { type: "name", properties: { name: "urn:ogc:def:crs:EPSG::2154" } },
-    features: docs.map((doc) => {
-      const geom = JSON.parse(doc.geometry.geom);
-      const [x, y] = webMercatorToL93.forward(geom.coordinates);
-      return {
-        type: "Feature",
-        geometry: { type: "Point", coordinates: [x, y, doc.elevation ?? 0] },
-        properties: {
-          id: doc.document_id,
-          title: doc.locales[0].title,
-          wtyp: doc.waypoint_type,
-          elevation: doc.elevation ?? null,
-        },
-      };
-    }),
-  };
-}
-
-class PoiSource extends itowns.Source {
-  constructor() {
-    super({
-      url: "poi",
-      crs: "EPSG:2154",
-      extent: ALPS_EXTENT,
-      fetcher: (url) => {
-        let p = this._blockCache.get(url);
-        if (!p) {
-          const [x0, y0] = url.split("/").map(Number);
-          p = fetchCellPois(x0, y0, BLOCK_KM).then(poisToGeoJson);
-          this._blockCache.set(url, p);
-        }
-        return p;
-      },
-      parser: (data, options) => itowns.GeoJsonParser.parse(data, options),
-    });
-    this._blockCache = new Map();
-    this.zoom = POI_ZOOM;
-  }
-
-  urlFromExtent(extent) {
-    const e = extent.isExtent ? extent : extent.toExtent(this.crs);
-    const bx = Math.floor(e.west / 1000 / BLOCK_KM) * BLOCK_KM;
-    const by = Math.floor(e.south / 1000 / BLOCK_KM) * BLOCK_KM;
-    return `${bx}/${by}`;
-  }
-
-  extentInsideLimit(extent, zoom) {
-    return zoom >= this.zoom.min && zoom <= this.zoom.max;
-  }
 }
 
 function poiDomElement(props) {
@@ -246,16 +190,12 @@ export function showPoiPanel(poi) {
  * Attach the Camptocamp POI LabelLayer to an iTowns PlanarView and wire label
  * clicks (delegated, since iTowns clones each label's DOM) to the info panel.
  */
-export function initPoi(view) {
-  const poiLayer = new itowns.LabelLayer("poi", {
-    source: new PoiSource(),
-    zoom: POI_ZOOM,
-    domElement: poiDomElement,
-    style: { text: { anchor: "bottom" } },
-  });
-  view.addLayer(poiLayer, view.tileLayer);
+export function initPoi(view, tilesLayer) {
+  const labelRoot = document.createElement("div");
+  labelRoot.id = "poi-labels";
+  labelRoot.style.cssText = "position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:1;";
+  view.domElement.appendChild(labelRoot);
 
-  const labelRoot = view.mainLoop.gfxEngine.label2dRenderer.domElement;
   labelRoot.addEventListener("click", (e) => {
     const el = e.target.closest(".poi-label");
     if (!el) return;
@@ -278,90 +218,136 @@ export function initPoi(view) {
     maximize.title = max ? "Réduire" : "Agrandir";
   });
 
-  installLabelOcclusion(view, poiLayer);
+  const labels = installPoiLabels(view, labelRoot, tilesLayer);
+  return labels;
 }
 
-function installLabelOcclusion(view, poiLayer) {
-  const g = view.mainLoop.gfxEngine;
-  const dracoLayer = view.getLayerById("draco");
-  const camera = view.camera3D;
-  const MARGIN = 60;
-  const THROTTLE = 100;
+const POI_RADIUS_KM = 1.4;
+const POI_DROP_KM = 1.5;
+const POI_MAX_DISTANCE = 3000;
 
-  let buffer = null;
-  let lastPass = 0;
-  let lastCamMatrix = new THREE.Matrix4();
-  const world = new THREE.Vector3();
+function installPoiLabels(view, labelRoot, tilesLayer) {
+  const camera = view.camera3D;
+  const occlusion = createPoiOcclusion(tilesLayer);
+  const blocks = new Map();
+  const labels = [];
+
+  const makeLabel = (doc) => {
+    const geom = JSON.parse(doc.geometry.geom);
+    const [x, y] = webMercatorToL93.forward(geom.coordinates);
+    const anchor = poiDomElement({
+      id: doc.document_id,
+      title: doc.locales[0].title,
+      wtyp: doc.waypoint_type,
+      elevation: doc.elevation ?? null,
+    });
+    anchor.style.cssText = "position:absolute;left:0;top:0;width:0;height:0;visibility:hidden;";
+    labelRoot.appendChild(anchor);
+    const entry = {
+      anchor,
+      el: anchor.firstChild,
+      world: new THREE.Vector3(x, y, (doc.elevation ?? 0)),
+      sx: 0, sy: 0, labelZ: 0,
+      onScreen: false,
+    };
+    return entry;
+  };
+
+  const dropBlock = (key) => {
+    const block = blocks.get(key);
+    blocks.delete(key);
+    for (const label of block.labels ?? []) {
+      label.anchor.remove();
+      const i = labels.indexOf(label);
+      if (i >= 0) labels.splice(i, 1);
+    }
+  };
+
+  const refreshBlocks = () => {
+    const cx = camera.position.x / 1000;
+    const cy = camera.position.y / 1000;
+    const snap = (v) => Math.floor(v / BLOCK_KM) * BLOCK_KM;
+
+    for (let bx = snap(cx - POI_RADIUS_KM); bx <= cx + POI_RADIUS_KM; bx += BLOCK_KM) {
+      for (let by = snap(cy - POI_RADIUS_KM); by <= cy + POI_RADIUS_KM; by += BLOCK_KM) {
+        const key = `${bx}/${by}`;
+        if (blocks.has(key)) continue;
+        const block = { labels: [] };
+        blocks.set(key, block);
+        fetchCellPois(bx, by, BLOCK_KM).then((docs) => {
+          if (blocks.get(key) !== block) return;
+          for (const doc of docs) {
+            if (!doc.geometry?.geom) continue;
+            const label = makeLabel(doc);
+            block.labels.push(label);
+            labels.push(label);
+          }
+          dirty = true;
+          view.notifyChange(camera);
+        }).catch(() => { blocks.delete(key); });
+      }
+    }
+
+    for (const key of [...blocks.keys()]) {
+      const [bx, by] = key.split("/").map(Number);
+      const dx = Math.max(0, Math.abs(bx + BLOCK_KM / 2 - cx) - BLOCK_KM / 2);
+      const dy = Math.max(0, Math.abs(by + BLOCK_KM / 2 - cy) - BLOCK_KM / 2);
+      if (Math.hypot(dx, dy) > POI_DROP_KM) dropBlock(key);
+    }
+  };
+
   const ndc = new THREE.Vector3();
   const forward = new THREE.Vector3();
   const toLabel = new THREE.Vector3();
 
-  const eachLabel = (fn) => {
-    for (const node of poiLayer.object3d.children) {
-      for (const label of node.children) if (label.isLabel) fn(label);
-    }
-  };
-
-  // iTowns may clamp label.coordinates.z to the DEM; the Camptocamp altitude is authoritative.
-  const labelWorldPosition = (label, out) => {
-    const el = label.content.querySelector(".poi-label");
-    const elevation = el?.dataset.elevation != null ? Number(el.dataset.elevation) : NaN;
-    if (!Number.isFinite(elevation)) return label.getWorldPosition(out);
-    return out.set(label.coordinates.x, label.coordinates.y, elevation);
-  };
-
-  // One readDepthBuffer call per tick (each call re-renders the tile layer in depth
-  // mode before reading, so per-label calls multiply render+readback stalls instead of
-  // shrinking them). Instead: collect the screen footprint of the labels actually on
-  // screen, and read only that bounding rect in a single render+readback pass.
-  const recompute = () => {
-    const dim = g.getWindowSize();
+  const place = () => {
+    const dim = view.mainLoop.gfxEngine.getWindowSize();
     const w = dim.x | 0, h = dim.y | 0;
     camera.getWorldDirection(forward);
 
-    const onScreen = [];
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    eachLabel((label) => {
-      labelWorldPosition(label, world);
-      ndc.copy(world).project(camera);
-      if (ndc.x < -1 || ndc.x > 1 || ndc.y < -1 || ndc.y > 1 || ndc.z > 1) {
-        label._occluded = false;
-        return;
+    for (const label of labels) {
+      ndc.copy(label.world).project(camera);
+      label.onScreen = ndc.x >= -1 && ndc.x <= 1 && ndc.y >= -1 && ndc.y <= 1 && ndc.z <= 1
+        && label.world.distanceTo(camera.position) <= POI_MAX_DISTANCE;
+      if (!label.onScreen) {
+        label.anchor.style.visibility = "hidden";
+        continue;
       }
-      const sx = Math.min(w - 1, Math.max(0, Math.round((ndc.x * 0.5 + 0.5) * w)));
-      const sy = Math.min(h - 1, Math.max(0, Math.round((-ndc.y * 0.5 + 0.5) * h)));
-      const labelZ = toLabel.copy(world).sub(camera.position).dot(forward);
-      onScreen.push({ label, sx, sy, labelZ });
-      if (sx < minX) minX = sx;
-      if (sx > maxX) maxX = sx;
-      if (sy < minY) minY = sy;
-      if (sy > maxY) maxY = sy;
-    });
-
-    if (onScreen.length) {
-      const rectW = maxX - minX + 1;
-      const rectH = maxY - minY + 1;
-      if (!buffer || buffer.length !== rectW * rectH * 4) buffer = new Uint8Array(rectW * rectH * 4);
-      dracoLayer.readTerrainDepthBuffer(minX, minY, rectW, rectH, buffer);
-      for (const { label, sx, sy, labelZ } of onScreen) {
-        const lx = sx - minX;
-        const ly = sy - minY;
-        const idx = ((rectH - ly - 1) * rectW + lx) * 4;
-        const terrainZ = g.depthBufferRGBAValueToOrthoZ(buffer.subarray(idx, idx + 4), camera);
-        label._occluded = terrainZ > 0 && terrainZ < labelZ - MARGIN;
-      }
+      label.sx = Math.round((ndc.x * 0.5 + 0.5) * w);
+      label.sy = Math.round((-ndc.y * 0.5 + 0.5) * h);
+      label.labelZ = toLabel.copy(label.world).sub(camera.position).dot(forward);
+      label.anchor.style.transform = `translate(${label.sx}px,${label.sy}px)`;
     }
-
-    lastCamMatrix.copy(camera.matrixWorld);
-    lastPass = performance.now();
   };
 
-  view.addFrameRequester(itowns.MAIN_LOOP_EVENTS.AFTER_RENDER, () => {
-    if (!poiLayer.object3d.children.length) return;
-    const now = performance.now();
-    const moved = !camera.matrixWorld.equals(lastCamMatrix);
-    if (!lastPass || (moved && now - lastPass > THROTTLE)) recompute();
-    eachLabel((label) => { if (label._occluded) label.visible = false; });
+  const declutter = () => {
+    const candidates = labels.filter((l) => l.onScreen).sort((a, b) => a.labelZ - b.labelZ);
 
+    const kept = [];
+    for (const label of candidates) {
+      const el = label.el;
+      const hw = el.offsetWidth / 2;
+      const hh = el.offsetHeight;
+      const left = label.sx - hw, right = label.sx + hw;
+      const top = label.sy - hh, bottom = label.sy;
+      const overlaps = kept.some((k) => left < k.right && right > k.left && top < k.bottom && bottom > k.top);
+      const hidden = overlaps || occlusion.isOccluded(camera, label.world);
+      label.anchor.style.visibility = hidden ? "hidden" : "visible";
+      if (!hidden) kept.push({ left, right, top, bottom });
+    }
+  };
+
+  let dirty = true;
+  const lastCamMatrix = new THREE.Matrix4();
+
+  view.addFrameRequester(itowns.MAIN_LOOP_EVENTS.AFTER_RENDER, () => {
+    if (!dirty && camera.matrixWorld.equals(lastCamMatrix)) return;
+    lastCamMatrix.copy(camera.matrixWorld);
+    dirty = false;
+    place();
+    refreshBlocks();
+    declutter();
   });
+
+  return labels;
 }
