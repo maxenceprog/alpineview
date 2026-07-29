@@ -24,37 +24,36 @@ static const int DRACO_QUANT_BITS = 14; /* quantization_bits=14 */
 static const int DRACO_SPEED = 9;		/* compression_level=1 -> 10-1 */
 static const int DRACO_NORMAL_BITS = 10;
 
-/* Content is baked as (world_L93 - ORIGIN) metres, matching
- * scripts/tiles_to_glb_batch.py and build_root_tileset.py. Baking raw absolute
- * L93 loses ~12-25 cm to float32; this global origin keeps it ~1 mm. */
-static const double KM = 1000.0;
-static const double ORIGIN_X = 900000.0;
-static const double ORIGIN_Y = 6400000.0;
-static const double ORIGIN_Z = 0.0;
+static const float KM = 1000.f;
+static const int CELL_KM = 16;
 
-/******************************************************************************
- * Conversion + bounds
- ******************************************************************************/
+/* Content tiles are named tile.{x}.{y}.{level}.glb in 3D Tiles 1.1 implicit
+ * quadtree coordinates, anchored on a declared 512 km EPSG:2154 zone covering
+ * the whole French Alps rather than a box fitted to what happens to be built,
+ * so tile names survive every expansion of the build. Must match
+ * build_root_tileset.py's constants of the same name. */
+static const double ROOT_X0_KM = 768.0;
+static const double ROOT_Y0_KM = 6144.0;
+static const int IMPLICIT_LEVEL0 = 9;
 
-static TriMesh to_trimesh(const Mesh &mesh, const MBuf &data)
+void implicit_coords(int tx, int ty, int z, int &ilevel, int &ix,
+					 int &iy)
 {
-	TriMesh m;
-	const Vec3 *pos = data.positions + mesh.vertex_offset;
-	const uint32_t *idx = data.indices + mesh.index_offset;
-	m.verts.reserve(mesh.vertex_count);
-	for (uint32_t i = 0; i < mesh.vertex_count; ++i)
-	{
-		m.verts.push_back(Vec3d{pos[i].x, pos[i].y, pos[i].z});
-	}
-	m.faces.assign(idx, idx + mesh.index_count);
-	return m;
+	ilevel = IMPLICIT_LEVEL0 + z;
+	double scale = ldexp(1.0, z); /* 2^z */
+	ix = tx - (int)lround(ROOT_X0_KM * scale);
+	iy = ty - (int)lround(ROOT_Y0_KM * scale);
 }
 
-static void aabb(const TriMesh &m, Vec3d &lo, Vec3d &hi)
+/******************************************************************************
+ * Bounds
+ ******************************************************************************/
+
+static void aabb(const TriMesh &m, Vec3 &lo, Vec3 &hi)
 {
-	lo = Vec3d{1e30, 1e30, 1e30};
-	hi = Vec3d{-1e30, -1e30, -1e30};
-	for (const Vec3d &v : m.verts)
+	lo = Vec3{1e30f, 1e30f, 1e30f};
+	hi = Vec3{-1e30f, -1e30f, -1e30f};
+	for (const Vec3 &v : m.verts)
 	{
 		lo.x = v.x < lo.x ? v.x : lo.x;
 		lo.y = v.y < lo.y ? v.y : lo.y;
@@ -66,11 +65,11 @@ static void aabb(const TriMesh &m, Vec3d &lo, Vec3d &hi)
 }
 
 /* Ideal (x0,y0,x1,y1) of the (dx,dy)-th cell of an n x n XY grid. */
-static void cell_bounds(const Vec3d &lo, const Vec3d &hi, int dx, int dy, int n,
-						double &x0, double &y0, double &x1, double &y1)
+static void cell_bounds(const Vec3 &lo, const Vec3 &hi, int dx, int dy, int n,
+						float &x0, float &y0, float &x1, float &y1)
 {
-	double xs = (hi.x - lo.x) / n;
-	double ys = (hi.y - lo.y) / n;
+	float xs = (hi.x - lo.x) / n;
+	float ys = (hi.y - lo.y) / n;
 	x0 = lo.x + dx * xs;
 	y0 = lo.y + dy * ys;
 	x1 = lo.x + (dx + 1) * xs;
@@ -98,8 +97,8 @@ struct GridKeyHash
 	}
 };
 
-static TriMesh vertex_cluster(const TriMesh &m, const Vec3d &lo,
-							  const Vec3d &hi, int n, double voxel)
+static TriMesh vertex_cluster(const TriMesh &m, const Vec3 &lo,
+							  const Vec3 &hi, int n, float voxel)
 {
 	/* Map each vertex to a voxel; each occupied voxel becomes one output
 	 * vertex at the centroid of its members (average pooling). */
@@ -108,59 +107,63 @@ static TriMesh vertex_cluster(const TriMesh &m, const Vec3d &lo,
 	std::vector<uint32_t> remap(m.verts.size());
 	TriMesh out;
 	std::vector<uint32_t> counts;
+	std::vector<Vec3d> accum;
 
 	/* Vertices within one voxel of an n x n cell-grid line (in x or y) are
 	 * left exactly where they are, each as its own singleton cluster.
 	 * Moving them would shift the shared cell edge and open cracks against
 	 * the neighbouring cell, which may be tessellated at a different LOD
 	 * (this includes the outer tile boundary, shared with adjacent km tiles). */
-	const double sx = (hi.x - lo.x) / n;
-	const double sy = (hi.y - lo.y) / n;
-	auto near_grid_line = [&](double v, double origin, double step)
+	const float sx = (hi.x - lo.x) / n;
+	const float sy = (hi.y - lo.y) / n;
+	auto near_grid_line = [&](float v, float origin, float step)
 	{
 		if (step <= 0)
 			return false;
-		double f = (v - origin) / step;
-		return fabs(f - round(f)) * step <= voxel;
+		float f = (v - origin) / step;
+		return fabsf(f - roundf(f)) * step <= voxel;
 	};
-	auto on_boundary = [&](const Vec3d &v)
+	auto on_boundary = [&](const Vec3 &v)
 	{
 		return near_grid_line(v.x, lo.x, sx) || near_grid_line(v.y, lo.y, sy);
 	};
 
 	for (size_t i = 0; i < m.verts.size(); ++i)
 	{
-		const Vec3d &v = m.verts[i];
+		const Vec3 &v = m.verts[i];
+		Vec3d vd{v.x, v.y, v.z};
 		if (on_boundary(v))
 		{
-			remap[i] = out.verts.size();
-			out.verts.push_back(v);
+			remap[i] = accum.size();
+			accum.push_back(vd);
 			counts.push_back(1);
 			continue;
 		}
-		GridKey key{(int32_t)floor((v.x - lo.x) / voxel),
-					(int32_t)floor((v.y - lo.y) / voxel),
-					(int32_t)floor((v.z - lo.z) / voxel)};
+		GridKey key{(int32_t)floorf((v.x - lo.x) / voxel),
+					(int32_t)floorf((v.y - lo.y) / voxel),
+					(int32_t)floorf((v.z - lo.z) / voxel)};
 		auto it = voxel_of.find(key);
 		uint32_t ci;
 		if (it == voxel_of.end())
 		{
-			ci = out.verts.size();
+			ci = accum.size();
 			voxel_of.emplace(key, ci);
-			out.verts.push_back(v);
+			accum.push_back(vd);
 			counts.push_back(1);
 		}
 		else
 		{
 			ci = it->second;
-			out.verts[ci] += v;
+			accum[ci] += vd;
 			counts[ci] += 1;
 		}
 		remap[i] = ci;
 	}
-	for (size_t c = 0; c < out.verts.size(); ++c)
+	out.reserve_vertices(accum.size());
+	for (size_t c = 0; c < accum.size(); ++c)
 	{
-		out.verts[c] /= (double)counts[c];
+		Vec3d p = accum[c] / (double)counts[c];
+		out.verts.push_back(Vec3{(float)p.x, (float)p.y, (float)p.z});
 	}
 
 	/* Remap triangles, dropping those collapsed into a single voxel. */
@@ -180,7 +183,7 @@ static TriMesh vertex_cluster(const TriMesh &m, const Vec3d &lo,
 
 /* Binary subdivision of [i0, i1) along one axis: each recursion level walks the
  * triangles once, so an n-way split costs O(|m| log n) instead of O(|m| n). */
-static void split_range(TriMesh &m, int axis, double base, double step, int i0,
+static void split_range(TriMesh &m, int axis, float base, float step, int i0,
 						int i1, std::vector<TriMesh> &out)
 {
 	if (i1 - i0 == 1)
@@ -198,7 +201,7 @@ static void split_range(TriMesh &m, int axis, double base, double step, int i0,
 
 /* Cut m into the n x n cell grid of [lo, hi]; cells[dy * n + dx] matches
  * cell_bounds(lo, hi, dx, dy, n). */
-static void clip_grid(const TriMesh &m, const Vec3d &lo, const Vec3d &hi, int n,
+static void clip_grid(const TriMesh &m, const Vec3 &lo, const Vec3 &hi, int n,
 					  std::vector<TriMesh> &cells)
 {
 	cells.assign((size_t)n * n, TriMesh());
@@ -211,78 +214,6 @@ static void clip_grid(const TriMesh &m, const Vec3d &lo, const Vec3d &hi, int n,
 					col_cells);
 		for (int dy = 0; dy < n; ++dy)
 			cells[(size_t)dy * n + dx] = std::move(col_cells[dy]);
-	}
-}
-
-/******************************************************************************
- * Skirt: extrude the open boundary straight down to hide cracks between
- * differently-tessellated neighbours (port of _add_skirt).
- ******************************************************************************/
-
-static void add_skirt(TriMesh &m, double x0, double y0, double x1, double y1,
-					  double depth)
-{
-	if (m.faces.empty() || depth <= 0)
-		return;
-
-	/* Count undirected edges; boundary edges occur exactly once. Keep the
-	 * directed boundary edges to wind the skirt consistently. */
-	std::unordered_map<uint64_t, int> edge_count;
-	edge_count.reserve(m.faces.size());
-	auto ukey = [](uint32_t a, uint32_t b)
-	{
-		uint32_t lo = a < b ? a : b;
-		uint32_t hi = a < b ? b : a;
-		return ((uint64_t)lo << 32) | hi;
-	};
-	for (size_t f = 0; f < m.faces.size(); f += 3)
-	{
-		uint32_t v[3] = {m.faces[f], m.faces[f + 1], m.faces[f + 2]};
-		for (int e = 0; e < 3; ++e)
-			edge_count[ukey(v[e], v[(e + 1) % 3])]++;
-	}
-	std::vector<std::pair<uint32_t, uint32_t>> bedges;
-	for (size_t f = 0; f < m.faces.size(); f += 3)
-	{
-		uint32_t v[3] = {m.faces[f], m.faces[f + 1], m.faces[f + 2]};
-		for (int e = 0; e < 3; ++e)
-		{
-			uint32_t a = v[e];
-			uint32_t b = v[(e + 1) % 3];
-			if (edge_count[ukey(a, b)] == 1)
-				bedges.emplace_back(a, b);
-		}
-	}
-	if (bedges.empty())
-		return;
-
-	/* copy of each so adjacent tiles' curtains overlap. */
-
-	std::unordered_map<uint32_t, uint32_t> low_of; /* orig vtx -> low copy */
-	for (auto &be : bedges)
-	{
-		for (uint32_t orig : {be.first, be.second})
-		{
-			if (low_of.count(orig))
-				continue;
-			Vec3d low = m.verts[orig];
-			low.z -= depth;
-			low_of[orig] = m.verts.size();
-			m.verts.push_back(low);
-		}
-	}
-
-	/* Two triangles per boundary edge, wound outward-front-facing. */
-	for (auto &be : bedges)
-	{
-		uint32_t v0 = be.first, v1 = be.second;
-		uint32_t l0 = low_of[v0], l1 = low_of[v1];
-		m.faces.push_back(v0);
-		m.faces.push_back(l1);
-		m.faces.push_back(v1);
-		m.faces.push_back(v0);
-		m.faces.push_back(l0);
-		m.faces.push_back(l1);
 	}
 }
 
@@ -306,10 +237,10 @@ static std::vector<char> encode_draco(const TriMesh &m)
 		float p[3][3];
 		for (int t = 0; t < 3; ++t)
 		{
-			const Vec3d &v = m.verts[m.faces[3 * f + t]];
-			p[t][0] = (float)v.x;
-			p[t][1] = (float)v.y;
-			p[t][2] = (float)v.z;
+			const Vec3 &v = m.verts[m.faces[3 * f + t]];
+			p[t][0] = v.x;
+			p[t][1] = v.y;
+			p[t][2] = v.z;
 		}
 		builder.SetAttributeValuesForFace(pos_att, draco::FaceIndex(f),
 										  p[0], p[1], p[2]);
@@ -338,44 +269,27 @@ static std::vector<char> encode_draco(const TriMesh &m)
 
 static void compute_normals(TriMesh &m)
 {
-	m.normals.assign(m.verts.size(), Vec3d{0.0, 0.0, 0.0});
+	m.normals.assign(m.verts.size(), Vec3{0.f, 0.f, 0.f});
 	for (size_t f = 0; f < m.faces.size(); f += 3)
 	{
 		uint32_t ia = m.faces[f], ib = m.faces[f + 1], ic = m.faces[f + 2];
-		const Vec3d &a = m.verts[ia];
-		const Vec3d &b = m.verts[ib];
-		const Vec3d &c = m.verts[ic];
-		Vec3d e1{b.x - a.x, b.y - a.y, b.z - a.z};
-		Vec3d e2{c.x - a.x, c.y - a.y, c.z - a.z};
-		Vec3d n{e1.y * e2.z - e1.z * e2.y, e1.z * e2.x - e1.x * e2.z,
-				e1.x * e2.y - e1.y * e2.x};
-		for (uint32_t idx : {ia, ib, ic})
-		{
-			m.normals[idx].x += n.x;
-			m.normals[idx].y += n.y;
-			m.normals[idx].z += n.z;
-		}
+		const Vec3 &a = m.verts[ia];
+		const Vec3 &b = m.verts[ib];
+		const Vec3 &c = m.verts[ic];
+		Vec3 n = cross(b - a, c - a);
+		m.normals[ia] += n;
+		m.normals[ib] += n;
+		m.normals[ic] += n;
 	}
 	double zsum = 0.0;
-	for (const Vec3d &n : m.normals)
+	for (const Vec3 &n : m.normals)
 		zsum += n.z;
-	const double gflip = zsum < 0.0 ? -1.0 : 1.0;
-	for (Vec3d &n : m.normals)
+	const float gflip = zsum < 0.0 ? -1.f : 1.f;
+	for (Vec3 &n : m.normals)
 	{
-		n.x *= gflip;
-		n.y *= gflip;
-		n.z *= gflip;
-		double len = sqrt(n.x * n.x + n.y * n.y + n.z * n.z);
-		if (len == 0.0)
-		{
-			n = Vec3d{0.0, 0.0, 1.0};
-		}
-		else
-		{
-			n.x /= len;
-			n.y /= len;
-			n.z /= len;
-		}
+		n *= gflip;
+		float len = norm(n);
+		n = (len == 0.f) ? Vec3{0.f, 0.f, 1.f} : n / len;
 	}
 }
 
@@ -403,14 +317,14 @@ static std::vector<char> encode_pn_draco(TriMesh &m, uint32_t &num_points,
 		for (int t = 0; t < 3; ++t)
 		{
 			uint32_t vi = m.faces[3 * f + t];
-			const Vec3d &v = m.verts[vi];
-			const Vec3d &n = m.normals[vi];
-			p[t][0] = (float)v.x;
-			p[t][1] = (float)v.y;
-			p[t][2] = (float)v.z;
-			nml[t][0] = (float)n.x;
-			nml[t][1] = (float)n.y;
-			nml[t][2] = (float)n.z;
+			const Vec3 &v = m.verts[vi];
+			const Vec3 &n = m.normals[vi];
+			p[t][0] = v.x;
+			p[t][1] = v.y;
+			p[t][2] = v.z;
+			nml[t][0] = n.x;
+			nml[t][1] = n.y;
+			nml[t][2] = n.z;
 		}
 		builder.SetAttributeValuesForFace(pos_att, draco::FaceIndex(f),
 										  p[0], p[1], p[2]);
@@ -457,8 +371,8 @@ static void put_u32(std::vector<char> &v, uint32_t x)
 
 static std::vector<char> make_glb(const std::vector<char> &draco, uint32_t np,
 								  uint32_t nf, uint32_t pos_uid,
-								  uint32_t nrm_uid, const Vec3d &lo,
-								  const Vec3d &hi)
+								  uint32_t nrm_uid, const Vec3 &lo,
+								  const Vec3 &hi)
 {
 	std::string json =
 		"{\"asset\":{\"version\":\"2.0\"},"
@@ -558,11 +472,9 @@ static bool save_glb(const std::vector<char> &buf, const char *out_dir, int x,
 	return ok;
 }
 
-int write_lod_level(const Mesh &mesh, const MBuf &data, int x_km, int y_km,
-					int z, float skirt_depth, const char *out_dir, bool verbose,
-					std::vector<CellTile> &tiles)
+int write_lod_level(const TriMesh &mesh, int x_km, int y_km, int z, const char *out_dir, bool verbose)
 {
-	if (mesh.index_count == 0)
+	if (mesh.faces.empty())
 		return 0;
 
 	Timer chrono;
@@ -570,8 +482,8 @@ int write_lod_level(const Mesh &mesh, const MBuf &data, int x_km, int y_km,
 
 	chrono.start();
 
-	TriMesh level = to_trimesh(mesh, data);
-	Vec3d lo, hi;
+	const TriMesh &level = mesh;
+	Vec3 lo, hi;
 	aabb(level, lo, hi);
 	lo.x = 0.0;
 	lo.y = 0.0;
@@ -581,6 +493,8 @@ int write_lod_level(const Mesh &mesh, const MBuf &data, int x_km, int y_km,
 
 	int n = 1 << z;
 	int written = 0;
+	int cell_x0 = (x_km / CELL_KM) * CELL_KM;
+	int cell_y0 = ((y_km - 1) / CELL_KM) * CELL_KM;
 	std::vector<TriMesh> cells;
 	chrono.start();
 	clip_grid(level, lo, hi, n, cells);
@@ -592,13 +506,13 @@ int write_lod_level(const Mesh &mesh, const MBuf &data, int x_km, int y_km,
 			TriMesh cell = std::move(cells[(size_t)dy * n + dx]);
 			if (cell.faces.empty())
 				continue;
-			for (Vec3d &v : cell.verts)
+			for (Vec3 &v : cell.verts)
 			{
-				v.x = (x_km + v.x) * KM - ORIGIN_X;
-				v.y = (y_km - 1 + v.y) * KM - ORIGIN_Y;
-				v.z = v.z * KM - ORIGIN_Z;
+				v.x = (x_km + v.x - cell_x0) * KM;
+				v.y = (y_km - 1 + v.y - cell_y0) * KM;
+				v.z = v.z * KM;
 			}
-			Vec3d clo, chi;
+			Vec3 clo, chi;
 			aabb(cell, clo, chi);
 			chrono.start();
 			uint32_t np = 0, nf = 0, pos_uid = 0, nrm_uid = 0;
@@ -610,14 +524,13 @@ int write_lod_level(const Mesh &mesh, const MBuf &data, int x_km, int y_km,
 			int y_south = y_km - 1;
 			int tx = x_km * n + dx;
 			int ty = y_south * n + dy;
+			int ilevel, ix, iy;
+			implicit_coords(tx, ty, z, ilevel, ix, iy);
 			chrono.start();
-			bool ok = save_glb(glb, out_dir, tx, ty, z);
+			bool ok = save_glb(glb, out_dir, ix, iy, ilevel);
 			t_save += chrono.stop();
 			if (ok)
-			{
 				written++;
-				tiles.push_back(CellTile{tx, ty, z, clo, chi});
-			}
 		}
 	}
 	if (verbose)
@@ -631,38 +544,14 @@ int write_lod_level(const Mesh &mesh, const MBuf &data, int x_km, int y_km,
 	return written;
 }
 
-int write_cell_index(int x_km, int y_km, const std::vector<CellTile> &tiles,
-					 const char *out_dir)
-{
-	char path[512];
-	int base = strlen(out_dir);
-	bool slash = base && out_dir[base - 1] == '/';
-	snprintf(path, sizeof(path), "%s%sbom.%d.%d.jsonl", out_dir,
-			 slash ? "" : "/", x_km, y_km);
-	FILE *f = fopen(path, "wb");
-	if (!f)
-		return -1;
-	for (const CellTile &t : tiles)
-	{
-		fprintf(f,
-				"{\"tx\":%d,\"ty\":%d,\"z\":%d,"
-				"\"lo\":[%.9g,%.9g,%.9g],\"hi\":[%.9g,%.9g,%.9g]}\n",
-				t.tx, t.ty, t.z, t.lo.x, t.lo.y, t.lo.z, t.hi.x, t.hi.y,
-				t.hi.z);
-	}
-	fclose(f);
-	return 0;
-}
-
-int write_lod_tiles(const Mesh &mesh, const MBuf &data, int x_km, int y_km,
+int write_lod_tiles(const TriMesh &mesh, int x_km, int y_km, int z,
 					const LodCfg &cfg, const char *out_dir, bool verbose)
 {
-	if (cfg.max_level < 0 || mesh.index_count == 0)
+	if (cfg.max_level < 0 || mesh.faces.empty())
 		return 0;
 
-	const double skirt_km = cfg.skirt_depth / 1000.0;
-	TriMesh full = to_trimesh(mesh, data);
-	Vec3d lo, hi;
+	const TriMesh &full = mesh;
+	Vec3 lo, hi;
 	aabb(full, lo, hi);
 
 	int written = 0;
@@ -675,11 +564,11 @@ int write_lod_tiles(const Mesh &mesh, const MBuf &data, int x_km, int y_km,
 		TriMesh level;
 		if (factor > 1)
 		{
-			double ex = (hi.x - lo.x) / n;
-			double ey = (hi.y - lo.y) / n;
-			double ez = hi.z - lo.z;
-			double sub_diag = sqrt(ex * ex + ey * ey + ez * ez);
-			double voxel = sub_diag * sqrt((double)factor) / 1000.0;
+			float ex = (hi.x - lo.x) / n;
+			float ey = (hi.y - lo.y) / n;
+			float ez = hi.z - lo.z;
+			float sub_diag = sqrtf(ex * ex + ey * ey + ez * ez);
+			float voxel = sub_diag * sqrtf((float)factor) / 1000.f;
 			level = vertex_cluster(full, lo, hi, n, voxel);
 		}
 		else
@@ -694,13 +583,11 @@ int write_lod_tiles(const Mesh &mesh, const MBuf &data, int x_km, int y_km,
 		{
 			for (int dx = 0; dx < n; ++dx)
 			{
-				double x0, y0, x1, y1;
+				float x0, y0, x1, y1;
 				cell_bounds(lo, hi, dx, dy, n, x0, y0, x1, y1);
 				TriMesh cell = std::move(cells[(size_t)dy * n + dx]);
 				if (cell.faces.empty())
 					continue;
-				if (skirt_km > 0.0000001)
-					add_skirt(cell, x0, y0, x1, y1, skirt_km);
 				std::vector<char> buf = encode_draco(cell);
 				/* IGN names a tile by its NW corner: x_km is the WEST
 				 * (min) edge but y_km is the NORTH (max) edge, so the

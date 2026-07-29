@@ -25,7 +25,6 @@ add_executable(alpineview_builder
 	mesh_ply.cpp
 	mesh_simplify.cpp
 	mesh_lod.cpp
-	vertex_remap.cpp
 	mesh_utils.cpp
 	alpineview_builder.cpp
 	)

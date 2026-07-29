@@ -13,41 +13,26 @@
  * (.drc) web tiles for every zoom level 0..max_level into out_dir:
  *
  *   level z -> n = 2^z grid of (1km / n) sub-tiles, vertex-cluster simplified
- *   (factor 16, 4, then full res for z >= 2), each cropped, skirted and
+ *   (factor 16, 4, then full res for z >= 2), each cropped and
  *   Draco-encoded as tile.{x_km*n+dx}.{(y_km-1)*n+dy}.{z}.drc
  *
  * Simplification per level is done ONCE on a shared voxel grid before cropping
  * so adjacent sub-tiles decimate identically and their seams match.
  */
-struct LodCfg {
-	int max_level;	  /* highest zoom level to emit; < 0 disables the stage */
-	float skirt_depth; /* boundary skirt extrusion (m); 0 disables skirts   */
+struct LodCfg
+{
+	int max_level; /* highest zoom level to emit; < 0 disables the stage */
 };
 
 /* Write the LOD Draco tiles. Returns the number of .drc files written, or 0
  * when disabled (cfg.max_level < 0) or the mesh is empty. */
-int write_lod_tiles(const Mesh &mesh, const MBuf &data, int x_km, int y_km,
-		    const LodCfg &cfg, const char *out_dir, bool verbose);
+int write_lod_tiles(const TriMesh &mesh, int x_km, int y_km, int z,
+					const LodCfg &cfg, const char *out_dir, bool verbose);
 
-/* One emitted 3D Tiles content tile: its web-grid index (tx,ty,z) and its
- * axis-aligned bounds in the cell-local km content frame (x,y in [0,1], z in
- * km). Collected across levels then written into the per-cell tileset.json. */
-struct CellTile {
-	int tx, ty, z;
-	Vec3d lo, hi;
-};
+int write_lod_level(const TriMesh &mesh, int x_km, int y_km,
+					int z, const char *out_dir, bool verbose);
 
-/* Write the LOD glTF tiles for a single zoom level `z` from `mesh`, at full
- * resolution (no vertex-cluster simplification): the mesh is cropped into the
- * 2^z x 2^z sub-tile grid, skirted and Draco-glTF-encoded. Each written tile is
- * appended to `tiles`. Returns the number of .glb files written. */
-int write_lod_level(const Mesh &mesh, const MBuf &data, int x_km, int y_km,
-		    int z, float skirt_depth, const char *out_dir, bool verbose,
-		    std::vector<CellTile> &tiles);
-
-/* Write the per-cell bill-of-materials sidecar (bom.{x_km}.{y_km}.jsonl): one
- * JSON line per emitted tile with its web-grid index (tx,ty,z) and local km
- * bounds. The 3D Tiles tree (transforms, geometricError, hierarchy) is built
- * from these on the Python side. Returns 0 on success. */
-int write_cell_index(int x_km, int y_km, const std::vector<CellTile> &tiles,
-		     const char *out_dir);
+/* Map a (tx, ty, z) web-grid tile index to its on-disk 3D Tiles implicit
+ * quadtree name tile.{ix}.{iy}.{ilevel}.glb. Must match the constants
+ * duplicated in scripts/build_root_tileset.py and scripts/measure_tile_error.py. */
+void implicit_coords(int tx, int ty, int z, int &ilevel, int &ix, int &iy);

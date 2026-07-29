@@ -2,8 +2,6 @@
 
 #include "mesh.h"
 
-int load_ply(Mesh &mesh, MBuf &data, const char *fname,
-	     int filter = VtxAttr::ALL);
-int write_ply(const char *fname, const Mesh &mesh, const MBuf &data,
-	      int filter = VtxAttr::ALL);
+int load_ply(TriMesh &mesh, const char *fname, bool with_normals = true);
 
+int write_ply(const char *fname, const TriMesh &mesh);

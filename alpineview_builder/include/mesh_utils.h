@@ -5,38 +5,22 @@
 #include "vec3.h"
 #include "aabb.h"
 #include "mesh.h"
-#include "vertex_table.h"
 
 Aabb compute_mesh_bounds(const Vec3* positions, size_t vertex_count);
 
-Aabb compute_mesh_bounds(const Mesh& mesh, const MBuf& data);
+Aabb compute_mesh_bounds(const TriMesh& mesh);
 
-void compute_mesh_normals(const Mesh& mesh, MBuf& data);
+/* Maps every vertex to the first vertex sharing its exact position. Returns
+ * the number of distinct positions. remap must hold mesh.verts.size() items. */
+uint32_t build_position_remap(const TriMesh& mesh, uint32_t *remap);
 
-void concat_mesh(Mesh& dst_m, MBuf& dst_d, const Mesh& src_m, const MBuf& src_d);
-
-void join_mesh_from_indices(Mesh& dst_m, MBuf& dst_d, const Mesh& src_m, 
-		const MBuf& src_d, VertexTable& vtx_table, uint32_t *remap);
-
-void join_mesh_from_vertices(Mesh& dst_m, MBuf& dst_d, const Mesh& src_m, 
-		const MBuf& src_d, VertexTable& vtx_table, uint32_t *remap);
-
-void skip_degenerate_tris(Mesh &mesh, MBuf &data);
+void compute_mesh_normals(TriMesh& mesh);
 
 /* Drop every edge-connected component but the largest one (by triangle count).
- * Only mesh.index_count is updated; orphaned vertices are left for
+ * Only the index buffer is updated; orphaned vertices are left for
  * compact_mesh. Returns the number of components found. */
-uint32_t select_principal_connected_component(Mesh &mesh, MBuf &data);
+uint32_t select_principal_connected_component(TriMesh& mesh);
 
-void compact_mesh(Mesh& mesh, MBuf& data, uint32_t *remap);
-
-void copy_indices(MBuf& dst, size_t dst_off, const MBuf& src, size_t src_off,
-		  size_t idx_num, size_t vtx_off = 0);
-
-void copy_vertices(MBuf& dst, size_t dst_off, const MBuf& src, size_t src_off,
-		   size_t vtx_num, size_t vtx_off = 0);
-
-uint32_t copy_unique_vertices(MBuf& dst_d, uint32_t dst_off, const MBuf& src_d, 
-		uint32_t *vtx_idx, uint32_t vtx_count, VertexTable& vtx_table,
-		uint32_t *remap);
-
+/* Weld vertices sharing a position, drop the triangles that collapse and the
+ * vertices no triangle references. */
+void compact_mesh(TriMesh& mesh);

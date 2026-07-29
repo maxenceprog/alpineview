@@ -2,19 +2,14 @@
 
 #include <assert.h>
 #include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include <unordered_map>
 #include <vector>
 
 #include "aabb.h"
-#include "array.h"
 #include "mesh.h"
 #include "vec3.h"
-#include "vertex_remap.h"
-#include "vertex_table.h"
 
 Aabb compute_mesh_bounds(const Vec3 *positions, size_t vertex_count)
 {
@@ -33,290 +28,88 @@ Aabb compute_mesh_bounds(const Vec3 *positions, size_t vertex_count)
 	return {min, max};
 }
 
-Aabb compute_mesh_bounds(const Mesh &mesh, const MBuf &data)
+Aabb compute_mesh_bounds(const TriMesh &mesh)
 {
-	const Vec3 *positions = data.positions + mesh.vertex_offset;
-	size_t vertex_count = mesh.vertex_count;
-
-	return (compute_mesh_bounds(positions, vertex_count));
+	return (compute_mesh_bounds(mesh.verts.data(), mesh.verts.size()));
 }
 
-void compute_mesh_normals(const Mesh &mesh, MBuf &data)
+namespace
 {
-	if (!(data.vtx_attr & VtxAttr::NML)) {
 
-		void *normals = malloc(data.vtx_capacity * sizeof(Vec3));
-		data.normals = static_cast<Vec3 *>(normals);
-		data.vtx_attr |= VtxAttr::NML;
+struct PosKey {
+	uint32_t x, y, z;
+	bool operator==(const PosKey &o) const
+	{
+		return x == o.x && y == o.y && z == o.z;
 	}
+};
 
-	uint32_t *indices = data.indices + mesh.index_offset;
-	const Vec3 *positions = data.positions + mesh.vertex_offset;
-	Vec3 *normals = data.normals + mesh.vertex_offset;
-
-	/* Init normals to zero */
-	for (size_t i = 0; i < mesh.vertex_count; ++i) {
-		normals[i] = Vec3::Zero;
+struct PosKeyHash {
+	size_t operator()(const PosKey &k) const
+	{
+		return (size_t)(k.x * 73856093) ^ (size_t)(k.y * 19349663) ^
+		       (size_t)(k.z * 83492791);
 	}
+};
 
-	std::vector<uint32_t> remap(mesh.vertex_count);
-	build_position_remap(mesh, data, &remap[0]);
-	// build_vertex_remap_old(mesh, data, VtxAttr::P, &remap[0]);
+PosKey pos_key(const Vec3 &v)
+{
+	PosKey k;
+	memcpy(&k.x, &v.x, sizeof(uint32_t));
+	memcpy(&k.y, &v.y, sizeof(uint32_t));
+	memcpy(&k.z, &v.z, sizeof(uint32_t));
+	return k;
+}
 
-	for (size_t i = 0; i < mesh.index_count; i += 3) {
-		const Vec3 v1 = positions[indices[i + 0]];
-		const Vec3 v2 = positions[indices[i + 1]];
-		const Vec3 v3 = positions[indices[i + 2]];
+} // namespace
+
+uint32_t build_position_remap(const TriMesh &mesh, uint32_t *remap)
+{
+	std::unordered_map<PosKey, uint32_t, PosKeyHash> seen;
+	seen.reserve(mesh.verts.size());
+
+	uint32_t num = 0;
+	for (size_t i = 0; i < mesh.verts.size(); ++i) {
+		auto res = seen.emplace(pos_key(mesh.verts[i]), (uint32_t)i);
+		remap[i] = res.first->second;
+		if (res.second)
+			num++;
+	}
+	return (num);
+}
+
+void compute_mesh_normals(TriMesh &mesh)
+{
+	size_t vertex_count = mesh.verts.size();
+
+	mesh.normals.assign(vertex_count, Vec3::Zero);
+
+	std::vector<uint32_t> remap(vertex_count);
+	build_position_remap(mesh, &remap[0]);
+
+	for (size_t i = 0; i < mesh.faces.size(); i += 3) {
+		const Vec3 v1 = mesh.verts[mesh.faces[i + 0]];
+		const Vec3 v2 = mesh.verts[mesh.faces[i + 1]];
+		const Vec3 v3 = mesh.verts[mesh.faces[i + 2]];
 
 		/* Weight normals by triangle area */
 		Vec3 n = cross(v2 - v1, v3 - v1);
 
 		/* Accumulate normals of remap targets */
-		normals[remap[indices[i + 0]]] += n;
-		normals[remap[indices[i + 1]]] += n;
-		normals[remap[indices[i + 2]]] += n;
+		mesh.normals[remap[mesh.faces[i + 0]]] += n;
+		mesh.normals[remap[mesh.faces[i + 1]]] += n;
+		mesh.normals[remap[mesh.faces[i + 2]]] += n;
 	}
 
 	/* Normalize remap targets and copy them to remap sources */
-	for (size_t i = 0; i < mesh.vertex_count; ++i) {
+	for (size_t i = 0; i < vertex_count; ++i) {
 		if (remap[i] == i) {
-			normals[i] = normalized(normals[i]);
+			mesh.normals[i] = normalized(mesh.normals[i]);
 		} else {
 			assert(remap[i] < i);
-			normals[i] = normals[remap[i]];
+			mesh.normals[i] = mesh.normals[remap[i]];
 		}
 	}
-}
-
-void copy_indices(MBuf &dst, size_t dst_off, const MBuf &src, size_t src_off,
-		  size_t idx_num, size_t vtx_off)
-{
-	static_assert(
-	    sizeof(*dst.indices) == sizeof(*src.indices),
-	    "Error in copy_vertices: dst and src indices type mismatch.");
-
-	assert(src.idx_capacity >= src_off + idx_num);
-	assert(dst.idx_capacity >= dst_off + idx_num);
-
-	void *to;
-	void *from;
-
-	to = &dst.indices[dst_off];
-	from = &src.indices[src_off];
-	memcpy(to, from, idx_num * sizeof(*src.indices));
-
-	if (vtx_off) {
-		for (size_t i = 0; i < idx_num; ++i) {
-			dst.indices[dst_off + i] += vtx_off;
-		}
-	}
-}
-
-void copy_vertices(MBuf &dst, size_t dst_off, const MBuf &src, size_t src_off,
-		   size_t vtx_num, size_t vtx_off)
-{
-	/* Copy only common attributes */
-	uint32_t vtx_attr = src.vtx_attr & dst.vtx_attr;
-
-	assert(src.vtx_capacity >= src_off + vtx_num);
-	assert(dst.vtx_capacity >= dst_off + vtx_num);
-
-	void *to;
-	void *from;
-
-	to = &dst.positions[dst_off];
-	from = &src.positions[src_off];
-	memcpy(to, from, vtx_num * sizeof(*src.positions));
-
-	if (vtx_attr & VtxAttr::NML) {
-		to = &dst.normals[dst_off];
-		from = &src.normals[src_off];
-		memmove(to, from, vtx_num * sizeof(*src.normals));
-	}
-
-	if (vtx_attr & VtxAttr::UV0) {
-		to = &dst.uv[0][dst_off];
-		from = &src.uv[0][src_off];
-		memmove(to, from, vtx_num * sizeof(*src.uv[0]));
-	}
-
-	if (vtx_attr & VtxAttr::UV1) {
-		to = &dst.uv[1][dst_off];
-		from = &src.uv[1][src_off];
-		memmove(to, from, vtx_num * sizeof(*src.uv[1]));
-	}
-
-	if (vtx_attr & VtxAttr::MAP) {
-		to = &dst.remap[dst_off];
-		from = &src.remap[src_off];
-		memmove(to, from, vtx_num * sizeof(*src.remap));
-		if (vtx_off) {
-			for (size_t i = 0; i < vtx_num; ++i) {
-				dst.remap[dst_off + i] += vtx_off;
-			}
-		}
-	}
-}
-
-uint32_t copy_unique_vertices(MBuf &dst_d, uint32_t dst_off, const MBuf &src_d,
-			      uint32_t *vtx_idx, uint32_t vtx_count,
-			      VertexTable &vtx_table, uint32_t *remap)
-{
-	/* vtx_table should be based on dst_d and cleared */
-	assert(vtx_table.get_mesh_data() == &dst_d && vtx_table.size() == 0);
-
-	/* Source should have all attributes of target */
-	assert((dst_d.vtx_attr & src_d.vtx_attr) == dst_d.vtx_attr);
-
-	uint32_t new_vtx_count = 0;
-	for (size_t i = 0; i < vtx_count; ++i) {
-		size_t vtx_off = dst_off + new_vtx_count;
-		copy_vertices(dst_d, vtx_off, src_d, vtx_idx[i], 1);
-		uint32_t *p;
-		p = vtx_table.get_or_set(vtx_off, new_vtx_count);
-		if (p) {
-			remap[vtx_idx[i]] = *p;
-		} else {
-			remap[vtx_idx[i]] = new_vtx_count;
-			new_vtx_count++;
-		}
-	}
-	return new_vtx_count;
-}
-
-void concat_mesh(Mesh &dst_m, MBuf &dst_d, const Mesh &src_m, const MBuf &src_d)
-{
-	/* Destination should have no more attributes than source */
-	assert((dst_d.vtx_attr & src_d.vtx_attr) == dst_d.vtx_attr);
-
-	size_t total_indices = src_m.index_count + dst_m.index_count;
-	dst_d.reserve_indices(dst_m.index_offset + total_indices);
-
-	size_t total_vertices = src_m.vertex_count + dst_m.vertex_count;
-	dst_d.reserve_vertices(dst_m.vertex_offset + total_vertices);
-
-	size_t dst_off, src_off, idx_num, vtx_num, vtx_off;
-
-	src_off = src_m.index_offset;
-	dst_off = dst_m.index_offset + dst_m.index_count;
-	idx_num = src_m.index_count;
-	vtx_off = dst_m.vertex_count;
-	copy_indices(dst_d, dst_off, src_d, src_off, idx_num, vtx_off);
-	dst_m.index_count = total_indices;
-
-	src_off = src_m.vertex_offset;
-	dst_off = dst_m.vertex_offset + dst_m.vertex_count;
-	vtx_num = src_m.vertex_count;
-	vtx_off = dst_m.vertex_count;
-	copy_vertices(dst_d, dst_off, src_d, src_off, vtx_num, vtx_off);
-	dst_m.vertex_count = total_vertices;
-}
-
-void join_mesh_from_indices(Mesh &dst_m, MBuf &dst_d, const Mesh &src_m,
-			    const MBuf &src_d, VertexTable &vtx_table,
-			    uint32_t *remap)
-{
-	/* vtx_table should be based on dst_d */
-	assert(vtx_table.get_mesh_data() == &dst_d);
-
-	/* Source should have all attributes of target */
-	assert((dst_d.vtx_attr & src_d.vtx_attr) == dst_d.vtx_attr);
-
-	uint32_t *idx = dst_d.indices + dst_m.index_offset + dst_m.index_count;
-	for (size_t i = 0; i < src_m.index_count; ++i) {
-		size_t dst_off = dst_m.vertex_offset + dst_m.vertex_count;
-		size_t src_idx = src_d.indices[src_m.index_offset + i];
-		size_t src_off = src_idx + src_m.vertex_offset;
-		copy_vertices(dst_d, dst_off, src_d, src_off, 1);
-		uint32_t *p;
-		p = vtx_table.get_or_set(dst_off, dst_m.vertex_count);
-		if (p) {
-			idx[i] = *p;
-		} else {
-			idx[i] = dst_m.vertex_count;
-			dst_m.vertex_count++;
-		}
-		if (remap) {
-			assert(src_idx < src_m.vertex_count);
-			remap[src_idx] = idx[i];
-		}
-	}
-	dst_m.index_count += src_m.index_count;
-}
-
-void join_mesh_from_vertices(Mesh &dst_m, MBuf &dst_d, const Mesh &src_m,
-			     const MBuf &src_d, VertexTable &vtx_table,
-			     uint32_t *remap)
-{
-	/* vtx_table should be based on dst_d */
-	assert(vtx_table.get_mesh_data() == &dst_d);
-
-	/* Source should have all attributes of target */
-	assert((dst_d.vtx_attr & src_d.vtx_attr) == dst_d.vtx_attr);
-
-	for (size_t i = 0; i < src_m.vertex_count; ++i) {
-		size_t dst_off = dst_m.vertex_offset + dst_m.vertex_count;
-		size_t src_off = src_m.vertex_offset + i;
-		copy_vertices(dst_d, dst_off, src_d, src_off, 1);
-		uint32_t *p;
-		p = vtx_table.get_or_set(dst_off, dst_m.vertex_count);
-		if (p) {
-			remap[i] = *p;
-		} else {
-			remap[i] = dst_m.vertex_count;
-			dst_m.vertex_count++;
-		}
-	}
-
-	uint32_t *dst_idx =
-	    dst_d.indices + dst_m.index_offset + dst_m.index_count;
-	uint32_t *src_idx = src_d.indices + src_m.index_offset;
-	for (size_t j = 0; j < src_m.index_count; ++j) {
-		dst_idx[j] = remap[src_idx[j]];
-	}
-	dst_m.index_count += src_m.index_count;
-}
-
-void compact_mesh(Mesh &mesh, MBuf &data, uint32_t *remap)
-{
-	/* Eliminate spatially degenerate triangles */
-	build_position_remap(mesh, data, remap);
-	uint32_t total_indices = 0;
-	uint32_t *idx = data.indices + mesh.index_offset;
-	for (size_t i = 0; i < mesh.index_count; i += 3) {
-		uint32_t i1 = remap[idx[i + 0]];
-		uint32_t i2 = remap[idx[i + 1]];
-		uint32_t i3 = remap[idx[i + 2]];
-		if (i1 == i2 || i1 == i3 || i2 == i3) {
-			continue;
-		}
-		idx[total_indices + 0] = idx[i + 0];
-		idx[total_indices + 1] = idx[i + 1];
-		idx[total_indices + 2] = idx[i + 2];
-		total_indices += 3;
-	}
-	mesh.index_count = total_indices;
-
-	// remap_index_buffer(mesh, data, remap);
-	// remap_vertex_buffer(mesh, data, remap);
-	// mesh.vertex_count = vtx_num;
-}
-
-void skip_degenerate_tris(Mesh &mesh, MBuf &data)
-{
-	uint32_t new_idx_count = 0;
-	uint32_t *idx = data.indices + mesh.index_offset;
-	for (uint32_t k = 0; k < mesh.index_count; k += 3) {
-		uint32_t i0 = idx[k + 0];
-		uint32_t i1 = idx[k + 1];
-		uint32_t i2 = idx[k + 2];
-		if (i0 == i1 || i1 == i2 || i0 == i2)
-			continue;
-		idx[new_idx_count++] = i0;
-		idx[new_idx_count++] = i1;
-		idx[new_idx_count++] = i2;
-	}
-	mesh.index_count = new_idx_count;
 }
 
 static uint32_t uf_find(std::vector<uint32_t> &parent, uint32_t i)
@@ -336,13 +129,13 @@ static void uf_union(std::vector<uint32_t> &parent, uint32_t a, uint32_t b)
 		parent[b] = a;
 }
 
-uint32_t select_principal_connected_component(Mesh &mesh, MBuf &data)
+uint32_t select_principal_connected_component(TriMesh &mesh)
 {
-	size_t tri_count = mesh.index_count / 3;
+	size_t tri_count = mesh.faces.size() / 3;
 	if (tri_count == 0)
 		return (0);
 
-	uint32_t *indices = data.indices + mesh.index_offset;
+	const uint32_t *indices = mesh.faces.data();
 
 	/* Union triangles sharing an (undirected) edge. */
 	std::vector<uint32_t> parent(tri_count);
@@ -383,11 +176,40 @@ uint32_t select_principal_connected_component(Mesh &mesh, MBuf &data)
 	for (size_t i = 0; i < tri_count; ++i) {
 		if (uf_find(parent, (uint32_t)i) != root_max)
 			continue;
-		indices[new_index_count++] = indices[3 * i + 0];
-		indices[new_index_count++] = indices[3 * i + 1];
-		indices[new_index_count++] = indices[3 * i + 2];
+		mesh.faces[new_index_count++] = mesh.faces[3 * i + 0];
+		mesh.faces[new_index_count++] = mesh.faces[3 * i + 1];
+		mesh.faces[new_index_count++] = mesh.faces[3 * i + 2];
 	}
-	mesh.index_count = new_index_count;
+	mesh.faces.resize(new_index_count);
 
 	return (num_cc);
+}
+
+void compact_mesh(TriMesh &mesh)
+{
+	std::vector<uint32_t> remap(mesh.verts.size());
+	build_position_remap(mesh, &remap[0]);
+
+	std::vector<uint32_t> new_idx(mesh.verts.size(), UINT32_MAX);
+	std::vector<Vec3> verts;
+	verts.reserve(mesh.verts.size());
+
+	size_t total_indices = 0;
+	for (size_t i = 0; i < mesh.faces.size(); i += 3) {
+		uint32_t t[3] = {remap[mesh.faces[i + 0]],
+				 remap[mesh.faces[i + 1]],
+				 remap[mesh.faces[i + 2]]};
+		if (t[0] == t[1] || t[0] == t[2] || t[1] == t[2])
+			continue;
+		for (int k = 0; k < 3; ++k) {
+			if (new_idx[t[k]] == UINT32_MAX) {
+				new_idx[t[k]] = (uint32_t)verts.size();
+				verts.push_back(mesh.verts[t[k]]);
+			}
+			mesh.faces[total_indices++] = new_idx[t[k]];
+		}
+	}
+	mesh.faces.resize(total_indices);
+	mesh.verts = std::move(verts);
+	mesh.normals.clear();
 }

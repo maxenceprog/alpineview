@@ -11,7 +11,6 @@
 
 #include "array.h"
 #include "chrono.h"
-#include "hash_table.h"
 #include "math_utils.h"
 #include "sys_utils.h"
 
@@ -21,7 +20,6 @@
 #include "mesh_ply.h"
 #include "mesh_simplify.h"
 #include "mesh_utils.h"
-#include "vertex_table.h"
 
 #include "copc.h"
 #include "las_resample.h"
@@ -33,7 +31,7 @@
 
 static const double ALTITUDE_THRESHOLD = 2000.0;
 
-static const int LEVEL0_DEPTH = 8;
+static const int LEVEL0_DEPTH = 7;
 
 /******************************************************************************
  *
@@ -50,8 +48,6 @@ struct Cfg
 	int min_depth;
 	int max_depth;
 	float weight;
-	float trim;
-	float aratio;
 	int clean;
 	bool verbose;
 	bool optimize;
@@ -90,9 +86,7 @@ static void set_default_cfg(struct Cfg &cfg)
 	cfg.min_depth = 8;
 	cfg.max_depth = -1;
 	cfg.weight = 4.f;
-	cfg.trim = 1.f;
 	cfg.parallel = false;
-	cfg.aratio = -1.f;
 	cfg.clean = 2;
 	cfg.verbose = true;
 	cfg.optimize = true;
@@ -103,7 +97,6 @@ static void set_default_cfg(struct Cfg &cfg)
 	cfg.downsample.neighbor_radius = 5;
 	cfg.downsample.slope_deg = 45.f;
 	cfg.lod.max_level = -1;
-	cfg.lod.skirt_depth = -1.f;
 }
 
 static void print_usage(const char *prog)
@@ -127,8 +120,6 @@ static void print_usage(const char *prog)
 		"                       -1 guesses it from altitude span and point\n"
 		"                       spacing (default: -1)\n"
 		"  --weight F           Poisson point weight (default: 4)\n"
-		"  --trim F             Trim enabled if trim > 0.0"
-		"  --aratio F           legacy (ignored)"
 		"  --clean N            cleanup level 0/1/2 (default: 1)\n"
 		"\n"
 		"Toggles (prefix with --no- to disable):\n"
@@ -144,10 +135,6 @@ static void print_usage(const char *prog)
 		"\n"
 		"Input format:\n"
 		"  --las                Use input .las, .laz\n"
-		"\n"
-		"LOD Draco tiles (web output):\n"
-		"  --skirt F            boundary skirt depth, m (default: 2; "
-		"0 disables)\n"
 		"\n"
 		"  -h, --help           show this help and exit\n",
 		prog);
@@ -249,18 +236,6 @@ static int process_args(int argc, const char **argv, struct Cfg &cfg)
 				return (-1);
 			cfg.weight = atof(val);
 		}
-		else if (strcmp(arg, "--trim") == 0)
-		{
-			if (!(val = flag_value(argc, argv, &i)))
-				return (-1);
-			cfg.trim = atof(val);
-		}
-		else if (strcmp(arg, "--aratio") == 0)
-		{
-			if (!(val = flag_value(argc, argv, &i)))
-				return (-1);
-			cfg.aratio = atof(val);
-		}
 		else if (strcmp(arg, "--clean") == 0)
 		{
 			if (!(val = flag_value(argc, argv, &i)))
@@ -284,12 +259,6 @@ static int process_args(int argc, const char **argv, struct Cfg &cfg)
 			if (!(val = flag_value(argc, argv, &i)))
 				return (-1);
 			cfg.downsample.slope_deg = atof(val);
-		}
-		else if (strcmp(arg, "--skirt") == 0)
-		{
-			if (!(val = flag_value(argc, argv, &i)))
-				return (-1);
-			cfg.lod.skirt_depth = atof(val);
 		}
 		else if (match_toggle(arg, "--verbose", cfg.verbose) ||
 				 match_toggle(arg, "--optimize", cfg.optimize) ||
@@ -335,8 +304,6 @@ static void print_cfg(const struct Cfg &cfg)
 		printf("Depths      : min=%d max=%d (%d LOD levels)\n", cfg.min_depth,
 			   cfg.max_depth, cfg.max_depth - cfg.min_depth + 1);
 	}
-	printf("Trim        : %s (trim=%.2f aratio=%g)\n",
-		   cfg.trim > 0.f ? "on" : "off", cfg.trim, cfg.aratio);
 	if (cfg.downsample.enabled)
 	{
 		printf("Downsample  : grid=%gm radius=%d slope=%.0fdeg\n",
@@ -421,55 +388,35 @@ static std::string get_las_filename(int x, int y, const std::string &dir,
  *
  ******************************************************************************/
 
-static int write_mesh(const Mesh &mesh, const MBuf &data, const struct Cfg &cfg,
+static int write_mesh(const TriMesh &mesh, const struct Cfg &cfg,
 					  const char *ext)
 {
 
 	std::string fname = get_filename(cfg.x0, cfg.y0, cfg.out_dir, ext);
-	write_ply(fname.c_str(), mesh, data);
+	write_ply(fname.c_str(), mesh);
 
 	return (0);
 }
 
-static void compact_mesh(Mesh &mesh, MBuf &data)
+static void compact_and_report(TriMesh &mesh)
 {
-	/* TODO Avoid this copy and swap of mesh/buffers, this requires
-	 * implementing vertex swaps in join_mesh_from_indices */
-	Mesh mesh2 = mesh;
-	MBuf data2;
-	data2.vtx_attr = VtxAttr::POS;
-	data2.reserve_indices(mesh.index_count);
-	data2.reserve_vertices(mesh.vertex_count);
+	compact_mesh(mesh);
 
-	copy_indices(data2, 0, data, 0, mesh.index_count);
-	copy_vertices(data2, 0, data, 0, mesh.vertex_count);
-
-	/* Compact mesh (useless vertices and degenerate triangles removed) */
-	mesh.clear();
-	data.update_vtx_attr(VtxAttr::POS);
-	VertexTable vtx_table(mesh2.vertex_count, &data, data.vtx_attr);
-	join_mesh_from_indices(mesh, data, mesh2, data2, vtx_table, NULL);
-	skip_degenerate_tris(mesh, data);
-
-	printf("A total of %d (%.2f M) Tri after compacting.\n",
-		   mesh.index_count / 3, 1e-6 * mesh.index_count / 3);
+	printf("A total of %zu (%.2f M) Tri after compacting.\n",
+		   mesh.triangle_count(), 1e-6 * mesh.triangle_count());
 }
 
-static void optimize_mesh(Mesh &mesh, MBuf &data)
+static void optimize_mesh(TriMesh &mesh)
 {
-	uint32_t index_count = mesh.index_count;
-	uint32_t *indices = data.indices + mesh.index_offset;
-	uint32_t vertex_count = mesh.vertex_count;
-	float *vertices = (float *)(data.positions + mesh.vertex_offset);
+	uint32_t index_count = mesh.faces.size();
+	uint32_t *indices = mesh.faces.data();
+	uint32_t vertex_count = mesh.verts.size();
+	float *vertices = (float *)mesh.verts.data();
 	size_t vertex_size = sizeof(Vec3);
-	meshopt_optimizeVertexCache(indices, indices, mesh.index_count,
-								mesh.vertex_count);
-	/* TODO This only work for POS only meshes, use
-	 * meshopt_optimizeVertexFetchRemap instead
-	 * */
-	mesh.vertex_count =
+	meshopt_optimizeVertexCache(indices, indices, index_count, vertex_count);
+	mesh.verts.resize(
 		meshopt_optimizeVertexFetch(vertices, indices, index_count,
-									vertices, vertex_count, vertex_size);
+									vertices, vertex_count, vertex_size));
 }
 
 struct Transform
@@ -842,14 +789,13 @@ static int build_oriented_point_set(struct Cfg &cfg, Timings &tt)
 
 	printf("Set positions & transform  : ");
 	/* Rescale and offset positions into buffer */
-	Mesh mesh;
-	MBuf data;
-	data.vtx_attr = VtxAttr::PN;
-	data.reserve_vertices(points.size() + 2); /* +2 for dummy box corners */
+	TriMesh mesh;
+	mesh.verts.resize(points.size() + 2); /* +2 for dummy box corners */
+	mesh.normals.resize(points.size() + 2);
 
 	struct Transform transf;
 	double max_alt = 0.0;
-	if (send_points_to_unit_cube(points, data.positions, transf, cfg, max_alt))
+	if (send_points_to_unit_cube(points, mesh.verts.data(), transf, cfg, max_alt))
 	{
 		printf("Altitude span too large !\n");
 		return (-1);
@@ -859,7 +805,7 @@ static int build_oriented_point_set(struct Cfg &cfg, Timings &tt)
 	 * capped spherical neighborhoods, scanline orientation. The estimated
 	 * scale is in unit-cube units, like data.positions. */
 	chrono.start();
-	double range_scale = cgal_estimate_scale(data.positions, points.size());
+	double range_scale = cgal_estimate_scale(mesh.verts.data(), points.size());
 	double nml_radius = 2.0 * range_scale;
 	printf("Estimated range scale      : %g (radius %g)\n", range_scale,
 		   nml_radius);
@@ -869,10 +815,10 @@ static int build_oriented_point_set(struct Cfg &cfg, Timings &tt)
 	/* Grid fix-up cell size: 1 m, mapped to unit-cube units the same way as
 	 * --ds-grid below (1 unit = 100000 cm / scale). */
 	double nml_grid_res = 1.0 * 100.f * 1e-5f * transf.scale;
-	cgal_estimate_and_orient_normals(data.positions, points.size(), points,
-									 nml_radius, nml_grid_res, data.normals,
-									 cfg.verbose);
-	mesh.vertex_count = points.size();
+	cgal_estimate_and_orient_normals(mesh.verts.data(), points.size(), points,
+									 nml_radius, nml_grid_res,
+									 mesh.normals.data(), cfg.verbose);
+	size_t vertex_count = points.size();
 	tt.estim_nml = chrono.stop();
 
 	/* Optional grid thinning. --ds-grid is given in metres and
@@ -882,22 +828,24 @@ static int build_oriented_point_set(struct Cfg &cfg, Timings &tt)
 	{
 		float grid_res = cfg.downsample.grid_res * 100.f * 1e-5f *
 						 transf.scale;
-		mesh.vertex_count = flat_area_thin(
-			data.positions, data.normals, mesh.vertex_count, grid_res,
+		vertex_count = flat_area_thin(
+			mesh.verts.data(), mesh.normals.data(), vertex_count, grid_res,
 			cfg.downsample.neighbor_radius, cfg.downsample.slope_deg,
 			cfg.verbose);
 	}
 
 	/* Add dummy points for bounding box to perfectly match unit
 	 * cube */
-	data.positions[mesh.vertex_count] = Vec3{0.f, 0.f, 0.f};
-	data.normals[mesh.vertex_count] = Vec3{0.f, 0.f, 0.f};
-	mesh.vertex_count++;
-	data.positions[mesh.vertex_count] = Vec3{1.f, 1.f, 1.f};
-	data.normals[mesh.vertex_count] = Vec3{0.f, 0.f, 0.f};
-	mesh.vertex_count++;
+	mesh.verts[vertex_count] = Vec3{0.f, 0.f, 0.f};
+	mesh.normals[vertex_count] = Vec3{0.f, 0.f, 0.f};
+	vertex_count++;
+	mesh.verts[vertex_count] = Vec3{1.f, 1.f, 1.f};
+	mesh.normals[vertex_count] = Vec3{0.f, 0.f, 0.f};
+	vertex_count++;
+	mesh.verts.resize(vertex_count);
+	mesh.normals.resize(vertex_count);
 
-	write_mesh(mesh, data, cfg, "points.ply");
+	write_mesh(mesh, cfg, "points.ply");
 	write_transform(transf, cfg);
 
 	return (0);
@@ -909,55 +857,20 @@ static int build_oriented_point_set(struct Cfg &cfg, Timings &tt)
  *
  ******************************************************************************/
 
-static void recut_mesh(Mesh &mesh, MBuf &data, const struct Transform &transf)
+static void recut_mesh(TriMesh &mesh, const struct Transform &transf)
 {
-	/* Clip to the central tile, discarding the Poisson buffer strip.
-	 * Note: here we have all offsets 0 so forget about them. */
-	bool has_nml = (data.vtx_attr & VtxAttr::NML) != 0;
-
-	TriMesh m;
-	m.verts.resize(mesh.vertex_count);
-	if (has_nml)
-		m.normals.resize(mesh.vertex_count);
-	for (uint32_t i = 0; i < mesh.vertex_count; ++i)
-	{
-		const Vec3 &p = data.positions[i];
-		m.verts[i] = {p.x, p.y, p.z};
-		if (has_nml)
-		{
-			const Vec3 &n = data.normals[i];
-			m.normals[i] = {n.x, n.y, n.z};
-		}
-	}
-	m.faces.assign(data.indices, data.indices + mesh.index_count);
-
-	double sx = transf.shift.x, sy = transf.shift.y;
-	TriMesh a, b, c, d;
-	split_mesh(m, 0, sx, nullptr, &a);
-	split_mesh(a, 0, 1.0 - sx, &b, nullptr);
+	/* Clip to the central tile, discarding the Poisson buffer strip. */
+	float sx = transf.shift.x, sy = transf.shift.y;
+	TriMesh a, b, c;
+	split_mesh(mesh, 0, sx, nullptr, &a);
+	split_mesh(a, 0, 1.f - sx, &b, nullptr);
+	a = TriMesh();
 	split_mesh(b, 1, sy, nullptr, &c);
-	split_mesh(c, 1, 1.0 - sy, &d, nullptr);
-
-	uint32_t new_vc = (uint32_t)d.verts.size();
-	uint32_t new_ic = (uint32_t)d.faces.size();
-	data.reserve_vertices(new_vc);
-	data.reserve_indices(new_ic);
-	for (uint32_t i = 0; i < new_vc; ++i)
-	{
-		data.positions[i] = {(float)d.verts[i].x, (float)d.verts[i].y,
-							 (float)d.verts[i].z};
-		if (has_nml)
-			data.normals[i] = {(float)d.normals[i].x,
-							   (float)d.normals[i].y,
-							   (float)d.normals[i].z};
-	}
-	for (uint32_t i = 0; i < new_ic; ++i)
-		data.indices[i] = d.faces[i];
-	mesh.vertex_count = new_vc;
-	mesh.index_count = new_ic;
+	b = TriMesh();
+	split_mesh(c, 1, 1.f - sy, &mesh, nullptr);
 }
 
-static void rescale_and_offset_mesh(Mesh &mesh, MBuf &data,
+static void rescale_and_offset_mesh(TriMesh &mesh,
 									const struct Transform &transf,
 									const struct Cfg &cfg)
 {
@@ -966,10 +879,10 @@ static void rescale_and_offset_mesh(Mesh &mesh, MBuf &data,
 	 *        object placement and scaling instead
 	 */
 	float invscale = 1. / transf.scale;
-	for (size_t i = 0; i < mesh.vertex_count; ++i)
+	for (Vec3 &p : mesh.verts)
 	{
-		data.positions[i] = data.positions[i] - transf.shift;
-		data.positions[i] *= invscale;
+		p = p - transf.shift;
+		p *= invscale;
 	}
 }
 
@@ -999,21 +912,17 @@ static int run_poisson_recon(const std::string &recon_in,
 static int build_coarse_poisson_input(const std::string &in_ply,
 									  const std::string &out_ply)
 {
-	Mesh mesh;
-	MBuf data;
-	if (load_ply(mesh, data, in_ply.c_str()) || mesh.index_count == 0)
+	TriMesh mesh;
+	if (load_ply(mesh, in_ply.c_str(), false) || mesh.faces.empty())
 		return (-1);
-	data.reserve_vertices(mesh.vertex_count + 2);
-	compute_mesh_normals(mesh, data);
-	uint32_t c = mesh.vertex_count;
-	data.positions[c] = Vec3{0.f, 0.f, 0.f};
-	data.normals[c] = Vec3{0.f, 0.f, 0.f};
-	data.positions[c + 1] = Vec3{1.f, 1.f, 1.f};
-	data.normals[c + 1] = Vec3{0.f, 0.f, 0.f};
-	mesh.vertex_count = c + 2;
-	mesh.index_count = 0; /* points only: Poisson ignores faces */
-	write_ply(out_ply.c_str(), mesh, data);
-	data.clear();
+	compute_mesh_normals(mesh);
+	mesh.verts.push_back(Vec3{0.f, 0.f, 0.f});
+	mesh.normals.push_back(Vec3{0.f, 0.f, 0.f});
+	mesh.verts.push_back(Vec3{1.f, 1.f, 1.f});
+	mesh.normals.push_back(Vec3{0.f, 0.f, 0.f});
+	mesh.faces.clear(); /* points only: Poisson ignores faces */
+	write_ply(out_ply.c_str(), mesh);
+	mesh.clear();
 	return (0);
 }
 
@@ -1046,52 +955,10 @@ static int build_surface_mesh(const struct Cfg &cfg, Timings &tt)
 	return (ret);
 }
 
-int write_encoded_mesh(const Mesh &mesh, const MBuf &data, const Cfg &cfg,
-					   const char *ext)
-{
-	uint32_t index_count = mesh.index_count;
-	uint32_t vertex_count = mesh.vertex_count;
-	std::vector<TVec3<uint16_t>> qpos(vertex_count);
-	for (size_t i = 0; i < vertex_count; ++i)
-	{
-		Vec3 pos = data.positions[i + mesh.vertex_offset];
-		qpos[i].x = pos.x * (1 << 15) + (1 << 14);
-		qpos[i].y = pos.y * (1 << 15) + (1 << 14);
-		qpos[i].z = pos.z * (1 << 14); /* TODO : scale in z */
-	}
-	uint32_t *indices = data.indices + mesh.index_offset;
-	// void *vertices = qpos.data();
-	// size_t vertex_size = sizeof(TVec3<uint16_t>);
-	void *vertices = data.positions + mesh.vertex_offset;
-	size_t vertex_size = sizeof(Vec3);
-	std::vector<uint8_t> vbuf(
-		meshopt_encodeVertexBufferBound(vertex_count, vertex_size));
-	vbuf.resize(meshopt_encodeVertexBuffer(&vbuf[0], vbuf.size(), vertices,
-										   vertex_count, vertex_size));
-	printf("Bytes per vertex : %.1f\n", (float)vbuf.size() / vertex_count);
-	std::vector<uint8_t> ibuf(
-		meshopt_encodeIndexBufferBound(index_count, vertex_count));
-	ibuf.resize(meshopt_encodeIndexBuffer(&ibuf[0], ibuf.size(), indices,
-										  index_count));
-	printf("Index bytes per triangle : %.1f\n",
-		   3 * (float)ibuf.size() / index_count);
-
-	std::string fname = get_filename(cfg.x0, cfg.y0, cfg.out_dir, ext);
-	FILE *f = fopen(fname.c_str(), "wb");
-	int ret = (f == NULL) || fwrite(vbuf.data(), vbuf.size(), 1, f) != 1 ||
-					  fwrite(ibuf.data(), ibuf.size(), 1, f) != 1
-				  ? -1
-				  : 0;
-	fclose(f);
-	return (ret);
-}
-
 int postprocess_surface_mesh(const Cfg &cfg, Timings &tt)
 {
-	std::vector<CellTile> tiles;
 	std::string recon_out =
 		get_filename(cfg.x0, cfg.y0, cfg.out_dir, "poisson.ply");
-	const bool do_trim = cfg.trim > 0.f;
 	Timer chrono;
 
 	/* The transform maps the Poisson [0,1] cube back to km; every LOD level
@@ -1154,64 +1021,56 @@ int postprocess_surface_mesh(const Cfg &cfg, Timings &tt)
 		int z = depth - LEVEL0_DEPTH;
 		printf("  LOD z=%d : depth %d, %dx%d grid\n", z, depth, 1 << z,
 			   1 << z);
-		Mesh mesh;
-		MBuf data;
-		load_ply(mesh, data, level_ply[i].c_str());
+		TriMesh mesh;
+		load_ply(mesh, level_ply[i].c_str(), false);
 		if (i == nlv)
-			printf("A total of %d (%.2f M) Tri after poisson "
+			printf("A total of %zu (%.2f M) Tri after poisson "
 				   "reconstruct.\n",
-				   mesh.index_count / 3, 1e-6 * mesh.index_count / 3);
+				   mesh.triangle_count(), 1e-6 * mesh.triangle_count());
 
-		recut_mesh(mesh, data, transf);
+		Timer trim;
+		trim.start();
+		size_t tri_before = mesh.triangle_count();
+		uint32_t num_cc = select_principal_connected_component(mesh);
+		tt.trim += trim.stop();
+		if (num_cc > 1)
+			printf("  LOD z=%d : %u components, kept %zu/%zu Tri\n", z,
+				   num_cc, mesh.triangle_count(), tri_before);
 
-		if (i == nlv)
-		{
-			if (do_trim)
-			{
-				Timer trim;
-				trim.start();
-				uint32_t tri_before = mesh.index_count / 3;
-				uint32_t num_cc =
-					select_principal_connected_component(mesh, data);
-				tt.trim += trim.stop();
-				if (num_cc > 1)
-					printf("  LOD z=%d : %u components, kept %u/%u Tri\n", z,
-						   num_cc, mesh.index_count / 3, tri_before);
-			}
-			uint32_t tri_before = mesh.index_count / 3;
-			Timer simp;
-			simp.start();
-			simplify_mesh_qem(mesh, data, 0.5f, 2.0, cfg.verbose);
-			unsigned int simp_us = simp.stop();
-			uint32_t tri_after = mesh.index_count / 3;
-			printf("Simplify QEM: %u -> %u Tri (ratio %.3f, target 0.5) "
-				   "in %.2f s\n",
-				   tri_before, tri_after,
-				   tri_before ? (float)tri_after / tri_before : 0.f,
-				   1e-6 * simp_us);
-		}
+		tri_before = mesh.triangle_count();
+		Timer simp;
+		simp.start();
+		simplify_mesh_qem(mesh, 0.5f, 2.0, cfg.verbose);
+		unsigned int simp_us = simp.stop();
+		size_t tri_after = mesh.triangle_count();
+		printf("Simplify QEM: %zu -> %zu Tri (ratio %.3f, target 0.5) "
+			   "in %.2f s\n",
+			   tri_before, tri_after,
+			   tri_before ? (float)tri_after / tri_before : 0.f,
+			   1e-6 * simp_us);
 
-		rescale_and_offset_mesh(mesh, data, transf, cfg);
+		recut_mesh(mesh, transf);
+
+		rescale_and_offset_mesh(mesh, transf, cfg);
 
 		if (cfg.optimize)
 		{
 			Timer opt;
 			opt.start();
-			compact_mesh(mesh, data);
-			optimize_mesh(mesh, data);
+			compact_and_report(mesh);
+			optimize_mesh(mesh);
 			printf("  LOD z=%d : compact+optimize in %.2f s\n", z,
 				   1e-6 * opt.stop());
 		}
 
-		write_lod_level(mesh, data, cfg.x0, cfg.y0, z, cfg.lod.skirt_depth,
-						cfg.out_dir.c_str(), cfg.verbose, tiles);
+		write_lod_level(mesh, cfg.x0, cfg.y0, z,
+						cfg.out_dir.c_str(), cfg.verbose);
 
 		if (cfg.clean >= 2 && i != nlv)
 			remove(level_ply[i].c_str());
-		data.clear();
+		mesh.clear();
 		tt.lod += chrono.stop();
 	}
-	write_cell_index(cfg.x0, cfg.y0, tiles, cfg.out_dir.c_str());
 
 	if (cfg.clean)
 	{

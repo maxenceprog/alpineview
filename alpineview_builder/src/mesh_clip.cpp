@@ -4,20 +4,20 @@
 #include <stdint.h>
 #include <vector>
 
-static double axis_coord(const Vec3d &v, int axis)
+static float axis_coord(const Vec3 &v, int axis)
 {
 	return axis == 0 ? v.x : v.y;
 }
 
-static Vec3d interp_cut(const Vec3d &a, const Vec3d &b, double ca, double cb,
-			double cut)
+static Vec3 interp_cut(const Vec3 &a, const Vec3 &b, float ca, float cb,
+		       float cut)
 {
-	double t = (cut - ca) / (cb - ca);
+	float t = (cut - ca) / (cb - ca);
 	return {a.x + t * (b.x - a.x), a.y + t * (b.y - a.y),
 		a.z + t * (b.z - a.z)};
 }
 
-void split_mesh(const TriMesh &m, int axis, double coord, TriMesh *lo,
+void split_mesh(const TriMesh &m, int axis, float coord, TriMesh *lo,
 		TriMesh *hi)
 {
 	bool has_nml = !m.normals.empty();
@@ -27,8 +27,8 @@ void split_mesh(const TriMesh &m, int axis, double coord, TriMesh *lo,
 	for (size_t f = 0; f < m.faces.size(); f += 3) {
 		const uint32_t idx[3] = {m.faces[f], m.faces[f + 1],
 					 m.faces[f + 2]};
-		const Vec3d *v[3] = {&m.verts[idx[0]], &m.verts[idx[1]],
-				     &m.verts[idx[2]]};
+		const Vec3 *v[3] = {&m.verts[idx[0]], &m.verts[idx[1]],
+				    &m.verts[idx[2]]};
 		const double c[3] = {axis_coord(*v[0], axis),
 				     axis_coord(*v[1], axis),
 				     axis_coord(*v[2], axis)};
