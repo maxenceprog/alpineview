@@ -49,10 +49,6 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import lru_cache
 from pathlib import Path
 
-# Keeps the concurrent open3d calls (compute_vertex_normals, crop) from
-# oversubscribing the CPU. Must be set before the numeric libraries import.
-os.environ.setdefault("OMP_NUM_THREADS", "1")
-
 import DracoPy  # noqa: E402
 import numpy as np  # noqa: E402
 import open3d as o3d  # noqa: E402
@@ -214,15 +210,22 @@ def points_for_cell(
     return np.concatenate(pts_list), np.concatenate(normals_list)
 
 
-def run_poisson_ply(in_ply: str, out_ply: str, depth: int) -> "o3d.geometry.TriangleMesh":
+def run_poisson_ply(
+    in_ply: str, out_ply: str, depth: int
+) -> "o3d.geometry.TriangleMesh":
     subprocess.run(
         [
             POISSONRECON_BIN,
-            "--in", in_ply,
-            "--out", out_ply,
-            "--depth", str(depth),
-            "--scale", str(POISSON_SCALE),
-            "--parallel", str(POISSON_PARALLEL),
+            "--in",
+            in_ply,
+            "--out",
+            out_ply,
+            "--depth",
+            str(depth),
+            "--scale",
+            str(POISSON_SCALE),
+            "--parallel",
+            str(POISSON_PARALLEL),
         ],
         check=True,
         capture_output=True,
@@ -308,7 +311,9 @@ def process_cell(
                         )
                         counts[z] += 1
 
-    return f"cell {cx}.{cy}: " + " ".join(f"z{z}:{n}" for z, n in sorted(counts.items()))
+    return f"cell {cx}.{cy}: " + " ".join(
+        f"z{z}:{n}" for z, n in sorted(counts.items())
+    )
 
 
 def parse_args() -> argparse.Namespace:
