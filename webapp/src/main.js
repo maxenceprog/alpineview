@@ -46,7 +46,7 @@ initTouchControls(view);
 itowns.enableDracoLoader(`${import.meta.env.BASE_URL}draco/`);
 const tilesLayer = new itowns.OGC3DTilesLayer("terrain3d", {
   source: new itowns.OGC3DTilesSource({ url: TILESET_URL }),
-  sseThreshold: 15,
+  sseThreshold: 12,
 });
 // itowns' OGC3DTilesLayer already registers the stock plugin under this same
 // name; invokeOnePlugin stops at the first match, so it must go before ours
