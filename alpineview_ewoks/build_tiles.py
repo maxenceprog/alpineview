@@ -106,6 +106,8 @@ def main(argv: list[str] | None = None) -> None:
         log.info("No tiles to process.")
         return
 
+    print(f"TILES TO BUILD : {len(tiles)}")
+
     done = built_cells(args.tiles_dir)
     if args.rebuild == "":
         done = set()
@@ -114,18 +116,22 @@ def main(argv: list[str] | None = None) -> None:
     if done:
         log.info("Skipping %d cells already built", len(done))
 
-    print(f"TILES TO BUILD : {len(tiles) - len(done)}")
-    print(f"TILES ALREADY BUILD : {len(done)}")
+    filtered_tiles = []
+
+    for tile in tiles:
+        x, y = parse_km(tile.name)
+        if (x, y) not in done:
+            filtered_tiles.append(tile)
+
+    print(f"TILES TO BUILD (ALREADY BUILDED EXLUDED) : {len(filtered_tiles)}")
 
     build_tiles_utils.run_servers()
 
     pendings: dict = {}
-    for i, tile in enumerate(tiles, 1):
+    for i, tile in enumerate(filtered_tiles, 1):
         t0 = time.time()
         _wait(pendings)
         x, y = parse_km(tile.name)
-        if (x, y) in done:
-            continue
         try:
             download_cell_and_neighbours(
                 x,
@@ -133,13 +139,15 @@ def main(argv: list[str] | None = None) -> None:
                 args.cache,
                 resolution=args.resolution,
                 min_elevation=args.min_elevation,
-                download_from_ign=False,
+                download_from_ign=True,
             )
         except Exception as error:  # noqa: BLE001
             log.error("download failed for (%d, %d): %s", x, y, error)
             continue
 
-        print(f"⬇  downloaded #{i}/{len(tiles)}  {tile.name} in {time.time() - t0}s")
+        print(
+            f"⬇  downloaded #{i}/{len(filtered_tiles)}  {tile.name} in {time.time() - t0}s"
+        )
         pendings[(x, y)] = client.submit_build_tile(x, y)
 
     _wait(pendings)

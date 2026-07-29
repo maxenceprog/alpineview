@@ -88,7 +88,7 @@ def submit_build_tile(
             {"id": "download", "name": "y_km", "value": y},
             {"id": "download", "name": "download_from_ign", "value": download},
             {"id": "tiles", "name": "builder_options", "value": build_opts},
-            {"id": "tiles", "name": "force", "value": True},
+            {"id": "tiles", "name": "force", "value": force},
             {"id": "vegetation", "name": "force", "value": force},
             {"id": "buildings", "name": "force", "value": force},
         ]
