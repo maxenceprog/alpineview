@@ -39,6 +39,7 @@ webapp/test-results
 *.rdb
 
 data
+backup*/
 
 !webapp/public/credits/*.png
 

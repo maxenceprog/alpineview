@@ -1,34 +1,35 @@
 #!/usr/bin/env bash
 # Start alpineview_api plus the frontend dev server (which proxies the asset
-# routes to it).
-# Usage: ./test_serve
+# routes to it). With --remote, assets come from the OVH S3 bucket instead of
+# webapp/public and no local API is started.
+# Usage: ./test_serve [--remote]
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
-# shellcheck source=run_api
-source "$ROOT/run_api"
+REMOTE=""
+case "${1:-}" in
+    --remote) REMOTE=1 ;;
+    "") ;;
+    *) echo "Usage: $0 [--remote]" >&2; exit 1 ;;
+esac
 
 cleanup() {
     echo ""
     echo "Stopping servers…"
     kill "$FRONTEND_PID" 2>/dev/null || true
-    kill "$API_PID" 2>/dev/null || true
+    [[ -n "$REMOTE" ]] || kill "$API_PID" 2>/dev/null || true
     wait "$FRONTEND_PID" 2>/dev/null || true
-    wait "$API_PID" 2>/dev/null || true
+    [[ -n "$REMOTE" ]] || wait "$API_PID" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
-start_api
+if [[ -n "$REMOTE" ]]; then
+    export ALPINEVIEW_REMOTE_ASSETS=1
+fi
 
 echo "==> Starting frontend …"
 cd "$ROOT/webapp"
-npm run dev &
-FRONTEND_PID=$!
+npm run dev
 
-echo ""
-echo "Frontend : http://localhost:5173"
-echo "API      : http://localhost:${API_PORT}"
-echo ""
-wait "$FRONTEND_PID"
