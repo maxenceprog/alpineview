@@ -1,6 +1,5 @@
 import json
 import struct
-from pathlib import Path
 
 from tiler_io import (
     BitStream,
@@ -50,12 +49,7 @@ def build_availability_buffers(subtree: ImplicitTilingSubtree):
     return tile_availability.content, content_availability.content
 
 
-def write_subtree(
-    subtree,
-    output: Path,
-):
-
-    output.parent.mkdir(exist_ok=True, parents=True)
+def subtree_bytes(subtree) -> bytes:
 
     tile_bytes, content_bytes = build_availability_buffers(subtree)
 
@@ -90,19 +84,18 @@ def write_subtree(
     #
     # subtree file header
     #
-    with output.open("wb") as f:
-        # Magic: "subt" (0x74627573 little-endian)
-        f.write(struct.pack("<I", 0x74627573))
-
-        # Version
-        f.write(struct.pack("<I", 1))
-
-        # JSON chunk length (uint64)
-        f.write(struct.pack("<Q", len(json_chunk)))
-
-        # Binary chunk length (uint64)
-        f.write(struct.pack("<Q", len(binary_chunk)))
-
-        # Chunks
-        f.write(json_chunk)
-        f.write(binary_chunk)
+    return b"".join(
+        [
+            # Magic: "subt" (0x74627573 little-endian)
+            struct.pack("<I", 0x74627573),
+            # Version
+            struct.pack("<I", 1),
+            # JSON chunk length (uint64)
+            struct.pack("<Q", len(json_chunk)),
+            # Binary chunk length (uint64)
+            struct.pack("<Q", len(binary_chunk)),
+            # Chunks
+            json_chunk,
+            binary_chunk,
+        ]
+    )

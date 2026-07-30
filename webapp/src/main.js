@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { initEnvironment } from "./environment.js";
 import { initBuildings } from "./overlays.js";
 import { initPoi } from "./poi.js";
-import { TILESET_URL } from "./tilesetCoverage.js";
+import { TILESET_URL, terrainPackPlugin } from "./terrainPack.js";
 import { installWmtsDraping } from "./tilesTexture.js";
 import { initTouchControls } from "./touchControls.js";
 import { initUi } from "./ui.js";
@@ -54,6 +54,7 @@ const tilesLayer = new itowns.OGC3DTilesLayer("terrain3d", {
 // registers or GeometricErrorSUBTREELoader never runs.
 // tilesLayer.tilesRenderer.unregisterPlugin("IMPLICIT_TILING_PLUGIN");
 // tilesLayer.tilesRenderer.registerPlugin(new ImplicitTilingPlugin());
+tilesLayer.tilesRenderer.registerPlugin(terrainPackPlugin);
 const debugTiles = new DebugTilesPlugin({ displayBoxBounds: params.has("boxes") });
 tilesLayer.tilesRenderer.registerPlugin(debugTiles);
 tilesLayer.tilesRenderer.addEventListener("tile-load-error", (e) => {

@@ -35,6 +35,7 @@ webapp/test-results
 !lidalp_tools/reconstruction/workflows/*.json
 !webapp/package.json
 !webapp/package-lock.json
+!webapp/src/terrainPack.json
 *.joblib
 *.rdb
 

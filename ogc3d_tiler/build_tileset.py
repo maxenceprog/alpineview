@@ -1,7 +1,13 @@
+import base64
 import json
 
-from subtree_writer import write_subtree
-from tiler_io import DEFAULT_PATH, ImplicitTilingSubtree, glb_height_range
+from subtree_writer import subtree_bytes
+from tiler_io import (
+    DEFAULT_PATH,
+    PACK_PATH,
+    ImplicitTilingSubtree,
+    glb_height_range,
+)
 
 TERRAIN = DEFAULT_PATH
 
@@ -18,7 +24,7 @@ WORLD_HALF_SIZE = 500_000
 
 CELL_GEOMETRIC_ERROR = 512
 
-MAX_LEVEL = 7
+MAX_LEVEL = 8
 
 
 def tile_origin(tile_name):
@@ -29,24 +35,6 @@ def tile_origin(tile_name):
         x_km * 1000,
         y_km * 1000,
     )
-
-
-def make_box(z_min, z_max):
-
-    return [
-        SIZE / 2,
-        SIZE / 2,
-        (z_max + z_min) / 2,
-        SIZE / 2,
-        0,
-        0,
-        0,
-        SIZE / 2,
-        0,
-        0,
-        0,
-        (z_max - z_min) / 2,
-    ]
 
 
 def cell_height_range(tile_dir):
@@ -86,11 +74,11 @@ def cell_level_count(tile_dir):
     return min(max(levels) + 1, MAX_LEVEL)
 
 
-def make_world_box(root_x, root_y, z_min, z_max):
+def make_box(z_min, z_max):
 
     return [
-        root_x + SIZE / 2,
-        root_y + SIZE / 2,
+        SIZE / 2,
+        SIZE / 2,
         (z_max + z_min) / 2,
         SIZE / 2,
         0,
@@ -126,69 +114,38 @@ def make_transform(root_x, root_y):
     ]
 
 
-def build_child_tileset(tile_dir, level_count, height_range):
+def build_cell_tile(tile_dir, level_count, height_range):
 
     root_x, root_y = tile_origin(tile_dir.name)
 
-    tileset = {
-        "asset": {
-            "version": "1.1",
-            "gltfUpAxis": "z",
-        },
+    return {
+        "boundingVolume": {"box": make_box(*height_range)},
+        "transform": make_transform(root_x, root_y),
         "geometricError": CELL_GEOMETRIC_ERROR,
-        "root": {
-            "boundingVolume": {"box": make_box(*height_range)},
-            "transform": make_transform(root_x, root_y),
-            "geometricError": CELL_GEOMETRIC_ERROR,
-            "refine": "REPLACE",
-            "content": {"uri": "{level}/{x}.{y}.glb"},
-            "implicitTiling": {
-                "subdivisionScheme": "QUADTREE",
-                "subtreeLevels": level_count,
-                "availableLevels": level_count,
-                "subtrees": {"uri": "subtrees/{level}.{x}.{y}.subtree"},
+        "refine": "REPLACE",
+        "content": {"uri": f"{tile_dir.name}/{{level}}/{{x}}.{{y}}.glb"},
+        "implicitTiling": {
+            "subdivisionScheme": "QUADTREE",
+            "subtreeLevels": level_count,
+            "availableLevels": level_count,
+            "subtrees": {
+                "uri": f"{tile_dir.name}/subtrees/{{level}}.{{x}}.{{y}}.subtree"
             },
         },
     }
 
-    (tile_dir / "tileset.json").write_text(json.dumps(tileset, indent=2))
 
-
-def build_child_subtree(tile_dir, level_count):
+def build_cell_subtree(tile_dir, level_count):
 
     subtree = ImplicitTilingSubtree(
         tile_path_format=(f"{tile_dir.name}/{{level}}/{{x}}.{{y}}.glb"),
         max_level=level_count,
     )
 
-    subtree_dir = tile_dir / "subtrees"
-
-    subtree_dir.mkdir(exist_ok=True)
-
-    write_subtree(subtree, subtree_dir / "0.0.0.subtree")
+    return base64.b64encode(subtree_bytes(subtree)).decode()
 
 
-def build_global_tileset(cells):
-
-    children = []
-
-    for tile_dir, height_range in cells:
-        root_x, root_y = tile_origin(tile_dir.name)
-
-        children.append(
-            {
-                "boundingVolume": {
-                    "box": make_world_box(
-                        root_x,
-                        root_y,
-                        *height_range,
-                    )
-                },
-                "geometricError": CELL_GEOMETRIC_ERROR,
-                "refine": "REPLACE",
-                "content": {"uri": f"{tile_dir.name}/tileset.json"},
-            }
-        )
+def build_pack(children, subtrees):
 
     tileset = {
         "asset": {
@@ -219,7 +176,12 @@ def build_global_tileset(cells):
         },
     }
 
-    (TERRAIN / "tileset.json").write_text(json.dumps(tileset, indent=2))
+    pack = {
+        "tileset": tileset,
+        "subtrees": subtrees,
+    }
+
+    PACK_PATH.write_text(json.dumps(pack, indent=2))
 
 
 def is_tile_directory(path):
@@ -241,7 +203,8 @@ def main():
 
     tile_dirs = sorted([p for p in TERRAIN.iterdir() if is_tile_directory(p)])
 
-    built = []
+    children = []
+    subtrees = {}
 
     for tile_dir in tile_dirs:
         level_count = cell_level_count(tile_dir)
@@ -259,15 +222,16 @@ def main():
             "z %d..%d" % height_range,
         )
 
-        build_child_tileset(tile_dir, level_count, height_range)
+        children.append(build_cell_tile(tile_dir, level_count, height_range))
 
-        build_child_subtree(tile_dir, level_count)
+        subtrees[f"{tile_dir.name}/subtrees/0.0.0.subtree"] = build_cell_subtree(
+            tile_dir,
+            level_count,
+        )
 
-        built.append((tile_dir, height_range))
+    build_pack(children, subtrees)
 
-    build_global_tileset(built)
-
-    print("done", len(built), "tilesets")
+    print("done", len(children), "cells ->", PACK_PATH)
 
 
 if __name__ == "__main__":

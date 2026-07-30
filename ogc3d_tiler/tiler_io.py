@@ -5,6 +5,8 @@ from pathlib import Path
 
 DEFAULT_PATH = Path.home() / "github/alpineview/webapp/public/terrain"
 
+PACK_PATH = DEFAULT_PATH.parent.parent / "src" / "terrainPack.json"
+
 
 @dataclass
 class ImplicitTilingSubtree:
