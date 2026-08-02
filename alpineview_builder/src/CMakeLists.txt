@@ -33,7 +33,6 @@ add_executable(alpineview_builder
 	las_normal_cgal.cpp
 	las_source.cpp
 	las_resample.cpp
-	copc.cpp
 	mesh.cpp
 	mesh_clip.cpp
 	mesh_ply.cpp
@@ -47,7 +46,7 @@ target_compile_definitions(alpineview_builder PRIVATE CGAL_EIGEN3_ENABLED
 	GEO_CONSTANTS_PATH="${GEO_CONSTANTS_JSON}")
 target_compile_features(alpineview_builder PRIVATE cxx_std_17)
 target_compile_options(alpineview_builder PRIVATE -Wall)
-target_link_libraries(alpineview_builder miniply meshoptimizer copc-lib-s lazperf draco::draco CGAL::CGAL Eigen3::Eigen PROJ::proj)
+target_link_libraries(alpineview_builder miniply meshoptimizer lazperf draco::draco CGAL::CGAL Eigen3::Eigen PROJ::proj)
 
 add_executable(alpineview_coarse
 	chrono.cpp

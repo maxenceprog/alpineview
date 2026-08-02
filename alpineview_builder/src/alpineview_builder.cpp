@@ -18,7 +18,6 @@
 #include "mesh_utils.h"
 #include "poisson_common.h"
 
-#include "copc.h"
 #include "las_resample.h"
 #include "las_normal_cgal.h"
 #include "las_read.h"
@@ -47,7 +46,6 @@ struct Cfg
 	bool verbose;
 	bool optimize;
 	bool encode;
-	bool use_las;
 	bool parallel;
 	DownsampleCfg downsample;
 	LodCfg lod;
@@ -86,7 +84,6 @@ static void set_default_cfg(struct Cfg &cfg)
 	cfg.verbose = true;
 	cfg.optimize = false;
 	cfg.encode = false;
-	cfg.use_las = true;
 	cfg.downsample.enabled = true;
 	cfg.downsample.grid_res = 1.f;
 	cfg.downsample.neighbor_radius = 5;
@@ -103,10 +100,10 @@ static void print_usage(const char *prog)
 		"                       level 15 (required).\n"
 		"\n"
 		"Paths:\n"
-		"  --base-dir DIR       input COPC directory "
+		"  --base-dir DIR       input directory "
 		"(default: $HOME/.cache/poissonrecon-ign/)\n"
 		"                       expects "
-		"LHD_FXX_XXXX_YYYY_PTS_LAMB93_IGN69.copc.laz tiles\n"
+		"LHD_FXX_XXXX_YYYY_PTS_LAMB93_IGN69.laz tiles\n"
 		"  --out-dir DIR        output directory (default: .)\n"
 		"\n"
 		"Reconstruction:\n"
@@ -128,9 +125,6 @@ static void print_usage(const char *prog)
 		"  --ds-grid F          grid cell size, m (default: 1)\n"
 		"  --ds-radius N        neighbor radius, cells (default: 5)\n"
 		"  --ds-slope F         slope threshold, deg (default: 45)\n"
-		"\n"
-		"Input format:\n"
-		"  --las                Use input .las, .laz\n"
 		"\n"
 		"  -h, --help           show this help and exit\n",
 		prog);
@@ -247,7 +241,6 @@ static int process_args(int argc, const char **argv, struct Cfg &cfg)
 		else if (match_toggle(arg, "--verbose", cfg.verbose) ||
 				 match_toggle(arg, "--optimize", cfg.optimize) ||
 				 match_toggle(arg, "--encode", cfg.encode) ||
-				 match_toggle(arg, "--las", cfg.use_las) ||
 				 match_toggle(arg, "--downsample",
 							  cfg.downsample.enabled) ||
 				 match_toggle(arg, "--parallel", cfg.parallel))
@@ -358,10 +351,10 @@ static std::string get_filename(int x, int y, const std::string &dir,
 }
 
 /* Build the path of an input IGN LIDAR HD tile, e.g.
- * <dir>/LHD_FXX_0965_6431_PTS_LAMB93_IGN69.copc.laz
+ * <dir>/LHD_FXX_0965_6431_PTS_LAMB93_IGN69.laz
  * (the XXXX_YYYY in the name are the tile's km coordinates). */
 static std::string get_las_filename(int x, int y, const std::string &dir,
-									const char *ext = "copc.laz")
+									const char *ext = "laz")
 {
 	std::string fname = dir;
 	if (!fname.empty() && fname.back() != '/')
@@ -513,7 +506,6 @@ static size_t read_and_filter_las_data(std::vector<struct LasPoint> &points,
 									   const struct Cfg &cfg)
 {
 	TAabb<double> box = las_bbox(cfg.x0, cfg.y0);
-	std::vector<char> buf;
 	int kx0 = (int)floor(box.min.x / 1000.0);
 	int kx1 = (int)floor(box.max.x / 1000.0);
 	int ky0 = (int)ceil(box.min.y / 1000.0);
@@ -532,27 +524,9 @@ static size_t read_and_filter_las_data(std::vector<struct LasPoint> &points,
 		int y = ky0 + i / (kx1 - kx0 + 1);
 		const char *role = "source  ";
 
-		/* With --las, look for las / laz. Without --las, only .copc.laz
-		 * is looked up (unchanged behaviour). */
 		LasFileInfo info;
-		std::string fname;
-		bool found_las = false;
-		{
-			static const char *las_exts[] = {"las", "laz"};
-			static const char *copc_exts[] = {"copc.laz"};
-			const char **exts = cfg.use_las ? las_exts : copc_exts;
-			int next = cfg.use_las ? 3 : 1;
-			for (int e = 0; e < next; ++e)
-			{
-				fname = get_las_filename(x, y, cfg.base_dir, exts[e]);
-				if (!las_read_info(fname.c_str(), info))
-				{
-					found_las = true;
-					break;
-				}
-			}
-		}
-		if (!found_las)
+		std::string fname = get_las_filename(x, y, cfg.base_dir);
+		if (las_read_info(fname.c_str(), info))
 		{
 			if (cfg.verbose)
 			{
@@ -562,52 +536,18 @@ static size_t read_and_filter_las_data(std::vector<struct LasPoint> &points,
 		}
 		size_t before = points.size();
 
-		/* Decide the read path from the tile's actual encoding rather than
-		 * cfg.use_las: a --las run may have fallen back to a compressed
-		 * tile above and must still go through the matching decoder. */
-		if (info.compressed && info.copc)
+		char *data = las_load_laz_data(fname.c_str(), info, NULL);
+		if (!data)
 		{
-			struct CopcReader *copc = copc_init(fname.c_str());
-			if (!copc)
+			if (cfg.verbose)
 			{
-				if (cfg.verbose)
-				{
-					printf("  [unread  ] %s\n", fname.c_str());
-				}
-				continue;
+				printf("  [unread  ] %s\n", fname.c_str());
 			}
-			const double resolution = 1.0;
-			uint32_t cell_count = copc_set_target_bbox(copc, box, resolution);
-			for (uint32_t k = 0; k < cell_count; ++k)
-			{
-				int cell_points = copc_cell_point_count(copc, k);
-				assert(cell_points);
-				buf.reserve(cell_points * info.point_size);
-				copc_read_cell(copc, k, &buf[0]);
-				filter_and_add_points(points, &buf[0], cell_points,
-									  info, box);
-			}
-			copc_fini(copc);
+			continue;
 		}
-		else
-		{
-			/* Plain .las, or a non-COPC .laz: no octree, load every point
-			 * (decompressing first if needed) and filter by bbox. */
-			char *data = info.compressed
-							 ? las_load_laz_data(fname.c_str(), info, NULL)
-							 : las_load_data(fname.c_str(), info, NULL);
-			if (!data)
-			{
-				if (cfg.verbose)
-				{
-					printf("  [unread  ] %s\n", fname.c_str());
-				}
-				continue;
-			}
-			filter_and_add_points(points, data, (uint32_t)info.point_num,
-								  info, box);
-			free(data);
-		}
+		filter_and_add_points(points, data, (uint32_t)info.point_num,
+							  info, box);
+		free(data);
 
 		found++;
 		if (cfg.verbose)
