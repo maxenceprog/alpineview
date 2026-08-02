@@ -3,7 +3,7 @@ import * as itowns from "itowns";
 import MarkdownIt from "markdown-it";
 import * as THREE from "three";
 import { createPoiOcclusion } from "./poiOcclusion.js";
-import { l93ToWebMercator, webMercatorToL93 } from "./proj.js";
+import { localToMerc, mercToLocal } from "./workFrame.js";
 
 const KIND_CLASS = { summit: "poi-peak", pass: "poi-pass", hut: "poi-hut", access: "poi-parking" };
 const BLOCK_KM = 8;
@@ -18,7 +18,7 @@ const PAGE_LIMIT = 100;
 function cellBboxWebMercator(x0, y0, sizeKm = 1) {
   const corners = [
     [x0, y0], [x0 + sizeKm, y0], [x0, y0 + sizeKm], [x0 + sizeKm, y0 + sizeKm],
-  ].map(([x, y]) => l93ToWebMercator.forward([x * 1000, y * 1000]));
+  ].map(([x, y]) => localToMerc(x * 1000, y * 1000));
   const xs = corners.map((c) => c[0]);
   const ys = corners.map((c) => c[1]);
   return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
@@ -50,7 +50,7 @@ export async function searchWaypoints(q, limit = 5) {
     .filter((doc) => doc.waypoint_type in KIND_CLASS && doc.locales?.[0]?.title && doc.geometry?.geom)
     .slice(0, limit)
     .map((doc) => {
-      const [x, y] = webMercatorToL93.forward(JSON.parse(doc.geometry.geom).coordinates);
+      const [x, y] = mercToLocal(JSON.parse(doc.geometry.geom).coordinates);
       return {
         id: doc.document_id,
         title: doc.locales[0].title,
@@ -234,7 +234,7 @@ function installPoiLabels(view, labelRoot, tilesLayer) {
 
   const makeLabel = (doc) => {
     const geom = JSON.parse(doc.geometry.geom);
-    const [x, y] = webMercatorToL93.forward(geom.coordinates);
+    const [x, y] = mercToLocal(geom.coordinates);
     const anchor = poiDomElement({
       id: doc.document_id,
       title: doc.locales[0].title,

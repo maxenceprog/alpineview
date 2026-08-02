@@ -1,25 +1,22 @@
 #include <algorithm>
 #include <cassert>
-#include <climits>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
 
-#include "meshoptimizer/src/meshoptimizer.h"
-
 #include "array.h"
 #include "chrono.h"
+#include "geo.h"
 #include "math_utils.h"
 #include "sys_utils.h"
 
 #include "mesh.h"
-#include "mesh_clip.h"
 #include "mesh_lod.h"
 #include "mesh_ply.h"
-#include "mesh_simplify.h"
 #include "mesh_utils.h"
+#include "poisson_common.h"
 
 #include "copc.h"
 #include "las_resample.h"
@@ -30,8 +27,6 @@
 #define BDY_BUFFER 10000
 
 static const double ALTITUDE_THRESHOLD = 2000.0;
-
-static const int LEVEL0_DEPTH = 7;
 
 /******************************************************************************
  *
@@ -83,13 +78,13 @@ static void set_default_cfg(struct Cfg &cfg)
 		cfg.base_dir = ".";
 	}
 	cfg.out_dir = ".";
-	cfg.min_depth = 8;
+	cfg.min_depth = 7;
 	cfg.max_depth = -1;
 	cfg.weight = 4.f;
 	cfg.parallel = false;
 	cfg.clean = 2;
 	cfg.verbose = true;
-	cfg.optimize = true;
+	cfg.optimize = false;
 	cfg.encode = false;
 	cfg.use_las = true;
 	cfg.downsample.enabled = true;
@@ -104,7 +99,8 @@ static void print_usage(const char *prog)
 	printf(
 		"Usage: %s X Y [options]\n"
 		"\n"
-		"  X, Y                 tile coordinates in km (required).\n"
+		"  X, Y                 WebMercatorQuad tile column and row at\n"
+		"                       level 15 (required).\n"
 		"\n"
 		"Paths:\n"
 		"  --base-dir DIR       input COPC directory "
@@ -115,7 +111,7 @@ static void print_usage(const char *prog)
 		"\n"
 		"Reconstruction:\n"
 		"  --min-depth N        Poisson octree depth of LOD level 0 "
-		"(default: 8)\n"
+		"(default: 7)\n"
 		"  --max-depth N        Poisson octree depth of the finest LOD level;\n"
 		"                       -1 guesses it from altitude span and point\n"
 		"                       spacing (default: -1)\n"
@@ -138,18 +134,6 @@ static void print_usage(const char *prog)
 		"\n"
 		"  -h, --help           show this help and exit\n",
 		prog);
-}
-
-/* Fetch the value following a flag, advancing *i. Returns NULL (and prints an
- * error) when the flag is the last token and has no value. */
-static const char *flag_value(int argc, const char **argv, int *i)
-{
-	if (*i + 1 >= argc)
-	{
-		printf("Error: option '%s' expects a value.\n", argv[*i]);
-		return NULL;
-	}
-	return argv[++(*i)];
 }
 
 /* Parse "--flag" / "--no-flag" boolean pair. Returns 1 if `arg` matched
@@ -279,7 +263,7 @@ static int process_args(int argc, const char **argv, struct Cfg &cfg)
 
 	if (positional < 2)
 	{
-		printf("Error: missing tile coordinates X Y. Try --help.\n");
+		printf("Error: missing WebMercatorQuad tile X Y. Try --help.\n");
 		return (-1);
 	}
 
@@ -291,7 +275,17 @@ static void print_cfg(const struct Cfg &cfg)
 	printf("\n");
 	printf("Configuration :\n");
 	printf("---------------\n");
-	printf("Tile coords : %d %d\n", cfg.x0, cfg.y0);
+	printf("WMQ tile    : %d/%d/%d\n", geo().lod_level0, cfg.x0, cfg.y0);
+	{
+		double x0, y0, x1, y1;
+		geo_wmq_tile_bounds(geo().lod_level0, cfg.x0, cfg.y0, x0, y0, x1,
+							y1);
+		Vec3d nw = geo_work_to_geodetic(Vec3d{x0, y1, 0.0});
+		Vec3d se = geo_work_to_geodetic(Vec3d{x1, y0, 0.0});
+		printf("  extent    : lon %.6f..%.6f lat %.6f..%.6f\n", nw.x,
+			   se.x, se.y, nw.y);
+		printf("  side      : %.2f m (work frame)\n", x1 - x0);
+	}
 	printf("Data  dir   : %s\n", cfg.base_dir.c_str());
 	printf("Output dir  : %s\n", cfg.out_dir.c_str());
 	printf("Verbosity   : %d\n", cfg.verbose ? 1 : 0);
@@ -398,33 +392,6 @@ static int write_mesh(const TriMesh &mesh, const struct Cfg &cfg,
 	return (0);
 }
 
-static void compact_and_report(TriMesh &mesh)
-{
-	compact_mesh(mesh);
-
-	printf("A total of %zu (%.2f M) Tri after compacting.\n",
-		   mesh.triangle_count(), 1e-6 * mesh.triangle_count());
-}
-
-static void optimize_mesh(TriMesh &mesh)
-{
-	uint32_t index_count = mesh.faces.size();
-	uint32_t *indices = mesh.faces.data();
-	uint32_t vertex_count = mesh.verts.size();
-	float *vertices = (float *)mesh.verts.data();
-	size_t vertex_size = sizeof(Vec3);
-	meshopt_optimizeVertexCache(indices, indices, index_count, vertex_count);
-	mesh.verts.resize(
-		meshopt_optimizeVertexFetch(vertices, indices, index_count,
-									vertices, vertex_count, vertex_size));
-}
-
-struct Transform
-{
-	float scale;
-	Vec3 shift;
-};
-
 int write_transform(const struct Transform &t, const struct Cfg &cfg)
 {
 	std::string fname = get_filename(cfg.x0, cfg.y0, cfg.out_dir, "transf");
@@ -474,17 +441,46 @@ static bool filter_las_point(const LasPoint &p, const LasFileInfo &info,
 		return false;
 	}
 
-	return (p.classification == 2 || p.classification == 9 || p.classification == 10 || p.classification == 11);
+	return (p.classification == 2 || p.classification == 5 || p.classification == 9 || p.classification == 10 || p.classification == 11);
 }
+
+static const double TILE_MARGIN_M = 50.0;
 
 static TAabb<double> las_bbox(int x0, int y0)
 {
+	double wx0, wy0, wx1, wy1;
+	geo_wmq_tile_bounds(geo().lod_level0, x0, y0, wx0, wy0, wx1, wy1);
+	wx0 -= TILE_MARGIN_M;
+	wy0 -= TILE_MARGIN_M;
+	wx1 += TILE_MARGIN_M;
+	wy1 += TILE_MARGIN_M;
+
+	const int SAMPLES = 5;
+	Vec3d edge[4 * SAMPLES];
+	int n = 0;
+	for (int i = 0; i < SAMPLES; ++i)
+	{
+		double t = (double)i / (SAMPLES - 1);
+		double x = wx0 + t * (wx1 - wx0);
+		double y = wy0 + t * (wy1 - wy0);
+		edge[n++] = geo_work_to_geodetic(Vec3d{x, wy0, 0.0});
+		edge[n++] = geo_work_to_geodetic(Vec3d{x, wy1, 0.0});
+		edge[n++] = geo_work_to_geodetic(Vec3d{wx0, y, 0.0});
+		edge[n++] = geo_work_to_geodetic(Vec3d{wx1, y, 0.0});
+	}
+	geo_geodetic_to_l93(edge, n);
+
 	TAabb<double> box;
-	box.min.x = 1000 * x0 - 50;
-	box.min.y = 1000 * y0 - 1050;
+	box.min.x = box.min.y = 1e30;
+	box.max.x = box.max.y = -1e30;
+	for (int i = 0; i < n; ++i)
+	{
+		box.min.x = MIN(box.min.x, edge[i].x);
+		box.min.y = MIN(box.min.y, edge[i].y);
+		box.max.x = MAX(box.max.x, edge[i].x);
+		box.max.y = MAX(box.max.y, edge[i].y);
+	}
 	box.min.z = -1000;
-	box.max.x = 1000 * x0 + 1050;
-	box.max.y = 1000 * y0 + 50;
 	box.max.z = 9000;
 	return box;
 }
@@ -518,23 +514,23 @@ static size_t read_and_filter_las_data(std::vector<struct LasPoint> &points,
 {
 	TAabb<double> box = las_bbox(cfg.x0, cfg.y0);
 	std::vector<char> buf;
+	int kx0 = (int)floor(box.min.x / 1000.0);
+	int kx1 = (int)floor(box.max.x / 1000.0);
+	int ky0 = (int)ceil(box.min.y / 1000.0);
+	int ky1 = (int)ceil(box.max.y / 1000.0);
+	int wanted = (kx1 - kx0 + 1) * (ky1 - ky0 + 1);
 	if (cfg.verbose)
 	{
-		printf("Reading tile and neighbourhood around %04d_%04d :\n",
-			   cfg.x0, cfg.y0);
+		printf("Reading L93 tiles %04d..%04d x %04d..%04d covering "
+			   "WMQ tile %d/%d/%d :\n",
+			   kx0, kx1, ky0, ky1, geo().lod_level0, cfg.x0, cfg.y0);
 	}
 	int found = 0;
-	for (int i = 0; i < 9; ++i)
+	for (int i = 0; i < wanted; ++i)
 	{
-		int dx = (i % 3) - 1;
-		int dy = (i / 3) - 1;
-		if (dx != 0 && dy != 0)
-		{
-			continue;
-		}
-		int x = cfg.x0 + dx;
-		int y = cfg.y0 + dy;
-		const char *role = (dx == 0 && dy == 0) ? "center  " : "neighbor";
+		int x = kx0 + i % (kx1 - kx0 + 1);
+		int y = ky0 + i / (kx1 - kx0 + 1);
+		const char *role = "source  ";
 
 		/* With --las, look for las / laz. Without --las, only .copc.laz
 		 * is looked up (unchanged behaviour). */
@@ -560,8 +556,7 @@ static size_t read_and_filter_las_data(std::vector<struct LasPoint> &points,
 		{
 			if (cfg.verbose)
 			{
-				printf("  [missing ] %04d_%04d (%+d,%+d) %s\n", x,
-					   y, dx, dy, role);
+				printf("  [missing ] %04d_%04d %s\n", x, y, role);
 			}
 			continue;
 		}
@@ -617,13 +612,13 @@ static size_t read_and_filter_las_data(std::vector<struct LasPoint> &points,
 		found++;
 		if (cfg.verbose)
 		{
-			printf("  [found] %04d_%04d (%+d,%+d) %s : %zu pts\n",
-				   x, y, dx, dy, role, points.size() - before);
+			printf("  [found] %04d_%04d %s : %zu pts\n", x, y, role,
+				   points.size() - before);
 		}
 	}
 	if (cfg.verbose)
 	{
-		printf("Found %d/5 tiles in neighbourhood.\n", found);
+		printf("Found %d/%d source tiles.\n", found, wanted);
 	}
 	return points.size();
 }
@@ -632,15 +627,33 @@ static int send_points_to_unit_cube(const std::vector<struct LasPoint> &points,
 									Vec3 *pos, struct Transform &t,
 									const Cfg cfg, double &max_alt)
 {
-	int min_z = INT_MAX, max_z = -INT_MAX;
-	for (size_t i = 0; i < points.size(); ++i)
+	size_t num = points.size();
+	std::vector<Vec3d> work(num);
+	for (size_t i = 0; i < num; ++i)
 	{
-		min_z = MIN(min_z, points[i].z);
-		max_z = MAX(max_z, points[i].z);
+		work[i].x = points[i].x * 0.01;
+		work[i].y = points[i].y * 0.01;
+		work[i].z = points[i].z * 0.01;
 	}
-	float span = (max_z - min_z) * 0.01f;
-	max_alt = max_z * 0.01;
-	printf("(Altitude span : %.0f meters, max %.0f m)\n", span, max_alt);
+	if (geo_l93_to_geodetic(work.data(), num))
+	{
+		return (-1);
+	}
+	for (size_t i = 0; i < num; ++i)
+	{
+		work[i] = geo_geodetic_to_work(work[i]);
+	}
+
+	double min_z = 1e30, max_z = -1e30;
+	for (size_t i = 0; i < num; ++i)
+	{
+		min_z = MIN(min_z, work[i].z);
+		max_z = MAX(max_z, work[i].z);
+	}
+	float span = (float)(max_z - min_z);
+	max_alt = max_z;
+	printf("(Altitude span : %.0f meters, max %.0f m NGF69)\n", span,
+		   max_alt);
 	float n;
 	if (span < 1250.f)
 	{
@@ -656,24 +669,22 @@ static int send_points_to_unit_cube(const std::vector<struct LasPoint> &points,
 	}
 	t.scale = (float)n / (n + 2);
 	t.shift.x = t.shift.y = 1.f / (n + 2);
-	float mean = 0.5 * (min_z + max_z) * 1e-5 * t.scale;
+
+	double wx0, wy0, wx1, wy1;
+	geo_wmq_tile_bounds(geo().lod_level0, cfg.x0, cfg.y0, wx0, wy0, wx1, wy1);
+	double scal = t.scale / (wx1 - wx0);
+
+	float mean = 0.5 * (min_z + max_z) * scal;
 	/* Round shift.z so that octree boxes match vertically to
 	 * neighboors */
 	t.shift.z = 0.5 - round(16 * mean) * 0.0625;
-	assert(min_z * 1e-5 * t.scale + t.shift.z >= 0);
-	assert(max_z * 1e-5 * t.scale + t.shift.z <= 1);
-	for (size_t i = 0; i < points.size(); ++i)
+	assert(min_z * scal + t.shift.z >= 0);
+	assert(max_z * scal + t.shift.z <= 1);
+	for (size_t i = 0; i < num; ++i)
 	{
-		double scal = 1e-5 * t.scale;
-		/* IGN tile (x0,y0) is named by its NW corner: x0 is the WEST (min)
-		 * edge, but y0 is the NORTH (max) edge, so the tile covers L93 north
-		 * [y0-1, y0]. Local coords are referenced to the tile's min corner,
-		 * hence x0 for east but (y0-1) for north. */
-		pos[i].x = (points[i].x - 100000 * cfg.x0) * scal + t.shift.x;
-		pos[i].y =
-			(points[i].y - 100000 * (cfg.y0 - 1)) * scal + t.shift.y;
-		pos[i].z = points[i].z * scal + t.shift.z;
-		// printf("%lf %lf %lf\n", pos[i].x, pos[i].y, pos[i].z);
+		pos[i].x = (work[i].x - wx0) * scal + t.shift.x;
+		pos[i].y = (work[i].y - wy0) * scal + t.shift.y;
+		pos[i].z = work[i].z * scal + t.shift.z;
 	}
 	return (0);
 }
@@ -694,11 +705,11 @@ static int guess_max_depth(double range_scale, double max_alt)
 
 static void resolve_lod_levels(struct Cfg &cfg)
 {
-	if (cfg.min_depth < LEVEL0_DEPTH)
+	if (cfg.min_depth < geo().level0_depth)
 	{
 		printf("Warning: min depth %d below level-0 depth %d; clamping.\n",
-			   cfg.min_depth, LEVEL0_DEPTH);
-		cfg.min_depth = LEVEL0_DEPTH;
+			   cfg.min_depth, geo().level0_depth);
+		cfg.min_depth = geo().level0_depth;
 	}
 	if (cfg.max_depth < cfg.min_depth)
 	{
@@ -706,16 +717,18 @@ static void resolve_lod_levels(struct Cfg &cfg)
 			   cfg.max_depth, cfg.min_depth, cfg.min_depth);
 		cfg.max_depth = cfg.min_depth;
 	}
-	cfg.lod.max_level = cfg.max_depth - LEVEL0_DEPTH;
+	cfg.lod.max_level = cfg.max_depth - geo().level0_depth;
 	printf("LOD levels                 : z=%d..%d (Poisson depths %d..%d)\n",
-		   cfg.min_depth - LEVEL0_DEPTH, cfg.lod.max_level, cfg.min_depth,
+		   cfg.min_depth - geo().level0_depth, cfg.lod.max_level, cfg.min_depth,
 		   cfg.max_depth);
 	for (int d = cfg.min_depth; d <= cfg.max_depth; ++d)
 	{
-		int z = d - LEVEL0_DEPTH;
+		int z = d - geo().level0_depth;
 		int n = 1 << z;
-		printf("  depth %2d -> z=%d : %dx%d grid, %d tiles of %d m\n", d, z, n,
-			   n, n * n, 1000 / n);
+		printf("  depth %2d -> z=%d : %dx%d grid, %d tiles of %.1f m "
+			   "at level %d\n",
+			   d, z, n, n, n * n,
+			   geo_wmq_tile_size(geo().lod_level0 + z), geo().lod_level0 + z);
 	}
 }
 
@@ -813,8 +826,9 @@ static int build_oriented_point_set(struct Cfg &cfg, Timings &tt)
 		cfg.max_depth = guess_max_depth(range_scale, max_alt);
 	resolve_lod_levels(cfg);
 	/* Grid fix-up cell size: 1 m, mapped to unit-cube units the same way as
-	 * --ds-grid below (1 unit = 100000 cm / scale). */
-	double nml_grid_res = 1.0 * 100.f * 1e-5f * transf.scale;
+	 * --ds-grid below (1 unit = one WMQ tile side / scale). */
+	double nml_grid_res =
+		1.0 * transf.scale / geo_wmq_tile_size(geo().lod_level0);
 	cgal_estimate_and_orient_normals(mesh.verts.data(), points.size(), points,
 									 nml_radius, nml_grid_res,
 									 mesh.normals.data(), cfg.verbose);
@@ -822,12 +836,12 @@ static int build_oriented_point_set(struct Cfg &cfg, Timings &tt)
 	tt.estim_nml = chrono.stop();
 
 	/* Optional grid thinning. --ds-grid is given in metres and
-	 * mapped to unit-cube units through the transform (1 unit = 100000 cm
-	 * / scale). */
+	 * mapped to unit-cube units through the transform (1 unit = one WMQ
+	 * tile side / scale). */
 	if (cfg.downsample.enabled)
 	{
-		float grid_res = cfg.downsample.grid_res * 100.f * 1e-5f *
-						 transf.scale;
+		float grid_res = cfg.downsample.grid_res * transf.scale /
+						 geo_wmq_tile_size(geo().lod_level0);
 		vertex_count = flat_area_thin(
 			mesh.verts.data(), mesh.normals.data(), vertex_count, grid_res,
 			cfg.downsample.neighbor_radius, cfg.downsample.slope_deg,
@@ -856,53 +870,6 @@ static int build_oriented_point_set(struct Cfg &cfg, Timings &tt)
  * III. Functions related to surface mesh (post)processing.
  *
  ******************************************************************************/
-
-static void recut_mesh(TriMesh &mesh, const struct Transform &transf)
-{
-	/* Clip to the central tile, discarding the Poisson buffer strip. */
-	float sx = transf.shift.x, sy = transf.shift.y;
-	TriMesh a, b, c;
-	split_mesh(mesh, 0, sx, nullptr, &a);
-	split_mesh(a, 0, 1.f - sx, &b, nullptr);
-	a = TriMesh();
-	split_mesh(b, 1, sy, nullptr, &c);
-	b = TriMesh();
-	split_mesh(c, 1, 1.f - sy, &mesh, nullptr);
-}
-
-static void rescale_and_offset_mesh(TriMesh &mesh,
-									const struct Transform &transf,
-									const struct Cfg &cfg)
-{
-	/* Inverse transform points + shift relative to base */
-	/* TODO : should be eventually removed and use scene
-	 *        object placement and scaling instead
-	 */
-	float invscale = 1. / transf.scale;
-	for (Vec3 &p : mesh.verts)
-	{
-		p = p - transf.shift;
-		p *= invscale;
-	}
-}
-
-/* Run the PoissonRecon binary.*/
-static int run_poisson_recon(const std::string &recon_in,
-							 const std::string &recon_out, int depth, const struct Cfg &cfg)
-{
-	const char *verbose = cfg.verbose ? "--verbose" : "";
-	const char *format =
-		"poissonrecon --in %s --out %s --scale 1.0 --depth %d "
-		"--pointWeight %.1f %s --parallel %d --samplesPerNode 2.0 "
-		"--performance";
-	size_t len = recon_in.size() + recon_out.size() + strlen(format) + 64;
-	std::string cmd(len, '\0');
-	int written = snprintf(&cmd[0], len, format, recon_in.c_str(),
-						   recon_out.c_str(), depth, cfg.weight, verbose,
-						   cfg.parallel ? 0 : 2);
-	cmd.resize(written);
-	return system(cmd.c_str());
-}
 
 /* Turn a Poisson output mesh into a points-only PLY usable as the input of a
  * coarser Poisson run: derive per-vertex normals from the mesh faces
@@ -943,7 +910,8 @@ static int build_surface_mesh(const struct Cfg &cfg, Timings &tt)
 	chrono.start();
 	std::string recon_in =
 		get_filename(cfg.x0, cfg.y0, cfg.out_dir, "points.ply");
-	int ret = run_poisson_recon(recon_in, recon_out, cfg.max_depth, cfg);
+	int ret = run_poisson_recon(recon_in, recon_out, cfg.max_depth, cfg.weight,
+								cfg.verbose, cfg.parallel, true);
 
 	if (cfg.clean >= 2)
 	{
@@ -997,7 +965,8 @@ int postprocess_surface_mesh(const Cfg &cfg, Timings &tt)
 		std::string coarse_in =
 			get_filename(cfg.x0, cfg.y0, cfg.out_dir, "coarse_points.ply");
 		if (build_coarse_poisson_input(level_ply[i + 1], coarse_in) ||
-			run_poisson_recon(coarse_in, out, depth, cfg))
+			run_poisson_recon(coarse_in, out, depth, cfg.weight, cfg.verbose,
+							  cfg.parallel, true))
 		{
 			printf("Warning: coarse Poisson at depth %d failed; "
 				   "reusing depth %d source.\n",
@@ -1012,13 +981,13 @@ int postprocess_surface_mesh(const Cfg &cfg, Timings &tt)
 	}
 
 	/* Load, transform to km and tile each level from its own mesh. The web zoom
-	 * level of a depth is fixed: z = depth - LEVEL0_DEPTH, so the grid and the
+	 * level of a depth is fixed: z = depth - level0_depth, so the grid and the
 	 * tile names of a given depth never depend on the requested depth range. */
 	for (int i = 0; i <= nlv; ++i)
 	{
 		chrono.start();
 		int depth = min_depth + i;
-		int z = depth - LEVEL0_DEPTH;
+		int z = depth - geo().level0_depth;
 		printf("  LOD z=%d : depth %d, %dx%d grid\n", z, depth, 1 << z,
 			   1 << z);
 		TriMesh mesh;
@@ -1028,43 +997,8 @@ int postprocess_surface_mesh(const Cfg &cfg, Timings &tt)
 				   "reconstruct.\n",
 				   mesh.triangle_count(), 1e-6 * mesh.triangle_count());
 
-		Timer trim;
-		trim.start();
-		size_t tri_before = mesh.triangle_count();
-		uint32_t num_cc = select_principal_connected_component(mesh);
-		tt.trim += trim.stop();
-		if (num_cc > 1)
-			printf("  LOD z=%d : %u components, kept %zu/%zu Tri\n", z,
-				   num_cc, mesh.triangle_count(), tri_before);
-
-		tri_before = mesh.triangle_count();
-		Timer simp;
-		simp.start();
-		simplify_mesh_qem(mesh, 0.5f, 2.0, cfg.verbose);
-		unsigned int simp_us = simp.stop();
-		size_t tri_after = mesh.triangle_count();
-		printf("Simplify QEM: %zu -> %zu Tri (ratio %.3f, target 0.5) "
-			   "in %.2f s\n",
-			   tri_before, tri_after,
-			   tri_before ? (float)tri_after / tri_before : 0.f,
-			   1e-6 * simp_us);
-
-		recut_mesh(mesh, transf);
-
-		rescale_and_offset_mesh(mesh, transf, cfg);
-
-		if (cfg.optimize)
-		{
-			Timer opt;
-			opt.start();
-			compact_and_report(mesh);
-			optimize_mesh(mesh);
-			printf("  LOD z=%d : compact+optimize in %.2f s\n", z,
-				   1e-6 * opt.stop());
-		}
-
-		write_lod_level(mesh, cfg.x0, cfg.y0, z,
-						cfg.out_dir.c_str(), cfg.verbose);
+		postprocess_lod_level(mesh, transf, geo().lod_level0, cfg.x0, cfg.y0,
+							  z, cfg.out_dir, cfg.optimize, cfg.verbose);
 
 		if (cfg.clean >= 2 && i != nlv)
 			remove(level_ply[i].c_str());
@@ -1114,6 +1048,11 @@ int main(int argc, char **argv)
 		return (0); /* --help was shown */
 	}
 	if (args_ret < 0)
+	{
+		return (-1);
+	}
+
+	if (geo_init())
 	{
 		return (-1);
 	}

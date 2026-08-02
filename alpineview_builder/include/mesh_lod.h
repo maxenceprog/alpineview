@@ -7,32 +7,33 @@
 
 /* Level-of-detail tiling + Draco compression.
  *
- * C++ port of the final stage of scripts/tile_build_batch.py::_build_tile.
- * Given the final 1 km surface mesh (positions in km: x,y in [0,1] relative to
- * the tile's west/south edge, z absolute altitude in km), this writes Draco
- * (.drc) web tiles for every zoom level 0..max_level into out_dir:
+ * Given one level's surface mesh of a WebMercatorQuad job tile (positions in
+ * tile-side units: x,y in [0,1] relative to the tile's west/south edge, z
+ * absolute ellipsoidal height over that same scale), this crops it into the
+ * 2^z x 2^z sub-tiles of that tile and writes each as a Draco-compressed .glb.
  *
- *   level z -> n = 2^z grid of (1km / n) sub-tiles, vertex-cluster simplified
- *   (factor 16, 4, then full res for z >= 2), each cropped and
- *   Draco-encoded as tile.{x_km*n+dx}.{(y_km-1)*n+dy}.{z}.drc
- *
- * Simplification per level is done ONCE on a shared voxel grid before cropping
- * so adjacent sub-tiles decimate identically and their seams match.
+ * Each level's mesh comes from its own Poisson reconstruction, so no
+ * decimation happens here; the shared grid the levels are cut on is what keeps
+ * their seams matching.
  */
 struct LodCfg
 {
 	int max_level; /* highest zoom level to emit; < 0 disables the stage */
 };
 
-/* Write the LOD Draco tiles. Returns the number of .drc files written, or 0
- * when disabled (cfg.max_level < 0) or the mesh is empty. */
-int write_lod_tiles(const TriMesh &mesh, int x_km, int y_km, int z,
-					const LodCfg &cfg, const char *out_dir, bool verbose);
-
-int write_lod_level(const TriMesh &mesh, int x_km, int y_km,
-					int z, const char *out_dir, bool verbose);
-
-/* Map a (tx, ty, z) web-grid tile index to its on-disk 3D Tiles implicit
- * quadtree name tile.{ix}.{iy}.{ilevel}.glb. Must match the constants
- * duplicated in scripts/build_root_tileset.py and scripts/measure_tile_error.py. */
-void implicit_coords(int tx, int ty, int z, int &ilevel, int &ix, int &iy);
+/* Tile the mesh of the WebMercatorQuad tile (tile_x, tile_y) at base_level
+ * into its 2^z x 2^z sub-tiles at level base_level + z,
+ * named {cell_x}.{cell_y}/{level}/{x}.{y}.glb, every index relative to the
+ * cell_level cell so a 3D Tiles implicit content template resolves them.
+ *
+ * Vertices are ENU metres about the geodetic centre of the enclosing
+ * cell_level cell, written into the glTF Y-up as 3D Tiles requires
+ * (gltf_xyz = enu_x, enu_z, -enu_y) so a renderer's Y-up -> Z-up rotation
+ * lands them back in ENU.
+ *
+ * Nothing else is written: the tiler recovers the cell from the tile key
+ * (key >> (level - cell_level)), the ENU -> ECEF transform from the cell's
+ * centre by the same closed-form geodesy, and the tile-frame AABB from the
+ * glTF accessor min/max (rotating it back out of Y-up). */
+int write_lod_level(const TriMesh &mesh, int base_level, int tile_x,
+					int tile_y, int z, const char *out_dir, bool verbose);

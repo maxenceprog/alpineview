@@ -4,10 +4,10 @@
 
 #include "Simplify.h"
 
-void simplify_mesh_qem(TriMesh &mesh, float ratio, double aggressiveness,
-		       bool verbose)
+void simplify_mesh_qem(TriMesh &mesh, int target, double aggressiveness,
+					   bool verbose)
 {
-	if (mesh.faces.empty() || ratio <= 0.f || ratio >= 1.f)
+	if (mesh.faces.empty())
 		return;
 
 	size_t vertex_count = mesh.verts.size();
@@ -35,7 +35,6 @@ void simplify_mesh_qem(TriMesh &mesh, float ratio, double aggressiveness,
 		t.dirty = 0;
 	}
 
-	int target = (int)(ratio * Simplify::triangles.size());
 	Simplify::simplify_mesh(target, aggressiveness, verbose);
 
 	size_t new_vc = Simplify::vertices.size();

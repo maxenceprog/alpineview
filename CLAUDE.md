@@ -7,6 +7,11 @@ draped on it at runtime.
 Everything is in metres of L93 with **Z up**. Tile grids are indexed in
 kilometres from the L93 origin.
 
+See [README.md](README.md) for a project-level, non-implementation overview
+(build pipeline, webapp workflow, glossary of terms like WebMercatorQuad/WMTS/
+3D Tiles) — useful high-level orientation before diving into this file's
+details.
+
 ## Commands
 
 ```
@@ -100,6 +105,11 @@ source name — renaming in one pass silently destroys files.
 Geometry is baked as `world_L93 - ORIGIN` where `ORIGIN = (900000, 6400000, 0)`;
 the root tileset's transform puts it back. That offset exists because baking
 absolute L93 into float32 costs 12–25 cm of precision.
+
+Terrain z stays in **NGF69** end to end — same datum as buildings (roofer,
+CityJSON) and POI (Camptocamp). `alpineview_builder`'s L93↔geodetic
+reprojection (`geo.cpp`) is horizontal-only and never touches z; there is no
+RAF18/geoid-undulation step anywhere in the toolchain any more, on purpose —
 
 The glTF carries **POSITION and NORMAL** — no UVs. Normals are baked with a
 single **global** orientation flip (flip the whole mesh only if its winding

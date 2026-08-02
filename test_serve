@@ -15,15 +15,6 @@ case "${1:-}" in
     *) echo "Usage: $0 [--remote]" >&2; exit 1 ;;
 esac
 
-cleanup() {
-    echo ""
-    echo "Stopping servers…"
-    kill "$FRONTEND_PID" 2>/dev/null || true
-    [[ -n "$REMOTE" ]] || kill "$API_PID" 2>/dev/null || true
-    wait "$FRONTEND_PID" 2>/dev/null || true
-    [[ -n "$REMOTE" ]] || wait "$API_PID" 2>/dev/null || true
-}
-trap cleanup EXIT INT TERM
 
 if [[ -n "$REMOTE" ]]; then
     export ALPINEVIEW_REMOTE_ASSETS=1

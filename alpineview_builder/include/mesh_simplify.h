@@ -8,5 +8,5 @@
  * Keeps ratio * triangle_count triangles, rewriting mesh.verts/faces in
  * place. Normals are dropped: the collapse invalidates them and nothing
  * downstream reads them. */
-void simplify_mesh_qem(TriMesh &mesh, float ratio,
-		       double aggressiveness = 7.0, bool verbose = false);
+void simplify_mesh_qem(TriMesh &mesh, int target_count,
+					   double aggressiveness = 7.0, bool verbose = false);

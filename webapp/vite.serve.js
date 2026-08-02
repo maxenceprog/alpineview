@@ -12,14 +12,13 @@ const ASSET_BASE_URL = process.env.ALPINEVIEW_REMOTE_ASSETS ? OVH_ASSET_URL : ""
 
 // Mirrors what the S3 bucket will serve in prod, so caching behaves the same
 // locally: content-addressed tile files cached for 3 days, fetchable cross-origin.
-const ASSET_PATHS = /^\/(tiled3d|tiles|buildings|vegetation|terrain|draco)\//;
+const ASSET_PATHS = /^\/(tiled3d|tiles|vegetation|terrain|wm|draco)\//;
 
 const assetCacheHeadersPlugin = () => ({
   name: "asset-cache-headers",
   configureServer(server) {
     server.middlewares.use((req, res, next) => {
       if (ASSET_PATHS.test(req.url)) {
-        res.setHeader("Cache-Control", "public, max-age=1000000000");
         res.setHeader("Access-Control-Allow-Origin", "*");
       }
       next();

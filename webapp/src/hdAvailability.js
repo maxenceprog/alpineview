@@ -1,18 +1,20 @@
 // Small info box, tucked at the end of the help panel: a Leaflet map of the
-// built extent, with a 1 km L93 cell lit up wherever LiDAR HD terrain is
-// actually built (derived from the tileset — see tilesetCoverage.js), over a
-// WMS Plan IGN backdrop.
+// built extent, with a WebMercatorQuad cell lit up wherever LiDAR HD terrain
+// is actually built (derived from the tileset — see tilesetCoverage.js), over
+// a WMS Plan IGN backdrop.
 // The bbox is computed from the coverage itself (its extent + a margin), not
 // hardcoded, so it tracks whatever's actually been built. Clicking the map
 // starts a fast travel to that spot in the 3D scene.
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import * as THREE from "three";
-import { l93ToWgs84, wgs84ToL93 } from "./proj.js";
-import { CELL_KM, loadTilesetCoverage } from "./tilesetCoverage.js";
+import { webMercatorToWgs84, wgs84ToWebMercator } from "./proj.js";
+import { CELL_LEVEL, loadTilesetCoverage } from "./tilesetCoverage.js";
 import { itownsPlacement } from "./utils.js";
+import { mercBounds } from "./wmts.js";
+import { mercToLocal } from "./workFrame.js";
 
-const MARGIN_KM = 20;
+const MARGIN_M = 20_000;
 const DISPLAY_WIDTH = 300;
 const DISPLAY_HEIGHT = 260;
 const MAX_ZOOM = 12;
@@ -33,8 +35,8 @@ function travelTo(view, x, y) {
   itownsPlacement(view, x, y);
 }
 
-// bbox: {xmin, xmax, ymin, ymax}, L93 km, half-open on the max side (a cell
-// "x.y" covers [x, x+CELL_KM) x [y, y+CELL_KM)).
+// bbox: {xmin, xmax, ymin, ymax}, Web Mercator metres, half-open on the max
+// side (a cell "cx.cy" covers the WMQ tile at CELL_LEVEL).
 function computeBbox(coverage) {
   let xmin = Infinity;
   let xmax = -Infinity;
@@ -42,18 +44,17 @@ function computeBbox(coverage) {
   let ymax = -Infinity;
   for (const cell of coverage) {
     const [xStr, yStr] = cell.split(".");
-    const x = Number(xStr);
-    const y = Number(yStr);
-    if (x < xmin) xmin = x;
-    if (x > xmax) xmax = x;
-    if (y < ymin) ymin = y;
-    if (y > ymax) ymax = y;
+    const { x0, y0, s } = mercBounds(CELL_LEVEL, Number(xStr), Number(yStr));
+    if (x0 < xmin) xmin = x0;
+    if (x0 + s > xmax) xmax = x0 + s;
+    if (y0 < ymin) ymin = y0;
+    if (y0 + s > ymax) ymax = y0 + s;
   }
   return padToAspect({
-    xmin: xmin - MARGIN_KM,
-    xmax: xmax + CELL_KM + MARGIN_KM,
-    ymin: ymin - MARGIN_KM,
-    ymax: ymax + CELL_KM + MARGIN_KM,
+    xmin: xmin - MARGIN_M,
+    xmax: xmax + MARGIN_M,
+    ymin: ymin - MARGIN_M,
+    ymax: ymax + MARGIN_M,
   });
 }
 
@@ -76,9 +77,9 @@ function padToAspect(bbox) {
   return { ...bbox, ymin: bbox.ymin - grow, ymax: bbox.ymax + grow };
 }
 
-// L93 km corner -> Leaflet [lat, lng].
-function latLng(xKm, yKm) {
-  const [lng, lat] = l93ToWgs84.forward([xKm * 1000, yKm * 1000]);
+// Web Mercator metres -> Leaflet [lat, lng].
+function latLng(x, y) {
+  const [lng, lat] = webMercatorToWgs84.forward([x, y]);
   return [lat, lng];
 }
 
@@ -122,7 +123,8 @@ async function drawMap(mapEl, container, view) {
   }).addTo(map);
 
   map.on("click", (e) => {
-    const [x, y] = wgs84ToL93.forward([e.latlng.lng, e.latlng.lat]);
+    const merc = wgs84ToWebMercator.forward([e.latlng.lng, e.latlng.lat]);
+    const [x, y] = mercToLocal(merc);
     travelTo(view, x, y);
     container.classList.add("hidden");
   });
@@ -130,10 +132,9 @@ async function drawMap(mapEl, container, view) {
   const renderer = L.canvas();
   for (const cell of coverage) {
     const [xStr, yStr] = cell.split(".");
-    const x = Number(xStr);
-    const y = Number(yStr);
+    const { x0, y0, s } = mercBounds(CELL_LEVEL, Number(xStr), Number(yStr));
     L.rectangle(
-      L.latLngBounds(latLng(x, y), latLng(x + CELL_KM, y + CELL_KM)),
+      L.latLngBounds(latLng(x0, y0), latLng(x0 + s, y0 + s)),
       {
         renderer,
         color: "#654ade",

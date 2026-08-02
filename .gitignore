@@ -36,6 +36,7 @@ webapp/test-results
 !webapp/package.json
 !webapp/package-lock.json
 !webapp/src/terrainPack.json
+!geo_constants.json
 *.joblib
 *.rdb
 

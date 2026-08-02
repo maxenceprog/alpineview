@@ -17,3 +17,6 @@ proj4.defs(
 
 export const l93ToWebMercator = proj4("EPSG:2154", "EPSG:3857");
 export const webMercatorToL93 = proj4("EPSG:3857", "EPSG:2154");
+
+export const wgs84ToWebMercator = proj4("EPSG:4326", "EPSG:3857");
+export const webMercatorToWgs84 = proj4("EPSG:3857", "EPSG:4326");

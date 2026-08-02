@@ -155,7 +155,7 @@ function addNormalsAndSkirtToGeometry(position, index) {
   const outNormal = new Float32Array((vertexCount + added) * 3);
   outPosition.set(position);
   outNormal.set(normal);
-  const dx = 0, dy = 0, dz = -height;
+  const dx = 0, dy = -height, dz = 0;
   for (let v = 0; v < vertexCount; v++) {
     const d = bottomOf[v];
     if (d === -1) continue;

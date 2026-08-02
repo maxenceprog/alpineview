@@ -42,10 +42,12 @@ export const baseConfig = {
       ignored: [
         "**/public/*tile*/**",
         "**/public/terrain",
+        "**/public/wm",
         "**/public/vegetation",
 
       ],
     },
+    fs: { allow: [repoRoot, "."] },
   },
   test: {
     environment: "happy-dom",

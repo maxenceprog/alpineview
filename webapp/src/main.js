@@ -2,7 +2,6 @@ import { DebugTilesPlugin } from "3d-tiles-renderer/plugins";
 import * as itowns from "itowns";
 import * as THREE from "three";
 import { initEnvironment } from "./environment.js";
-import { initBuildings } from "./overlays.js";
 import { initPoi } from "./poi.js";
 import { TILESET_URL, terrainPackPlugin } from "./terrainPack.js";
 import { installWmtsDraping } from "./tilesTexture.js";
@@ -10,17 +9,10 @@ import { initTouchControls } from "./touchControls.js";
 import { initUi } from "./ui.js";
 import { itownsPlacement } from "./utils.js";
 
-itowns.CRS.defs(
-  "EPSG:2154",
-  "+proj=lcc +lat_0=46.5 +lon_0=3 +lat_1=49 +lat_2=44 +x_0=700000 +y_0=6600000 +ellps=GRS80 +units=m +no_defs",
-);
-
-const extent = new itowns.Extent("EPSG:2154", 256000, 1280000, 5952000, 6976000);
-
 const viewerDiv = document.getElementById("viewerDiv");
 const params = new URLSearchParams(location.search);
-const x = 1000 * (parseFloat(params.get("x")) || 954.6);
-const y = 1000 * (parseFloat(params.get("y")) || 6438.5);
+const x = 1000 * (parseFloat(params.get("x")) || 0);
+const y = 1000 * (parseFloat(params.get("y")) || 0);
 
 const PLANAR_CONTROLS = {
   minZenithAngle: 5,
@@ -31,10 +23,9 @@ const PLANAR_CONTROLS = {
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
 
-const view = new itowns.View("EPSG:2154", viewerDiv);
-const dim = extent.planarDimensions();
+const view = new itowns.View("EPSG:4978", viewerDiv);
 view.camera3D.near = 0.1;
-view.camera3D.far = 2 * Math.max(dim.x, dim.y);
+view.camera3D.far = 200000;
 view.camera3D.fov = 60;
 view.camera3D.updateProjectionMatrix();
 itownsPlacement(view, x, y);
@@ -162,7 +153,6 @@ view.addFrameRequester(itowns.MAIN_LOOP_EVENTS.BEFORE_RENDER, () => {
   }
 });
 
-initBuildings(view);
 initPoi(view, tilesLayer);
 
 initUi(view, { setSunDate, setEnabled, setShadowsEnabled, refreshTextures });

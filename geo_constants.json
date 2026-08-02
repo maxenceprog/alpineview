@@ -1,0 +1,159 @@
+{
+  "_about": [
+    "Single source of truth for the constants that place alpineview terrain on",
+    "the globe. Every language reads this file at run time -- C++, Python and,",
+    "if it ever needs them, the webapp. Nothing copies a value out of it.",
+    "",
+    "A divergence between two readers of these constants does not fail loudly:",
+    "it silently shifts, rotates or rescales the whole dataset. That is why",
+    "they live in one file instead of once per language.",
+    "",
+    "Every entry is {value, unit, description}. The descriptions say what a",
+    "constant means and what breaks if it is wrong, never what it currently",
+    "equals -- these are constants of the configuration, not of the universe,",
+    "and changing one here must be all it takes."
+  ],
+  "lat_ref": {
+    "value": 45.5,
+    "unit": "degrees",
+    "description": [
+      "Reference latitude of the working frame the terrain is meshed in.",
+      "Web Mercator stretches distances by 1/cos(latitude), so the working",
+      "frame divides Mercator coordinates by that factor taken at this",
+      "latitude. Distances are then true here and drift as cos(lat_ref)/cos",
+      "(lat) away from it, so this should sit at the middle of the area",
+      "covered.",
+      "It must be one value for the whole dataset. Any per-cell reference",
+      "latitude makes two neighbouring cells map their shared edge to",
+      "different places, which reopens the seams that meshing on a shared",
+      "grid exists to close."
+    ]
+  },
+  "wmq_extent": {
+    "value": 20037508.342789244,
+    "unit": "metres",
+    "description": [
+      "Half the width of the WebMercatorQuad world in EPSG:3857 metres.",
+      "Level 0 is a single tile spanning [-wmq_extent, +wmq_extent] on both",
+      "axes, and a tile at level L is 2 * wmq_extent / 2^L across.",
+      "It must equal the top-left corner declared by the WMTS TileMatrixSet",
+      "the imagery is served from. That equality is what makes a terrain tile",
+      "and an imagery tile of the same key cover exactly the same ground, so",
+      "if it drifts, texturing stops lining up with the geometry."
+    ]
+  },
+  "merc_radius": {
+    "value": 6378137.0,
+    "unit": "metres",
+    "description": [
+      "Radius of the sphere the Web Mercator projection is defined on.",
+      "This is a property of the projection, not of the ellipsoid the",
+      "coordinates ultimately refer to; the two are numerically equal in the",
+      "usual definition but they are not the same quantity. Kept separate so",
+      "that changing the ellipsoid never silently moves the tile grid, and",
+      "vice versa."
+    ]
+  },
+  "grs80_a": {
+    "value": 6378137.0,
+    "unit": "metres",
+    "description": [
+      "Semi-major axis of the reference ellipsoid: the one the geodetic",
+      "coordinates are expressed on and the one the ECEF output is defined",
+      "against. It must match the ellipsoid named in the PROJ pipelines below",
+      "and the ellipsoid of the 3D Tiles consumer's globe."
+    ]
+  },
+  "grs80_inv_f": {
+    "value": 298.257222101,
+    "unit": "dimensionless",
+    "description": [
+      "Inverse flattening of the reference ellipsoid. Flattening and the",
+      "first eccentricity squared are derived from it wherever they are",
+      "needed and are never written down separately, so that the ellipsoid is",
+      "described by exactly two numbers.",
+      "Ellipsoids that differ only in the last digits of this value still",
+      "produce a consistent dataset as long as one value is used throughout;",
+      "mixing two of them inside a single round trip does not."
+    ]
+  },
+  "cell_level": {
+    "value": 11,
+    "unit": "WebMercatorQuad level",
+    "description": [
+      "WebMercatorQuad level of the grouping cell.",
+      "One cell is simultaneously the job unit of the coarse builder, the",
+      "origin of the local frame every vertex beneath it is expressed in, the",
+      "unit the tileset groups tiles into, and the directory tiles are stored",
+      "under. Those four must stay one concept: a job spanning more than one",
+      "cell belongs to no single local frame, and a cell finer than a job",
+      "cannot address its own tiles.",
+      "It must be coarser than lod_level0."
+    ]
+  },
+  "lod_level0": {
+    "value": 15,
+    "unit": "WebMercatorQuad level",
+    "description": [
+      "WebMercatorQuad level of the fine build job: one tile at this level is",
+      "one reconstruction.",
+      "It sets the memory and time cost of a job, since a job's area grows",
+      "fourfold for every level it is made coarser, and it sets how many jobs",
+      "make up a cell. It also fixes the coarsest level the fine builder can",
+      "emit; anything above it comes from the coarse builder instead.",
+      "It must be finer than cell_level."
+    ]
+  },
+  "level0_depth": {
+    "value": 7,
+    "unit": "reconstruction octree depth",
+    "description": [
+      "The reconstruction octree depth whose output is emitted at lod_level0.",
+      "Output level is lod_level0 + (depth - level0_depth), so depth and",
+      "output level are locked to each other. That is what lets two runs with",
+      "different requested depth ranges agree tile for tile on the levels",
+      "they share: a tile's name never depends on what else was asked for in",
+      "the same run.",
+      "Raising it makes every level finer geometrically without changing any",
+      "tile's footprint."
+    ]
+  },
+  "coarse_base_depth": {
+    "value": 6,
+    "unit": "reconstruction octree depth",
+    "description": [
+      "Octree depth the coarse builder uses for its first output level, one",
+      "more per level below it. Because level and depth advance together,",
+      "every coarse output tile carries the same number of samples across it",
+      "whatever its level, and this constant is exactly that number as a",
+      "power of two."
+    ]
+  },
+  "proj_pipeline_l93_to_geodetic": {
+    "value": "+proj=pipeline +step +inv +proj=lcc +lat_0=46.5 +lon_0=3 +lat_1=49 +lat_2=44 +x_0=700000 +y_0=6600000 +ellps=GRS80 +step +proj=unitconvert +xy_in=rad +xy_out=deg",
+    "unit": "PROJ pipeline",
+    "description": [
+      "The input files' horizontal CRS -> geodetic longitude and latitude in",
+      "DEGREES. Horizontal only, with no vertical step at all -- mirrors",
+      "proj_pipeline_geodetic_to_l93 in the other direction, and z is never",
+      "touched by either. Terrain z stays in the input's own altitude datum",
+      "(NGF69) all the way through the builder; nothing in this project ever",
+      "needs it expressed as height above the ellipsoid.",
+      "The trailing unit conversion is load-bearing: without it PROJ returns",
+      "radians and every angle downstream is wrong by a constant factor."
+    ]
+  },
+  "proj_pipeline_geodetic_to_l93": {
+    "value": "+proj=pipeline +step +proj=unitconvert +xy_in=deg +xy_out=rad +step +proj=lcc +lat_0=46.5 +lon_0=3 +lat_1=49 +lat_2=44 +x_0=700000 +y_0=6600000 +ellps=GRS80",
+    "unit": "PROJ pipeline",
+    "description": [
+      "Geodetic longitude and latitude in degrees -> the input files' own",
+      "horizontal CRS. Horizontal only, with no vertical step at all -- the",
+      "other direction of proj_pipeline_l93_to_geodetic, and just as",
+      "z-agnostic.",
+      "It exists so that a WebMercatorQuad tile's footprint can be turned",
+      "into a bounding box in the input's CRS, which is how the builder",
+      "decides which input files a job must read."
+    ]
+  }
+}

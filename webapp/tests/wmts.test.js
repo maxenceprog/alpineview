@@ -2,24 +2,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../src/deviceInfo.js", () => ({ IS_MOBILE: false }));
 
-const { fetchWmtsCanvas } = await import("../src/wmts.js");
+const { fetchWmtsTile, mercBounds } = await import("../src/wmts.js");
 
-// happy-dom has no 2D context.
-let draws = 0;
-HTMLCanvasElement.prototype.getContext = () => ({ drawImage() { draws++; } });
-
-function requestedTiles(urls) {
-  return urls.map((u) => {
-    const p = new URLSearchParams(u.split("?")[1]);
-    return `${p.get("TILEMATRIX")}/${p.get("TILECOL")}/${p.get("TILEROW")}`;
-  });
+function requestedTile(url) {
+  const p = new URLSearchParams(url.split("?")[1]);
+  return { z: p.get("TILEMATRIX"), x: p.get("TILECOL"), y: p.get("TILEROW"), layer: p.get("LAYER") };
 }
 
 const OK = { ok: true, status: 200, blob: () => Promise.resolve({}) };
 const NOT_FOUND = { ok: false, status: 404 };
 const SERVER_ERROR = { ok: false, status: 500 };
 
-// Each test uses a distinct extent: the module caches tiles by URL across tests.
 function stubFetch(urls, respond = () => OK) {
   vi.stubGlobal("fetch", (url) => {
     urls.push(url);
@@ -28,44 +21,53 @@ function stubFetch(urls, respond = () => OK) {
   vi.stubGlobal("createImageBitmap", () => Promise.resolve({}));
 }
 
-beforeEach(() => { draws = 0; });
+beforeEach(() => {});
 afterEach(() => { vi.unstubAllGlobals(); });
 
-describe("fetchWmtsCanvas coverage", () => {
-  it("skips tiles outside the layer's data box", async () => {
+describe("fetchWmtsTile", () => {
+  it("requests the exact (x, y, z) key it's given", async () => {
     const urls = [];
     stubFetch(urls);
-    // Eastern edge of the view extent: overlaps plan col 3 at z7, which has no data.
-    await fetchWmtsCanvas(
-      { west: 1_200_000, east: 1_280_000, south: 6_100_000, north: 6_180_000 },
-      "plan",
-    );
-    expect(urls.length).toBeGreaterThan(0);
-    expect(requestedTiles(urls).some((t) => t.startsWith("7/3/"))).toBe(false);
+    await fetchWmtsTile(1057, 736, 11, "ortho");
+    expect(urls.length).toBe(1);
+    expect(requestedTile(urls[0])).toEqual({ z: "11", x: "1057", y: "736", layer: "ORTHOIMAGERY.ORTHOPHOTOS" });
   });
 
-  // IGN 404s sea and coverage gaps inside the data box; one must not lose the mosaic.
-  it("draws the other tiles when one 404s", async () => {
+  it("returns null on a 404 instead of throwing", async () => {
     const urls = [];
-    let first = true;
-    stubFetch(urls, () => (first ? ((first = false), NOT_FOUND) : OK));
-    const canvas = await fetchWmtsCanvas(
-      { west: 900_000, east: 901_000, south: 6_400_000, north: 6_401_000 },
-      "ortho",
-    );
-    expect(urls.length).toBeGreaterThan(1);
-    expect(draws).toBe(urls.length - 1);
-    expect(canvas.width).toBeGreaterThan(0);
+    stubFetch(urls, () => NOT_FOUND);
+    const bitmap = await fetchWmtsTile(1, 2, 3, "plan");
+    expect(bitmap).toBe(null);
   });
 
-  it("still returns a canvas when a tile fails to load", async () => {
+  it("throws on a real server error", async () => {
     const urls = [];
     stubFetch(urls, () => SERVER_ERROR);
-    const canvas = await fetchWmtsCanvas(
-      { west: 902_000, east: 903_000, south: 6_402_000, north: 6_403_000 },
-      "ortho",
-    );
-    expect(draws).toBe(0);
-    expect(canvas.width).toBeGreaterThan(0);
+    await expect(fetchWmtsTile(4, 5, 6, "ortho")).rejects.toThrow();
+  });
+
+  it("caches by URL: a second call for the same tile doesn't refetch", async () => {
+    const urls = [];
+    stubFetch(urls);
+    await fetchWmtsTile(10, 20, 7, "ortho");
+    await fetchWmtsTile(10, 20, 7, "ortho");
+    expect(urls.length).toBe(1);
+  });
+});
+
+describe("mercBounds", () => {
+  it("covers the full Web Mercator extent at level 0", () => {
+    const { x0, y0, s } = mercBounds(0, 0, 0);
+    expect(x0).toBeCloseTo(-20037508.342789244, 3);
+    expect(y0).toBeCloseTo(-20037508.342789244, 3);
+    expect(s).toBeCloseTo(2 * 20037508.342789244, 3);
+  });
+
+  it("halves in size each level, tiling without gaps", () => {
+    const a = mercBounds(5, 3, 3);
+    const b = mercBounds(6, 6, 6);
+    expect(b.s).toBeCloseTo(a.s / 2, 6);
+    expect(b.x0).toBeCloseTo(a.x0, 6);
+    expect(b.y0).toBeCloseTo(a.y0 + a.s / 2, 6);
   });
 });

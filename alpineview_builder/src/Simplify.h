@@ -185,7 +185,7 @@ namespace Simplify
 	void update_uvs(int i0, const Vertex &v, const vec3f &p, std::vector<int> &deleted);
 	void update_triangles(int i0, Vertex &v, std::vector<int> &deleted, int &deleted_triangles);
 	void update_mesh(int iteration);
-	void compact_mesh();
+	void drop_deleted_triangles();
 	//
 	// Main simplification function
 	//
@@ -306,7 +306,7 @@ namespace Simplify
 			}
 		}
 		// clean up mesh
-		compact_mesh();
+		drop_deleted_triangles();
 	} // simplify_mesh()
 
 	void simplify_mesh_lossless(bool verbose = false)
@@ -408,7 +408,7 @@ namespace Simplify
 			deleted_triangles = 0;
 		} // for each iteration
 		// clean up mesh
-		compact_mesh();
+		drop_deleted_triangles();
 	} // simplify_mesh_lossless()
 
 	// Check if a triangle flips when this edge is removed
@@ -617,35 +617,14 @@ namespace Simplify
 		}
 	}
 
-	// Finally compact mesh before exiting
-
-	void compact_mesh()
+	void drop_deleted_triangles()
 	{
 		int dst = 0;
-		loopi(0, vertices.size())
-		{
-			vertices[i].tcount = 0;
-		}
 		loopi(0, triangles.size()) if (!triangles[i].deleted)
 		{
-			Triangle &t = triangles[i];
-			triangles[dst++] = t;
-			loopj(0, 3) vertices[t.v[j]].tcount = 1;
+			triangles[dst++] = triangles[i];
 		}
 		triangles.resize(dst);
-		dst = 0;
-		loopi(0, vertices.size()) if (vertices[i].tcount)
-		{
-			vertices[i].tstart = dst;
-			vertices[dst].p = vertices[i].p;
-			dst++;
-		}
-		loopi(0, triangles.size())
-		{
-			Triangle &t = triangles[i];
-			loopj(0, 3) t.v[j] = vertices[t.v[j]].tstart;
-		}
-		vertices.resize(dst);
 	}
 
 	// Error between vertex and Quadric

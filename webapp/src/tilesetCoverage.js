@@ -1,6 +1,7 @@
+import geoConstants from "../../geo_constants.json";
 import { cellLevels } from "./terrainPack.js";
 
-export const CELL_KM = 16;
+export const CELL_LEVEL = geoConstants.cell_level.value;
 
 const HD_LEVEL = 7;
 
