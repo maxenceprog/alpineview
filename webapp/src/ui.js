@@ -113,6 +113,11 @@ function initSearch(view) {
     view.camera3D.lookAt(target);
     view.camera3D.updateMatrixWorld(true);
     view.notifyChange(view.camera3D);
+
+    const searchParams = new URLSearchParams(location.search);
+    searchParams.set("x", (result.x / 1000).toFixed(3));
+    searchParams.set("y", (result.y / 1000).toFixed(3));
+    history.replaceState(null, "", `?${searchParams}`);
   }
 
   function renderSearchResults(results) {

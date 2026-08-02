@@ -4,16 +4,27 @@ import * as THREE from "three";
 import { initEnvironment } from "./environment.js";
 import { initBuildings } from "./overlays.js";
 import { initPoi } from "./poi.js";
+import { wgs84ToWebMercator } from "./proj.js";
 import { TILESET_URL, terrainPackPlugin } from "./terrainPack.js";
 import { installWmtsDraping } from "./tilesTexture.js";
 import { initTouchControls } from "./touchControls.js";
 import { initUi } from "./ui.js";
 import { itownsPlacement } from "./utils.js";
+import { mercToLocal } from "./workFrame.js";
+
+// Barre des Ecrins, used when the URL carries no ?x/?y.
+const DEFAULT_LAT = 44.922199;
+const DEFAULT_LON = 6.359697;
 
 const viewerDiv = document.getElementById("viewerDiv");
 const params = new URLSearchParams(location.search);
-const x = 1000 * (parseFloat(params.get("x")) || 0);
-const y = 1000 * (parseFloat(params.get("y")) || 0);
+let x, y;
+if (params.has("x") || params.has("y")) {
+  x = 1000 * (parseFloat(params.get("x")) || 0);
+  y = 1000 * (parseFloat(params.get("y")) || 0);
+} else {
+  [x, y] = mercToLocal(wgs84ToWebMercator.forward([DEFAULT_LON, DEFAULT_LAT]));
+}
 
 const PLANAR_CONTROLS = {
   minZenithAngle: 5,
