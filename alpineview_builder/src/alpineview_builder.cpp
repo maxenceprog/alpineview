@@ -1034,6 +1034,8 @@ int main(int argc, char **argv)
 		return (-1);
 	}
 
+#TODO add vegetation step
+
 	tt.total = chrono.stop();
 
 	print_timings(tt);

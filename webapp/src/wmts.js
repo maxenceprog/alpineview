@@ -22,6 +22,12 @@ export function mercBounds(z, x, y) {
   return { x0, y0: y1 - s, s };
 }
 
+/** Inverse of mercBounds: the tile at zoom z containing merc point (mx, my). */
+export function mercTileAt(z, mx, my) {
+  const s = (2 * WMQ_EXTENT) / 2 ** z;
+  return { x: Math.floor((mx + WMQ_EXTENT) / s), y: Math.floor((WMQ_EXTENT - my) / s) };
+}
+
 let currentMapSource = "ortho";
 
 export function setMapSource(sourceKey) {

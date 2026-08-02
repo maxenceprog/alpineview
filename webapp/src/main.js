@@ -2,6 +2,7 @@ import { DebugTilesPlugin } from "3d-tiles-renderer/plugins";
 import * as itowns from "itowns";
 import * as THREE from "three";
 import { initEnvironment } from "./environment.js";
+import { initBuildings } from "./overlays.js";
 import { initPoi } from "./poi.js";
 import { TILESET_URL, terrainPackPlugin } from "./terrainPack.js";
 import { installWmtsDraping } from "./tilesTexture.js";
@@ -153,6 +154,7 @@ view.addFrameRequester(itowns.MAIN_LOOP_EVENTS.BEFORE_RENDER, () => {
   }
 });
 
+initBuildings(view);
 initPoi(view, tilesLayer);
 
 initUi(view, { setSunDate, setEnabled, setShadowsEnabled, refreshTextures });
