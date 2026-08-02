@@ -22,8 +22,8 @@ struct Transform
  * error) when the flag is the last token and has no value. */
 const char *flag_value(int argc, const char **argv, int *i);
 
-/* Triangle budget to have median file size of maximum 80kB */
-inline constexpr int DEFAULT_TRIANGLE_TARGET_COUNT = 40000;
+/* Triangle budget to have median file size of maximum 90kB */
+inline constexpr int DEFAULT_TRIANGLE_TARGET_COUNT = 45000;
 
 /* Run the PoissonRecon binary. */
 int run_poisson_recon(const std::string &recon_in, const std::string &recon_out,

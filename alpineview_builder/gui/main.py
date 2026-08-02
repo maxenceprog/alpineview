@@ -1,5 +1,6 @@
 import logging
 import os
+import subprocess
 import sys
 import threading
 
@@ -42,6 +43,9 @@ DEFAULT_LOG = os.path.join(HERE, "build.log")
 TILER_DIR = os.path.join(REPO, "ogc3d_tiler")
 PACK_PATH = os.path.join(REPO, "webapp", "src", "terrainPack.json")
 MAX_RECT_CELLS = 5000
+S3_ENDPOINT = "https://s3.sbg.io.cloud.ovh.net"
+S3_BUCKET = "s3://lidalps3d/pm"
+S3_SYNC_PERIOD_S = 15
 
 
 class PostBuild(QObject):
@@ -67,6 +71,51 @@ class PostBuild(QObject):
         except Exception as e:
             text = "summary failed: %s" % e
         self.done.emit(text)
+
+
+class S3Sync(QObject):
+    def start(self, out_dir, log_path):
+        self.stop_event = threading.Event()
+        self.thread = threading.Thread(
+            target=self._run, args=(out_dir, log_path), daemon=True
+        )
+        self.thread.start()
+
+    def stop(self):
+        self.stop_event.set()
+        self.thread.join()
+
+    def _run(self, out_dir, log_path):
+        while True:
+            sync = subprocess.run(
+                [
+                    "aws",
+                    "s3",
+                    "sync",
+                    out_dir,
+                    S3_BUCKET,
+                    "--acl",
+                    "public-read",
+                    "--endpoint-url",
+                    S3_ENDPOINT,
+                    "--exclude",
+                    "*",
+                    "--include",
+                    "*.glb",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            try:
+                with open(log_path, "a") as f:
+                    f.write(
+                        "=== s3 sync exit %d\n%s\n%s\n"
+                        % (sync.returncode, sync.stdout, sync.stderr)
+                    )
+            except OSError:
+                pass
+            if self.stop_event.wait(S3_SYNC_PERIOD_S):
+                return
 
 
 class Window(QWidget):
@@ -113,6 +162,7 @@ class Window(QWidget):
         self.summary.setMaximumHeight(160)
         self.summary.setPlaceholderText("per-level summary, after build_tileset.py")
         self.post = PostBuild()
+        self.s3sync = S3Sync()
         self.post.done.connect(self.on_summary, Qt.QueuedConnection)
 
         form = QVBoxLayout()
@@ -253,6 +303,7 @@ class Window(QWidget):
         self.runner = BuildRunner(paths, self.nproc.value())
         self.runner.progress.connect(self.on_progress, Qt.QueuedConnection)
         self.runner.finished.connect(self.on_finished, Qt.QueuedConnection)
+        self.s3sync.start(out, self.log_edit.text())
         self.build_btn.setEnabled(False)
         self.summary.setPlainText("")
         self.runner.start(self.cells, self.fine, self.force.isChecked())
@@ -267,6 +318,7 @@ class Window(QWidget):
         )
 
     def on_finished(self, done, ok, failed):
+        self.s3sync.stop()
         self.build_btn.setEnabled(bool(self.cells))
         self.update_info()
         self.draw_built_tiles()

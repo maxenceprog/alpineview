@@ -224,12 +224,18 @@ static bool save_glb(const std::vector<char> &buf, const char *out_dir,
 			 cell_x, cell_y, local_level);
 	char path[512];
 	snprintf(path, sizeof(path), "%s/%d.%d.glb", dir, local_x, local_y);
+	char tmp_path[520];
+	snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", path);
 	make_dirs(path);
-	FILE *f = fopen(path, "wb");
+	FILE *f = fopen(tmp_path, "wb");
 	if (!f)
 		return false;
 	bool ok = fwrite(buf.data(), 1, buf.size(), f) == buf.size();
 	fclose(f);
+	if (ok)
+		ok = rename(tmp_path, path) == 0;
+	if (!ok)
+		remove(tmp_path);
 	return ok;
 }
 
