@@ -13,16 +13,15 @@
 #include "las_read.h"
 
 #define CONSUME(to, bytes)                                                     \
-	do {                                                                   \
-		if (fread((to), (bytes), 1, f) != 1) {                         \
-			fclose(f);                                             \
-			return -1;                                             \
-		}                                                              \
-		consumed += (bytes);                                           \
+	do {                                                                       \
+		if (fread((to), (bytes), 1, f) != 1) {                                 \
+			fclose(f);                                                         \
+			return -1;                                                         \
+		}                                                                      \
+		consumed += (bytes);                                                   \
 	} while (0);
 
-int las_read_info(const char *filename, struct LasFileInfo &info)
-{
+int las_read_info(const char *filename, struct LasFileInfo &info) {
 	FILE *f = fopen(filename, "rb");
 	if (!f)
 		return -1;
@@ -62,8 +61,8 @@ int las_read_info(const char *filename, struct LasFileInfo &info)
 	CONSUME(buf, 2);
 
 	/* Header size */
-	uint16_t header_size;
-	CONSUME(&header_size, 2);
+	uint16_t headerSize;
+	CONSUME(&headerSize, 2);
 
 	/* Offset to point data */
 	CONSUME(&info.offset_to_points, 4);
@@ -80,10 +79,10 @@ int las_read_info(const char *filename, struct LasFileInfo &info)
 	/* Point Data Record Length */
 	CONSUME(&info.point_size, 2);
 
-	uint32_t legacy_num;
+	uint32_t legacyNum;
 	/* Legacy number of points */
-	CONSUME(&legacy_num, 4);
-	info.point_num = legacy_num;
+	CONSUME(&legacyNum, 4);
+	info.point_num = legacyNum;
 
 	/* Legacy Nbr of Point by Return */
 	CONSUME(buf, 20);
@@ -101,7 +100,7 @@ int las_read_info(const char *filename, struct LasFileInfo &info)
 	CONSUME(&info.max[2], 8);
 	CONSUME(&info.min[2], 8);
 
-	if (header_size > consumed) {
+	if (headerSize > consumed) {
 		CONSUME(buf, 8);
 		CONSUME(buf, 8);
 		CONSUME(buf, 4);
@@ -111,7 +110,7 @@ int las_read_info(const char *filename, struct LasFileInfo &info)
 
 	assert(header_size == consumed);
 
-	if (info.compressed && header_size == 375 && nvlr >= 1) {
+	if (info.compressed && headerSize == 375 && nvlr >= 1) {
 		CONSUME(buf, 54);
 		info.copc = strncmp(buf + 2, "copc", 4) == 0;
 		info.copc &= *(uint16_t *)(buf + 18) == 1;
@@ -123,13 +122,12 @@ int las_read_info(const char *filename, struct LasFileInfo &info)
 	return 0;
 }
 
-void las_print_info(const struct LasFileInfo &info)
-{
+void las_print_info(const struct LasFileInfo &info) {
 	printf("LAS Version %d.%d\n", info.version_major, info.version_minor);
 	printf("Compressed : %s\n", info.compressed ? "yes" : "no");
 	printf("Copc : %s\n", info.copc ? "yes" : "no");
-	printf("Format: %d, Point Len: %d, Num Points: %zu\n",
-	       info.point_format, info.point_size, info.point_num);
+	printf("Format: %d, Point Len: %d, Num Points: %zu\n", info.point_format,
+		   info.point_size, info.point_num);
 	printf("Offsets :\n");
 	printf("%lf\n", info.offset[0]);
 	printf("%lf\n", info.offset[1]);
@@ -144,8 +142,7 @@ void las_print_info(const struct LasFileInfo &info)
 	printf("z : %lf %lf\n", info.min[2], info.max[2]);
 }
 
-char *las_load_data(const char *filename, const LasFileInfo &info, char *buf)
-{
+char *las_load_data(const char *filename, const LasFileInfo &info, char *buf) {
 	FILE *f = fopen(filename, "rb");
 	if (!f)
 		return NULL;
@@ -156,21 +153,21 @@ char *las_load_data(const char *filename, const LasFileInfo &info, char *buf)
 		return NULL;
 	}
 
-	size_t raw_size = info.point_size * info.point_num;
+	size_t rawSize = info.point_size * info.point_num;
 
 	if (fseek(f, info.offset_to_points, SEEK_SET)) {
 		return NULL;
 	}
 
-	bool local_alloc = false;
+	bool localAlloc = false;
 	if (!buf) {
 		buf = (char *)malloc(info.point_size * info.point_num);
 		assert(buf);
-		local_alloc = true;
+		localAlloc = true;
 	}
 
-	if (fread(buf, raw_size, 1, f) != 1) {
-		if (local_alloc)
+	if (fread(buf, rawSize, 1, f) != 1) {
+		if (localAlloc)
 			free(buf);
 		return NULL;
 	}
@@ -178,28 +175,28 @@ char *las_load_data(const char *filename, const LasFileInfo &info, char *buf)
 	return buf;
 }
 
-char *las_load_laz_data(const char *filename, const LasFileInfo &info, char *buf)
-{
-	bool local_alloc = false;
+char *las_load_laz_data(const char *filename, const LasFileInfo &info,
+						char *buf) {
+	bool localAlloc = false;
 	if (!buf) {
 		buf = (char *)malloc(info.point_size * info.point_num);
 		assert(buf);
-		local_alloc = true;
+		localAlloc = true;
 	}
 
 	try {
 		lazperf::reader::named_file reader(filename);
-		uint64_t point_count = reader.pointCount();
-		if (point_count != info.point_num) {
-			if (local_alloc)
+		uint64_t pointCount = reader.pointCount();
+		if (pointCount != info.point_num) {
+			if (localAlloc)
 				free(buf);
 			return NULL;
 		}
-		for (uint64_t i = 0; i < point_count; ++i) {
+		for (uint64_t i = 0; i < pointCount; ++i) {
 			reader.readPoint(buf + i * info.point_size);
 		}
 	} catch (const std::exception &) {
-		if (local_alloc)
+		if (localAlloc)
 			free(buf);
 		return NULL;
 	}
@@ -207,52 +204,50 @@ char *las_load_laz_data(const char *filename, const LasFileInfo &info, char *buf
 	return buf;
 }
 
-struct LasPoint las_read_point(const char *raw, unsigned char point_format)
-{
-	LasPoint P;
+struct LasPoint las_read_point(const char *raw, unsigned char pointFormat) {
+	LasPoint p;
 
-	P.x = *(int32_t *)(raw + 0);
-	P.y = *(int32_t *)(raw + 4);
-	P.z = *(int32_t *)(raw + 8);
-	P.intensity = *(uint16_t *)(raw + 12);
+	p.x = *(int32_t *)(raw + 0);
+	p.y = *(int32_t *)(raw + 4);
+	p.z = *(int32_t *)(raw + 8);
+	p.intensity = *(uint16_t *)(raw + 12);
 
-	switch (point_format) {
+	switch (pointFormat) {
 	case 1:
 	case 3:
-		P.return_number = *(uint8_t *)(raw + 14) & 0x7;
-		P.number_of_returns = *(uint8_t *)(raw + 14) >> 3 & 0x7;
-		P.classification = *(uint8_t *)(raw + 15);
-		P.scan_angle = *(int8_t *)(raw + 16);
-		P.source_id = *(uint16_t *)(raw + 18);
-		P.gps_time = *(double *)(raw + 20);
+		p.return_number = *(uint8_t *)(raw + 14) & 0x7;
+		p.number_of_returns = *(uint8_t *)(raw + 14) >> 3 & 0x7;
+		p.classification = *(uint8_t *)(raw + 15);
+		p.scan_angle = *(int8_t *)(raw + 16);
+		p.source_id = *(uint16_t *)(raw + 18);
+		p.gps_time = *(double *)(raw + 20);
 		break;
 	case 6:
 	case 7:
 	case 8:
-		P.return_number = *(uint8_t *)(raw + 14) & 0x15;
-		P.number_of_returns = *(uint8_t *)(raw + 14) >> 4 & 0x15;
+		p.return_number = *(uint8_t *)(raw + 14) & 0x15;
+		p.number_of_returns = *(uint8_t *)(raw + 14) >> 4 & 0x15;
 		/* Hack We combine source_id and scanner channel within
 		 * source_id (this assumes that source_id does not effectively
 		 * uses more than 14bits
 		 */
-		P.source_id = (*(uint8_t *)(raw + 15) >> 4) << 14;
-		P.classification = *(uint8_t *)(raw + 16);
-		P.scan_angle = (int8_t)(*(int16_t *)(raw + 18) * 0.006);
+		p.source_id = (*(uint8_t *)(raw + 15) >> 4) << 14;
+		p.classification = *(uint8_t *)(raw + 16);
+		p.scan_angle = (int8_t)(*(int16_t *)(raw + 18) * 0.006);
 		/* Endo of source_id hack */
-		P.source_id |= *(uint16_t *)(raw + 20);
-		P.gps_time = *(double *)(raw + 22);
+		p.source_id |= *(uint16_t *)(raw + 20);
+		p.gps_time = *(double *)(raw + 22);
 		break;
 
 	default:
 		assert(0);
 	}
 
-	return (P);
+	return (p);
 }
 
-void print_las_point(const LasPoint &P)
-{
-	printf("\nPos : %d %d %d\n", P.x, P.y, P.z);
-	printf("SourceID : %4d ScanAngle : %+2d GPS : %lf\n", P.source_id,
-	       P.scan_angle, P.gps_time);
+void printLasPoint(const LasPoint &p) {
+	printf("\nPos : %d %d %d\n", p.x, p.y, p.z);
+	printf("SourceID : %4d ScanAngle : %+2d GPS : %lf\n", p.source_id,
+		   p.scan_angle, p.gps_time);
 }

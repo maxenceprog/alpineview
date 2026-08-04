@@ -16,8 +16,7 @@
  * decimation happens here; the shared grid the levels are cut on is what keeps
  * their seams matching.
  */
-struct LodCfg
-{
+struct LodCfg {
 	int max_level; /* highest zoom level to emit; < 0 disables the stage */
 };
 
@@ -35,5 +34,5 @@ struct LodCfg
  * (key >> (level - cell_level)), the ENU -> ECEF transform from the cell's
  * centre by the same closed-form geodesy, and the tile-frame AABB from the
  * glTF accessor min/max (rotating it back out of Y-up). */
-int write_lod_level(const TriMesh &mesh, int base_level, int tile_x,
-					int tile_y, int z, const char *out_dir, bool verbose);
+int write_lod_level(const TriMesh &mesh, int base_level, int tile_x, int tile_y,
+					int z, const char *out_dir, bool verbose);

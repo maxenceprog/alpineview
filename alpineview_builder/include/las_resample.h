@@ -15,27 +15,20 @@ struct DownsampleCfg {
 	float slope_deg;
 };
 
-struct CellKey
-{
+struct CellKey {
 	int32_t i, j;
-	bool operator==(const CellKey &o) const
-	{
-		return i == o.i && j == o.j;
-	}
+	bool operator==(const CellKey &o) const { return i == o.i && j == o.j; }
 };
-struct CellKeyHash
-{
-	size_t operator()(const CellKey &c) const
-	{
+struct CellKeyHash {
+	size_t operator()(const CellKey &c) const {
 		return (size_t)(c.i * 73856093) ^ (size_t)(c.j * 19349663);
 	}
 };
 
-struct CellAccum
-{
+struct CellAccum {
 	Vec3 sum_pos{0.f, 0.f, 0.f};
 	Vec3 sum_nml{0.f, 0.f, 0.f};
-	int count = 0;     /* all points in the cell */
+	int count = 0;	   /* all points in the cell */
 	int nml_count = 0; /* points with a non-zero (resolved) normal */
 };
 using Grid = std::unordered_map<CellKey, CellAccum, CellKeyHash>;

@@ -7,4 +7,4 @@
  * interpolated on the cut edge. Normals are interpolated when m.normals is
  * non-empty. Pass nullptr for a side to skip building it. */
 void split_mesh(const TriMesh &m, int axis, float coord, TriMesh *lo,
-		TriMesh *hi);
+				TriMesh *hi);

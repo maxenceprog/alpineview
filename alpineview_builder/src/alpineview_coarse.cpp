@@ -35,8 +35,7 @@ static const float CUBE_N = 6.f;
 
 static const double L93_MARGIN_M = 500.0;
 
-struct Cfg
-{
+struct Cfg {
 	int x0 = 0;
 	int y0 = 0;
 	int min_z = 1;
@@ -49,8 +48,7 @@ struct Cfg
 	int clean = 2;
 };
 
-static void print_usage(const char *prog)
-{
+static void printUsage(const char *prog) {
 	printf("Usage: %s X Y [options]\n"
 		   "\n"
 		   "  X, Y                 WebMercatorQuad tile column and row at\n"
@@ -68,117 +66,89 @@ static void print_usage(const char *prog)
 		   prog, geo().cell_level, geo().cell_level);
 }
 
-static int process_args(int argc, const char **argv, Cfg &cfg)
-{
+static int processArgs(int argc, const char **argv, Cfg &cfg) {
 	int positional = 0;
-	for (int i = 1; i < argc; ++i)
-	{
+	for (int i = 1; i < argc; ++i) {
 		const char *arg = argv[i];
 		const char *val = NULL;
 
-		if (strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0)
-		{
-			print_usage(argv[0]);
+		if (strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0) {
+			printUsage(argv[0]);
 			return (1);
 		}
-		if (arg[0] != '-')
-		{
+		if (arg[0] != '-') {
 			if (positional == 0)
 				cfg.x0 = atoi(arg);
 			else if (positional == 1)
 				cfg.y0 = atoi(arg);
-			else
-			{
+			else {
 				printf("Error: unexpected argument '%s'.\n", arg);
 				return (-1);
 			}
 			++positional;
 			continue;
 		}
-		if (strcmp(arg, "--data-dir") == 0)
-		{
+		if (strcmp(arg, "--data-dir") == 0) {
 			if (!(val = flag_value(argc, argv, &i)))
 				return (-1);
 			cfg.data_dir = val;
-		}
-		else if (strcmp(arg, "--out-dir") == 0)
-		{
+		} else if (strcmp(arg, "--out-dir") == 0) {
 			if (!(val = flag_value(argc, argv, &i)))
 				return (-1);
 			cfg.out_dir = val;
-		}
-		else if (strcmp(arg, "--min-z") == 0)
-		{
+		} else if (strcmp(arg, "--min-z") == 0) {
 			if (!(val = flag_value(argc, argv, &i)))
 				return (-1);
 			cfg.min_z = atoi(val);
-		}
-		else if (strcmp(arg, "--max-z") == 0)
-		{
+		} else if (strcmp(arg, "--max-z") == 0) {
 			if (!(val = flag_value(argc, argv, &i)))
 				return (-1);
 			cfg.max_z = atoi(val);
-		}
-		else if (strcmp(arg, "--weight") == 0)
-		{
+		} else if (strcmp(arg, "--weight") == 0) {
 			if (!(val = flag_value(argc, argv, &i)))
 				return (-1);
 			cfg.weight = atof(val);
-		}
-		else if (strcmp(arg, "--clean") == 0)
-		{
+		} else if (strcmp(arg, "--clean") == 0) {
 			if (!(val = flag_value(argc, argv, &i)))
 				return (-1);
 			cfg.clean = atoi(val);
-		}
-		else if (strcmp(arg, "--parallel") == 0)
-		{
+		} else if (strcmp(arg, "--parallel") == 0) {
 			cfg.parallel = true;
-		}
-		else if (strcmp(arg, "--no-verbose") == 0)
-		{
+		} else if (strcmp(arg, "--no-verbose") == 0) {
 			cfg.verbose = false;
-		}
-		else
-		{
+		} else {
 			printf("Error: unknown option '%s'. Try --help.\n", arg);
 			return (-1);
 		}
 	}
-	if (positional < 2)
-	{
+	if (positional < 2) {
 		printf("Error: missing WebMercatorQuad tile X Y. Try --help.\n");
 		return (-1);
 	}
-	if (cfg.max_z < cfg.min_z)
-	{
+	if (cfg.max_z < cfg.min_z) {
 		printf("Error: --max-z below --min-z.\n");
 		return (-1);
 	}
 	return (0);
 }
 
-static std::string out_file(const Cfg &cfg, const char *ext)
-{
+static std::string outFile(const Cfg &cfg, const char *ext) {
 	std::string name = cfg.out_dir;
 	if (!name.empty() && name.back() != '/')
 		name += '/';
 	char suffix[64];
-	snprintf(suffix, sizeof(suffix), "coarse_%d_%d.%s", cfg.x0, cfg.y0,
-			 ext);
+	snprintf(suffix, sizeof(suffix), "coarse_%d_%d.%s", cfg.x0, cfg.y0, ext);
 	return name + suffix;
 }
 
 /* L93 bounding box of the cube, by sampling the work-frame boundary: the two
  * grids are not affine to each other, so the corners alone are not safe. */
-static void cube_l93_bbox(double wx0, double wy0, double wx1, double wy1,
-						  double &x0, double &y0, double &x1, double &y1)
-{
-	const int STEPS = 8;
+static void cubeL93Bbox(double wx0, double wy0, double wx1, double wy1,
+						double &x0, double &y0, double &x1, double &y1) {
+	const int steps = 8;
 	std::vector<Vec3d> pts;
-	for (int i = 0; i <= STEPS; ++i)
-	{
-		double t = (double)i / STEPS;
+	for (int i = 0; i <= steps; ++i) {
+		double t = (double)i / steps;
 		double wx = wx0 + t * (wx1 - wx0);
 		double wy = wy0 + t * (wy1 - wy0);
 		pts.push_back(geo_work_to_geodetic(Vec3d{wx, wy0, 0.0}));
@@ -190,8 +160,7 @@ static void cube_l93_bbox(double wx0, double wy0, double wx1, double wy1,
 
 	x0 = y0 = 1e30;
 	x1 = y1 = -1e30;
-	for (const Vec3d &p : pts)
-	{
+	for (const Vec3d &p : pts) {
 		x0 = fmin(x0, p.x);
 		x1 = fmax(x1, p.x);
 		y0 = fmin(y0, p.y);
@@ -205,19 +174,15 @@ static void cube_l93_bbox(double wx0, double wy0, double wx1, double wy1,
 
 /* Sample the heightfield on a regular grid over the cube, in the work frame.
  * Fills z with NGF69 altitude (NAN where the source has no data). */
-static int sample_grid(const Cfg &cfg, std::vector<AscTile> &tiles, int n,
-					   double wx0, double wy0, double step,
-					   std::vector<double> &z)
-{
+static int sampleGrid(const Cfg &cfg, std::vector<AscTile> &tiles, int n,
+					  double wx0, double wy0, double step,
+					  std::vector<double> &z) {
 	std::vector<Vec3d> geo((size_t)n * n);
-	for (int j = 0; j < n; ++j)
-	{
-		for (int i = 0; i < n; ++i)
-		{
+	for (int j = 0; j < n; ++j) {
+		for (int i = 0; i < n; ++i) {
 			double wx = wx0 + (i + 0.5) * step;
 			double wy = wy0 + (j + 0.5) * step;
-			geo[(size_t)j * n + i] =
-				geo_work_to_geodetic(Vec3d{wx, wy, 0.0});
+			geo[(size_t)j * n + i] = geo_work_to_geodetic(Vec3d{wx, wy, 0.0});
 		}
 	}
 
@@ -227,8 +192,7 @@ static int sample_grid(const Cfg &cfg, std::vector<AscTile> &tiles, int n,
 
 	z.assign((size_t)n * n, NAN);
 	size_t found = 0;
-	for (size_t k = 0; k < z.size(); ++k)
-	{
+	for (size_t k = 0; k < z.size(); ++k) {
 		float h = asc_sample(tiles, l93[k].x, l93[k].y);
 		if (isnan(h))
 			continue;
@@ -244,12 +208,10 @@ static int sample_grid(const Cfg &cfg, std::vector<AscTile> &tiles, int n,
 /* Oriented point cloud in the unit cube, from the sampled heightfield.
  * Normals come from the analytic gradient, exact because the grid is regular
  * in the frame the points live in. */
-static int build_cloud(const std::vector<double> &z, int n, double step,
-					   TriMesh &cloud, Transform &t)
-{
+static int buildCloud(const std::vector<double> &z, int n, double step,
+					  TriMesh &cloud, Transform &t) {
 	double zmin = 1e30, zmax = -1e30;
-	for (double v : z)
-	{
+	for (double v : z) {
 		if (isnan(v))
 			continue;
 		zmin = fmin(zmin, v);
@@ -258,32 +220,29 @@ static int build_cloud(const std::vector<double> &z, int n, double step,
 	if (zmin > zmax)
 		return (-1);
 
-	double span_xy = n * step;
+	double spanXy = n * step;
 	t.scale = CUBE_N / (CUBE_N + 2.f);
 	t.shift.x = t.shift.y = 1.f / (CUBE_N + 2.f);
 
 	/* The cube already includes the buffer, so the horizontal scale is
 	 * simply 1 / its side; scale/shift describe where the tile sits in it
 	 * and are what recut_mesh and the rescale below consume. */
-	double scal = 1.0 / span_xy;
+	double scal = 1.0 / spanXy;
 	double mean = 0.5 * (zmin + zmax) * scal;
 	t.shift.z = 0.5 - round(16 * mean) * 0.0625;
 
-	if (zmin * scal + t.shift.z < 0.0 || zmax * scal + t.shift.z > 1.0)
-	{
+	if (zmin * scal + t.shift.z < 0.0 || zmax * scal + t.shift.z > 1.0) {
 		printf("Altitude span too large for the cube (%.0f m over "
 			   "%.0f m).\n",
-			   zmax - zmin, span_xy);
+			   zmax - zmin, spanXy);
 		return (-1);
 	}
 
 	cloud.clear();
 	cloud.verts.reserve(z.size());
 	cloud.normals.reserve(z.size());
-	for (int j = 0; j < n; ++j)
-	{
-		for (int i = 0; i < n; ++i)
-		{
+	for (int j = 0; j < n; ++j) {
+		for (int i = 0; i < n; ++i) {
 			double v = z[(size_t)j * n + i];
 			if (isnan(v))
 				continue;
@@ -296,8 +255,7 @@ static int build_cloud(const std::vector<double> &z, int n, double step,
 			double zxp = z[(size_t)j * n + ip];
 			double zym = z[(size_t)jm * n + i];
 			double zyp = z[(size_t)jp * n + i];
-			if (isnan(zxm) || isnan(zxp) || isnan(zym) ||
-				isnan(zyp))
+			if (isnan(zxm) || isnan(zxp) || isnan(zym) || isnan(zyp))
 				continue;
 
 			double dzdx = (zxp - zxm) / ((ip - im) * step);
@@ -305,23 +263,21 @@ static int build_cloud(const std::vector<double> &z, int n, double step,
 			Vec3 nml{(float)-dzdx, (float)-dzdy, 1.f};
 			nml = nml / norm(nml);
 
-			cloud.verts.push_back(
-				Vec3{(float)((i + 0.5) * step * scal),
-					 (float)((j + 0.5) * step * scal),
-					 (float)(v * scal + t.shift.z)});
+			cloud.verts.push_back(Vec3{(float)((i + 0.5) * step * scal),
+									   (float)((j + 0.5) * step * scal),
+									   (float)(v * scal + t.shift.z)});
 			cloud.normals.push_back(nml);
 		}
 	}
 	return cloud.verts.empty() ? -1 : 0;
 }
 
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
 	Cfg cfg;
-	int args_ret = process_args(argc, (const char **)argv, cfg);
-	if (args_ret > 0)
+	int argsRet = processArgs(argc, (const char **)argv, cfg);
+	if (argsRet > 0)
 		return (0);
-	if (args_ret < 0)
+	if (argsRet < 0)
 		return (-1);
 
 	if (geo_init())
@@ -332,37 +288,35 @@ int main(int argc, char **argv)
 
 	double tx0, ty0, tx1, ty1;
 	geo_wmq_tile_bounds(geo().cell_level, cfg.x0, cfg.y0, tx0, ty0, tx1, ty1);
-	double tile_size = geo_wmq_tile_size(geo().cell_level);
+	double tileSize = geo_wmq_tile_size(geo().cell_level);
 
 	/* Grow the tile into the cube the reconstruction runs in. */
-	double margin = tile_size / CUBE_N;
+	double margin = tileSize / CUBE_N;
 	double wx0 = tx0 - margin, wy0 = ty0 - margin;
-	double cube = tile_size + 2 * margin;
+	double cube = tileSize + 2 * margin;
 
 	printf("\n------ alpineview_coarse %d/%d/%d ------\n", geo().cell_level,
 		   cfg.x0, cfg.y0);
 	Vec3d nw = geo_work_to_geodetic(Vec3d{tx0, ty1, 0.0});
 	Vec3d se = geo_work_to_geodetic(Vec3d{tx1, ty0, 0.0});
-	printf("Tile        : %.0f m, lon %.5f..%.5f lat %.5f..%.5f\n",
-		   tile_size, nw.x, se.x, se.y, nw.y);
+	printf("Tile        : %.0f m, lon %.5f..%.5f lat %.5f..%.5f\n", tileSize,
+		   nw.x, se.x, se.y, nw.y);
 	printf("Levels      : %d..%d (z=%d..%d)\n", geo().cell_level + cfg.min_z,
 		   geo().cell_level + cfg.max_z, cfg.min_z, cfg.max_z);
 
 	std::vector<AscTile> tiles;
-	if (asc_index(cfg.data_dir.c_str(), tiles) == 0)
-	{
+	if (asc_index(cfg.data_dir.c_str(), tiles) == 0) {
 		printf("Error: no .asc under %s\n", cfg.data_dir.c_str());
 		return (-1);
 	}
 
 	double bx0, by0, bx1, by1;
-	cube_l93_bbox(wx0, wy0, wx0 + cube, wy0 + cube, bx0, by0, bx1, by1);
+	cubeL93Bbox(wx0, wy0, wx0 + cube, wy0 + cube, bx0, by0, bx1, by1);
 	int loaded = asc_load_overlapping(tiles, bx0, by0, bx1, by1);
 	printf("Source      : %zu .asc indexed, %d loaded for L93 "
 		   "%.0f..%.0f x %.0f..%.0f\n",
 		   tiles.size(), loaded, bx0, bx1, by0, by1);
-	if (!loaded)
-	{
+	if (!loaded) {
 		printf("No source data covers this tile.\n");
 		return (0);
 	}
@@ -372,55 +326,50 @@ int main(int argc, char **argv)
 	printf("Grid        : %d x %d, %.2f m spacing\n", n, n, step);
 
 	std::vector<double> z;
-	if (sample_grid(cfg, tiles, n, wx0, wy0, step, z))
+	if (sampleGrid(cfg, tiles, n, wx0, wy0, step, z))
 		return (-1);
 	tiles.clear();
 
 	TriMesh cloud;
 	Transform transf;
-	if (build_cloud(z, n, step, cloud, transf))
+	if (buildCloud(z, n, step, cloud, transf))
 		return (-1);
 	z.clear();
 	printf("Cloud       : %zu oriented points\n", cloud.vertex_count());
 
-	std::string in_ply = out_file(cfg, "points.ply");
-	write_ply(in_ply.c_str(), cloud);
+	std::string inPly = outFile(cfg, "points.ply");
+	write_ply(inPly.c_str(), cloud);
 	cloud.clear();
 
 	int written = 0;
-	for (int zl = cfg.min_z; zl <= cfg.max_z; ++zl)
-	{
+	for (int zl = cfg.min_z; zl <= cfg.max_z; ++zl) {
 		int depth = geo().coarse_base_depth + zl;
 		char ext[32];
 		snprintf(ext, sizeof(ext), "poisson.%d.ply", depth);
-		std::string out_ply = out_file(cfg, ext);
+		std::string outPly = outFile(cfg, ext);
 
 		printf("\n  level %d (z=%d) : depth %d, %dx%d grid\n",
 			   geo().cell_level + zl, zl, depth, 1 << zl, 1 << zl);
-		if (run_poisson_recon(in_ply, out_ply, depth, cfg.weight,
-							  cfg.verbose, cfg.parallel, false))
-		{
-			printf("  Poisson failed at depth %d, skipping.\n",
-				   depth);
+		if (run_poisson_recon(inPly, outPly, depth, cfg.weight, cfg.verbose,
+							  cfg.parallel, false)) {
+			printf("  Poisson failed at depth %d, skipping.\n", depth);
 			continue;
 		}
 
 		TriMesh mesh;
-		if (load_ply(mesh, out_ply.c_str(), false) ||
-			mesh.faces.empty())
-		{
+		if (load_ply(mesh, outPly.c_str(), false) || mesh.faces.empty()) {
 			printf("  no mesh at depth %d, skipping.\n", depth);
 			continue;
 		}
-		written += postprocess_lod_level(mesh, transf, geo().cell_level,
-										 cfg.x0, cfg.y0, zl, cfg.out_dir,
-										 false, cfg.verbose);
+		written +=
+			postprocess_lod_level(mesh, transf, geo().cell_level, cfg.x0,
+								  cfg.y0, zl, cfg.out_dir, false, cfg.verbose);
 		if (cfg.clean >= 2)
-			remove(out_ply.c_str());
+			remove(outPly.c_str());
 	}
 
 	if (cfg.clean >= 2)
-		remove(in_ply.c_str());
+		remove(inPly.c_str());
 
 	printf("\nWrote %d tiles in %.1f s\n", written, 1e-6 * chrono.stop());
 	geo_fini();

@@ -12,8 +12,7 @@
 
 /* Maps the Poisson [0,1] cube back to the tile: scale is the tile-to-cube
  * factor, shift is the tile's origin inside the cube. */
-struct Transform
-{
+struct Transform {
 	float scale;
 	Vec3 shift;
 };

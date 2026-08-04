@@ -10,21 +10,21 @@
 namespace meshopt
 {
 
-const unsigned char kIndexHeader = 0xe0;
-const unsigned char kSequenceHeader = 0xd0;
+const unsigned char K_INDEX_HEADER = 0xe0;
+const unsigned char K_SEQUENCE_HEADER = 0xd0;
 
 static int gEncodeIndexVersion = 0;
 
 typedef unsigned int VertexFifo[16];
 typedef unsigned int EdgeFifo[16][2];
 
-static const unsigned int kTriangleIndexOrder[3][3] = {
+static const unsigned int K_TRIANGLE_INDEX_ORDER[3][3] = {
     {0, 1, 2},
     {1, 2, 0},
     {2, 0, 1},
 };
 
-static const unsigned char kCodeAuxEncodingTable[16] = {
+static const unsigned char K_CODE_AUX_ENCODING_TABLE[16] = {
     0x00, 0x76, 0x87, 0x56, 0x67, 0x78, 0xa9, 0x86, 0x65, 0x89, 0x68, 0x98, 0x01, 0x69,
     0, 0, // last two entries aren't used for encoding
 };
@@ -143,9 +143,9 @@ static int getCodeAuxIndex(unsigned char v, const unsigned char* table)
 	return -1;
 }
 
-static void writeTriangle(void* destination, size_t offset, size_t index_size, unsigned int a, unsigned int b, unsigned int c)
+static void writeTriangle(void* destination, size_t offset, size_t indexSize, unsigned int a, unsigned int b, unsigned int c)
 {
-	if (index_size == 2)
+	if (indexSize == 2)
 	{
 		static_cast<unsigned short*>(destination)[offset + 0] = (unsigned short)(a);
 		static_cast<unsigned short*>(destination)[offset + 1] = (unsigned short)(b);
@@ -161,19 +161,19 @@ static void writeTriangle(void* destination, size_t offset, size_t index_size, u
 
 } // namespace meshopt
 
-size_t meshopt_encodeIndexBuffer(unsigned char* buffer, size_t buffer_size, const unsigned int* indices, size_t index_count)
+size_t meshopt_encodeIndexBuffer(unsigned char* buffer, size_t bufferSize, const unsigned int* indices, size_t indexCount)
 {
 	using namespace meshopt;
 
 	assert(index_count % 3 == 0);
 
 	// the minimum valid encoding is header, 1 byte per triangle and a 16-byte codeaux table
-	if (buffer_size < 1 + index_count / 3 + 16)
+	if (bufferSize < 1 + indexCount / 3 + 16)
 		return 0;
 
 	int version = gEncodeIndexVersion;
 
-	buffer[0] = (unsigned char)(kIndexHeader | version);
+	buffer[0] = (unsigned char)(K_INDEX_HEADER | version);
 
 	EdgeFifo edgefifo;
 	memset(edgefifo, -1, sizeof(edgefifo));
@@ -188,28 +188,28 @@ size_t meshopt_encodeIndexBuffer(unsigned char* buffer, size_t buffer_size, cons
 	unsigned int last = 0;
 
 	unsigned char* code = buffer + 1;
-	unsigned char* data = code + index_count / 3;
-	unsigned char* data_safe_end = buffer + buffer_size - 16;
+	unsigned char* data = code + indexCount / 3;
+	unsigned char* dataSafeEnd = buffer + bufferSize - 16;
 
 	int fecmax = version >= 1 ? 13 : 15;
 
 	// use static encoding table; it's possible to pack the result and then build an optimal table and repack
 	// for now we keep it simple and use the table that has been generated based on symbol frequency on a training mesh set
-	const unsigned char* codeaux_table = kCodeAuxEncodingTable;
+	const unsigned char* codeauxTable = K_CODE_AUX_ENCODING_TABLE;
 
-	for (size_t i = 0; i < index_count; i += 3)
+	for (size_t i = 0; i < indexCount; i += 3)
 	{
 		// make sure we have enough space to write a triangle
 		// each triangle writes at most 16 bytes: 1b for codeaux and 5b for each free index
 		// after this we can be sure we can write without extra bounds checks
-		if (data > data_safe_end)
+		if (data > dataSafeEnd)
 			return 0;
 
 		int fer = getEdgeFifo(edgefifo, indices[i + 0], indices[i + 1], indices[i + 2], edgefifooffset);
 
 		if (fer >= 0 && (fer >> 2) < 15)
 		{
-			const unsigned int* order = kTriangleIndexOrder[fer & 3];
+			const unsigned int* order = K_TRIANGLE_INDEX_ORDER[fer & 3];
 
 			unsigned int a = indices[i + order[0]], b = indices[i + order[1]], c = indices[i + order[2]];
 
@@ -245,7 +245,7 @@ size_t meshopt_encodeIndexBuffer(unsigned char* buffer, size_t buffer_size, cons
 		else
 		{
 			int rotation = rotateTriangle(indices[i + 0], indices[i + 1], indices[i + 2], next);
-			const unsigned int* order = kTriangleIndexOrder[rotation];
+			const unsigned int* order = K_TRIANGLE_INDEX_ORDER[rotation];
 
 			unsigned int a = indices[i + order[0]], b = indices[i + order[1]], c = indices[i + order[2]];
 
@@ -272,7 +272,7 @@ size_t meshopt_encodeIndexBuffer(unsigned char* buffer, size_t buffer_size, cons
 
 			// we encode feb & fec in 4 bits using a table if possible, and as a full byte otherwise
 			unsigned char codeaux = (unsigned char)((feb << 4) | fec);
-			int codeauxindex = getCodeAuxIndex(codeaux, codeaux_table);
+			int codeauxindex = getCodeAuxIndex(codeaux, codeauxTable);
 
 			// <14 encodes an index into codeaux table, 14 encodes fea=0, 15 encodes fea=15
 			if (fea == 0 && codeauxindex >= 0 && codeauxindex < 14 && !reset)
@@ -313,7 +313,7 @@ size_t meshopt_encodeIndexBuffer(unsigned char* buffer, size_t buffer_size, cons
 	}
 
 	// make sure we have enough space to write codeaux table
-	if (data > data_safe_end)
+	if (data > dataSafeEnd)
 		return 0;
 
 	// add codeaux encoding table to the end of the stream; this is used for decoding codeaux *and* as padding
@@ -324,7 +324,7 @@ size_t meshopt_encodeIndexBuffer(unsigned char* buffer, size_t buffer_size, cons
 		// decoder assumes that table entries never refer to separately encoded indices
 		assert((codeaux_table[i] & 0xf) != 0xf && (codeaux_table[i] >> 4) != 0xf);
 
-		*data++ = codeaux_table[i];
+		*data++ = codeauxTable[i];
 	}
 
 	// since we encode restarts as codeaux without a table reference, we need to make sure 00 is encoded as a table reference
@@ -336,20 +336,20 @@ size_t meshopt_encodeIndexBuffer(unsigned char* buffer, size_t buffer_size, cons
 	return data - buffer;
 }
 
-size_t meshopt_encodeIndexBufferBound(size_t index_count, size_t vertex_count)
+size_t meshopt_encodeIndexBufferBound(size_t indexCount, size_t vertexCount)
 {
 	assert(index_count % 3 == 0);
 
 	// compute number of bits required for each index
-	unsigned int vertex_bits = 1;
+	unsigned int vertexBits = 1;
 
-	while (vertex_bits < 32 && vertex_count > size_t(1) << vertex_bits)
-		vertex_bits++;
+	while (vertexBits < 32 && vertexCount > size_t(1) << vertexBits)
+		vertexBits++;
 
 	// worst-case encoding is 2 header bytes + 3 varint-7 encoded index deltas
-	unsigned int vertex_groups = (vertex_bits + 1 + 6) / 7;
+	unsigned int vertexGroups = (vertexBits + 1 + 6) / 7;
 
-	return 1 + (index_count / 3) * (2 + 3 * vertex_groups) + 16;
+	return 1 + (indexCount / 3) * (2 + 3 * vertexGroups) + 16;
 }
 
 void meshopt_encodeIndexVersion(int version)
@@ -359,7 +359,7 @@ void meshopt_encodeIndexVersion(int version)
 	meshopt::gEncodeIndexVersion = version;
 }
 
-int meshopt_decodeIndexBuffer(void* destination, size_t index_count, size_t index_size, const unsigned char* buffer, size_t buffer_size)
+int meshopt_decodeIndexBuffer(void* destination, size_t indexCount, size_t indexSize, const unsigned char* buffer, size_t bufferSize)
 {
 	using namespace meshopt;
 
@@ -367,10 +367,10 @@ int meshopt_decodeIndexBuffer(void* destination, size_t index_count, size_t inde
 	assert(index_size == 2 || index_size == 4);
 
 	// the minimum valid encoding is header, 1 byte per triangle and a 16-byte codeaux table
-	if (buffer_size < 1 + index_count / 3 + 16)
+	if (bufferSize < 1 + indexCount / 3 + 16)
 		return -2;
 
-	if ((buffer[0] & 0xf0) != kIndexHeader)
+	if ((buffer[0] & 0xf0) != K_INDEX_HEADER)
 		return -1;
 
 	int version = buffer[0] & 0x0f;
@@ -393,17 +393,17 @@ int meshopt_decodeIndexBuffer(void* destination, size_t index_count, size_t inde
 
 	// since we store 16-byte codeaux table at the end, triangle data has to begin before data_safe_end
 	const unsigned char* code = buffer + 1;
-	const unsigned char* data = code + index_count / 3;
-	const unsigned char* data_safe_end = buffer + buffer_size - 16;
+	const unsigned char* data = code + indexCount / 3;
+	const unsigned char* dataSafeEnd = buffer + bufferSize - 16;
 
-	const unsigned char* codeaux_table = data_safe_end;
+	const unsigned char* codeauxTable = dataSafeEnd;
 
-	for (size_t i = 0; i < index_count; i += 3)
+	for (size_t i = 0; i < indexCount; i += 3)
 	{
 		// make sure we have enough data to read for a triangle
 		// each triangle reads at most 16 bytes of data: 1b for codeaux and 5b for each free index
 		// after this we can be sure we can read without extra bounds checks
-		if (data > data_safe_end)
+		if (data > dataSafeEnd)
 			return -2;
 
 		unsigned char codetri = *code++;
@@ -430,7 +430,7 @@ int meshopt_decodeIndexBuffer(void* destination, size_t index_count, size_t inde
 				next += fec0;
 
 				// output triangle
-				writeTriangle(destination, i, index_size, a, b, c);
+				writeTriangle(destination, i, indexSize, a, b, c);
 
 				// push vertex/edge fifo must match the encoding step *exactly* otherwise the data will not be decoded correctly
 				pushVertexFifo(vertexfifo, c, vertexfifooffset, fec0);
@@ -447,7 +447,7 @@ int meshopt_decodeIndexBuffer(void* destination, size_t index_count, size_t inde
 				last = c = (fec != 15) ? last + (fec - (fec ^ 3)) : decodeIndex(data, last);
 
 				// output triangle
-				writeTriangle(destination, i, index_size, a, b, c);
+				writeTriangle(destination, i, indexSize, a, b, c);
 
 				// push vertex/edge fifo must match the encoding step *exactly* otherwise the data will not be decoded correctly
 				pushVertexFifo(vertexfifo, c, vertexfifooffset);
@@ -461,7 +461,7 @@ int meshopt_decodeIndexBuffer(void* destination, size_t index_count, size_t inde
 			// fast path: read codeaux from the table
 			if (codetri < 0xfe)
 			{
-				unsigned char codeaux = codeaux_table[codetri & 15];
+				unsigned char codeaux = codeauxTable[codetri & 15];
 
 				// note: table can't contain feb/fec=15
 				int feb = codeaux >> 4;
@@ -484,7 +484,7 @@ int meshopt_decodeIndexBuffer(void* destination, size_t index_count, size_t inde
 				next += fec0;
 
 				// output triangle
-				writeTriangle(destination, i, index_size, a, b, c);
+				writeTriangle(destination, i, indexSize, a, b, c);
 
 				// push vertex/edge fifo must match the encoding step *exactly* otherwise the data will not be decoded correctly
 				pushVertexFifo(vertexfifo, a, vertexfifooffset);
@@ -525,7 +525,7 @@ int meshopt_decodeIndexBuffer(void* destination, size_t index_count, size_t inde
 					last = c = decodeIndex(data, last);
 
 				// output triangle
-				writeTriangle(destination, i, index_size, a, b, c);
+				writeTriangle(destination, i, indexSize, a, b, c);
 
 				// push vertex/edge fifo must match the encoding step *exactly* otherwise the data will not be decoded correctly
 				pushVertexFifo(vertexfifo, a, vertexfifooffset);
@@ -540,36 +540,36 @@ int meshopt_decodeIndexBuffer(void* destination, size_t index_count, size_t inde
 	}
 
 	// we should've read all data bytes and stopped at the boundary between data and codeaux table
-	if (data != data_safe_end)
+	if (data != dataSafeEnd)
 		return -3;
 
 	return 0;
 }
 
-size_t meshopt_encodeIndexSequence(unsigned char* buffer, size_t buffer_size, const unsigned int* indices, size_t index_count)
+size_t meshopt_encodeIndexSequence(unsigned char* buffer, size_t bufferSize, const unsigned int* indices, size_t indexCount)
 {
 	using namespace meshopt;
 
 	// the minimum valid encoding is header, 1 byte per index and a 4-byte tail
-	if (buffer_size < 1 + index_count + 4)
+	if (bufferSize < 1 + indexCount + 4)
 		return 0;
 
 	int version = gEncodeIndexVersion;
 
-	buffer[0] = (unsigned char)(kSequenceHeader | version);
+	buffer[0] = (unsigned char)(K_SEQUENCE_HEADER | version);
 
 	unsigned int last[2] = {};
 	unsigned int current = 0;
 
 	unsigned char* data = buffer + 1;
-	unsigned char* data_safe_end = buffer + buffer_size - 4;
+	unsigned char* dataSafeEnd = buffer + bufferSize - 4;
 
-	for (size_t i = 0; i < index_count; ++i)
+	for (size_t i = 0; i < indexCount; ++i)
 	{
 		// make sure we have enough data to write
 		// each index writes at most 5 bytes of data; there's a 4 byte tail after data_safe_end
 		// after this we can be sure we can write without extra bounds checks
-		if (data >= data_safe_end)
+		if (data >= dataSafeEnd)
 			return 0;
 
 		unsigned int index = indices[i];
@@ -592,7 +592,7 @@ size_t meshopt_encodeIndexSequence(unsigned char* buffer, size_t buffer_size, co
 	}
 
 	// make sure we have enough space to write tail
-	if (data > data_safe_end)
+	if (data > dataSafeEnd)
 		return 0;
 
 	for (int k = 0; k < 4; ++k)
@@ -601,29 +601,29 @@ size_t meshopt_encodeIndexSequence(unsigned char* buffer, size_t buffer_size, co
 	return data - buffer;
 }
 
-size_t meshopt_encodeIndexSequenceBound(size_t index_count, size_t vertex_count)
+size_t meshopt_encodeIndexSequenceBound(size_t indexCount, size_t vertexCount)
 {
 	// compute number of bits required for each index
-	unsigned int vertex_bits = 1;
+	unsigned int vertexBits = 1;
 
-	while (vertex_bits < 32 && vertex_count > size_t(1) << vertex_bits)
-		vertex_bits++;
+	while (vertexBits < 32 && vertexCount > size_t(1) << vertexBits)
+		vertexBits++;
 
 	// worst-case encoding is 1 varint-7 encoded index delta for a K bit value and an extra bit
-	unsigned int vertex_groups = (vertex_bits + 1 + 1 + 6) / 7;
+	unsigned int vertexGroups = (vertexBits + 1 + 1 + 6) / 7;
 
-	return 1 + index_count * vertex_groups + 4;
+	return 1 + indexCount * vertexGroups + 4;
 }
 
-int meshopt_decodeIndexSequence(void* destination, size_t index_count, size_t index_size, const unsigned char* buffer, size_t buffer_size)
+int meshopt_decodeIndexSequence(void* destination, size_t indexCount, size_t indexSize, const unsigned char* buffer, size_t bufferSize)
 {
 	using namespace meshopt;
 
 	// the minimum valid encoding is header, 1 byte per index and a 4-byte tail
-	if (buffer_size < 1 + index_count + 4)
+	if (bufferSize < 1 + indexCount + 4)
 		return -2;
 
-	if ((buffer[0] & 0xf0) != kSequenceHeader)
+	if ((buffer[0] & 0xf0) != K_SEQUENCE_HEADER)
 		return -1;
 
 	int version = buffer[0] & 0x0f;
@@ -631,16 +631,16 @@ int meshopt_decodeIndexSequence(void* destination, size_t index_count, size_t in
 		return -1;
 
 	const unsigned char* data = buffer + 1;
-	const unsigned char* data_safe_end = buffer + buffer_size - 4;
+	const unsigned char* dataSafeEnd = buffer + bufferSize - 4;
 
 	unsigned int last[2] = {};
 
-	for (size_t i = 0; i < index_count; ++i)
+	for (size_t i = 0; i < indexCount; ++i)
 	{
 		// make sure we have enough data to read
 		// each index reads at most 5 bytes of data; there's a 4 byte tail after data_safe_end
 		// after this we can be sure we can read without extra bounds checks
-		if (data >= data_safe_end)
+		if (data >= dataSafeEnd)
 			return -2;
 
 		unsigned int v = decodeVByte(data);
@@ -656,7 +656,7 @@ int meshopt_decodeIndexSequence(void* destination, size_t index_count, size_t in
 		// update last for the next iteration that uses it
 		last[current] = index;
 
-		if (index_size == 2)
+		if (indexSize == 2)
 		{
 			static_cast<unsigned short*>(destination)[i] = (unsigned short)(index);
 		}
@@ -667,7 +667,7 @@ int meshopt_decodeIndexSequence(void* destination, size_t index_count, size_t in
 	}
 
 	// we should've read all data bytes and stopped at the boundary between data and tail
-	if (data != data_safe_end)
+	if (data != dataSafeEnd)
 		return -3;
 
 	return 0;

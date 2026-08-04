@@ -47,57 +47,41 @@ using Index_search =
 static const float SCAN_TOL = 0.25f;
 static const float NML_Z_TOL = 0.55f;
 
-enum EOrient
-{
-	ENone = 0,
-	EOriented,
-	EPositiveZ,
-	EScanline
-};
+enum EOrient { ENone = 0, EOriented, EPositiveZ, EScanline };
 
-double cgal_estimate_scale(const Vec3 *pos, size_t point_num,
-						   size_t window_target)
-{
+double cgal_estimate_scale(const Vec3 *pos, size_t pointNum,
+						   size_t windowTarget) {
 	std::vector<Point_3> window;
-	if (point_num <= window_target)
-	{
-		window.reserve(point_num);
-		for (size_t i = 0; i < point_num; ++i)
-		{
+	if (pointNum <= windowTarget) {
+		window.reserve(pointNum);
+		for (size_t i = 0; i < pointNum; ++i) {
 			window.emplace_back(pos[i].x, pos[i].y, pos[i].z);
 		}
-	}
-	else
-	{
+	} else {
 		float minx = pos[0].x, maxx = minx;
 		float miny = pos[0].y, maxy = miny;
-		for (size_t i = 0; i < point_num; ++i)
-		{
+		for (size_t i = 0; i < pointNum; ++i) {
 			minx = std::min(minx, pos[i].x);
 			maxx = std::max(maxx, pos[i].x);
 			miny = std::min(miny, pos[i].y);
 			maxy = std::max(maxy, pos[i].y);
 		}
 		float cx = 0.5f * (minx + maxx), cy = 0.5f * (miny + maxy);
-		float frac = std::sqrt((float)window_target / point_num);
+		float frac = std::sqrt((float)windowTarget / pointNum);
 		float hx = 0.5f * (maxx - minx) * frac;
 		float hy = 0.5f * (maxy - miny) * frac;
-		for (size_t i = 0; i < point_num; ++i)
-		{
+		for (size_t i = 0; i < pointNum; ++i) {
 			if (std::abs(pos[i].x - cx) <= hx &&
-				std::abs(pos[i].y - cy) <= hy)
-			{
+				std::abs(pos[i].y - cy) <= hy) {
 				window.emplace_back(pos[i].x, pos[i].y, pos[i].z);
 			}
 		}
-		if (window.size() < window_target / 8)
-		{
+		if (window.size() < windowTarget / 8) {
 			/* Window landed on a hole (water, cliff shadow): scale
 			 * estimation needs real neighborhoods, use everything. */
 			window.clear();
-			window.reserve(point_num);
-			for (size_t i = 0; i < point_num; ++i)
-			{
+			window.reserve(pointNum);
+			for (size_t i = 0; i < pointNum; ++i) {
 				window.emplace_back(pos[i].x, pos[i].y, pos[i].z);
 			}
 		}
@@ -129,49 +113,42 @@ static const double JET_QUALITY = 0.8;
 /* Neighborhood of `query`: the indices of its K_NEIGHBORS nearest
  * neighbors, restricted to `radius`. The query point itself is
  * included. */
-static void gather_neighborhood(const Index_tree &tree,
-								const Position_map &pos_map,
-								const Point_3 &query, double radius,
-								std::vector<std::size_t> &nbhd)
-{
+static void gatherNeighborhood(const Index_tree &tree,
+							   const Position_map &posMap, const Point_3 &query,
+							   double radius, std::vector<std::size_t> &nbhd) {
 	nbhd.clear();
 	Index_search knn(tree, query, K_NEIGHBORS, 0.0, true,
-					 Index_distance(pos_map));
+					 Index_distance(posMap));
 	const double r2 = radius * radius;
 	for (const auto &r : knn) /* sorted by increasing distance */
 	{
-		if ((int)nbhd.size() < MIN_NEIGHBORS || r.second <= r2)
-		{
+		if ((int)nbhd.size() < MIN_NEIGHBORS || r.second <= r2) {
 			nbhd.push_back(r.first);
 		}
 	}
 }
 
-void cgal_estimate_and_orient_normals(Vec3 *pos, size_t point_num,
+void cgal_estimate_and_orient_normals(Vec3 *pos, size_t pointNum,
 									  std::vector<LasPoint> &points,
-									  double neighbor_radius, double grid_res,
-									  Vec3 *nml, bool verbose)
-{
+									  double neighborRadius, double gridRes,
+									  Vec3 *nml, bool verbose) {
 	Timer chrono;
 
 	/* Kd-tree */
 	chrono.start();
 	std::vector<Point_3> positions;
-	positions.reserve(point_num);
-	for (size_t i = 0; i < point_num; ++i)
-	{
+	positions.reserve(pointNum);
+	for (size_t i = 0; i < pointNum; ++i) {
 		positions.push_back(Point_3(pos[i].x, pos[i].y, pos[i].z));
 	}
-	const std::vector<Point_3> &positions_c = positions;
-	Position_map pos_map = CGAL::make_property_map(positions_c);
+	const std::vector<Point_3> &positionsC = positions;
+	Position_map posMap = CGAL::make_property_map(positionsC);
 	Index_tree tree(boost::counting_iterator<std::size_t>(0),
-					boost::counting_iterator<std::size_t>(point_num),
-					Index_tree::Splitter(), Index_traits(pos_map));
+					boost::counting_iterator<std::size_t>(pointNum),
+					Index_tree::Splitter(), Index_traits(posMap));
 	tree.build();
-	if (verbose)
-	{
-		printf("Kd-tree build              : %.2f s\n",
-			   1e-6 * chrono.stop());
+	if (verbose) {
+		printf("Kd-tree build              : %.2f s\n", 1e-6 * chrono.stop());
 	}
 
 	/* Normals, one neighborhood gather per point: PCA plane fit (the
@@ -181,38 +158,30 @@ void cgal_estimate_and_orient_normals(Vec3 *pos, size_t point_num,
 	 * poor -- noisy or curved. Orientation is fixed later by the beam
 	 * pass. */
 	chrono.start();
-	const int min_jet_nb = (JET_ORDER + 1) * (JET_ORDER + 2) / 2;
+	const int minJetNb = (JET_ORDER + 1) * (JET_ORDER + 2) / 2;
 	size_t refit = 0;
 	std::vector<std::size_t> nbhd;
-	std::vector<Point_3> nbhd_pts;
-	std::vector<Vector_3> nmls(point_num);
-	std::vector<float> qual(point_num);
-	CGAL::Monge_via_jet_fitting<Kernel> monge_fit;
-	for (size_t i = 0; i < point_num; ++i)
-	{
-		gather_neighborhood(tree, pos_map, positions[i],
-							neighbor_radius, nbhd);
-		nbhd_pts.clear();
-		for (std::size_t j : nbhd)
-		{
-			nbhd_pts.push_back(positions[j]);
+	std::vector<Point_3> nbhdPts;
+	std::vector<Vector_3> nmls(pointNum);
+	std::vector<float> qual(pointNum);
+	CGAL::Monge_via_jet_fitting<Kernel> mongeFit;
+	for (size_t i = 0; i < pointNum; ++i) {
+		gatherNeighborhood(tree, posMap, positions[i], neighborRadius, nbhd);
+		nbhdPts.clear();
+		for (std::size_t j : nbhd) {
+			nbhdPts.push_back(positions[j]);
 		}
 
 		Plane_3 plane;
 		double quality = CGAL::linear_least_squares_fitting_3(
-			nbhd_pts.begin(), nbhd_pts.end(), plane,
-			CGAL::Dimension_tag<0>());
+			nbhdPts.begin(), nbhdPts.end(), plane, CGAL::Dimension_tag<0>());
 		Vector_3 n = plane.orthogonal_vector();
 
-		if (quality < JET_QUALITY &&
-			(int)nbhd.size() >= min_jet_nb)
-		{
-			auto monge_form = monge_fit(nbhd_pts.begin(),
-										nbhd_pts.end(), JET_ORDER,
-										1);
-			Vector_3 jn = monge_form.normal_direction();
-			if (jn * n < 0)
-			{
+		if (quality < JET_QUALITY && (int)nbhd.size() >= minJetNb) {
+			auto mongeForm =
+				mongeFit(nbhdPts.begin(), nbhdPts.end(), JET_ORDER, 1);
+			Vector_3 jn = mongeForm.normal_direction();
+			if (jn * n < 0) {
 				jn = -jn;
 			}
 			n = jn;
@@ -221,12 +190,10 @@ void cgal_estimate_and_orient_normals(Vec3 *pos, size_t point_num,
 		nmls[i] = n;
 		qual[i] = (float)quality;
 	}
-	if (verbose)
-	{
+	if (verbose) {
 		printf("Eval. normal directions    : %zu pts, jet refit "
 			   "%zu (quality < %g, order %d), %.2f s\n",
-			   point_num, refit, JET_QUALITY, JET_ORDER,
-			   1e-6 * chrono.stop());
+			   pointNum, refit, JET_QUALITY, JET_ORDER, 1e-6 * chrono.stop());
 	}
 
 	/* Orientation cascade (pre-CGAL pipeline's, las_normal.cpp):
@@ -238,53 +205,45 @@ void cgal_estimate_and_orient_normals(Vec3 *pos, size_t point_num,
 	 * still carries the PCA's arbitrary sign and gets a placeholder normal
 	 * below instead. */
 	chrono.start();
-	int source_num = las_get_sources(points);
-	std::vector<SourceStat> stats(source_num);
+	int sourceNum = las_get_sources(points);
+	std::vector<SourceStat> stats(sourceNum);
 	las_stat_sources(points, stats);
-	std::vector<SourceFlightLine> fls(source_num);
+	std::vector<SourceFlightLine> fls(sourceNum);
 	/* theta only depends on dy/dx, and LAS x/y share a scale. */
 	const double scale[3] = {1.0, 1.0, 1.0};
 	int valid = las_approx_flight_lines(points, scale, stats, fls);
 
-	std::vector<EOrient> oriented(point_num, ENone);
-	size_t by_scan = 0;
-	for (size_t i = 0; i < point_num; ++i)
-	{
+	std::vector<EOrient> oriented(pointNum, ENone);
+	size_t byScan = 0;
+	for (size_t i = 0; i < pointNum; ++i) {
 		const SourceFlightLine &fl = fls[points[i].source_idx];
-		if (!fl.is_valid)
-		{
+		if (!fl.is_valid) {
 			continue;
 		}
 		double a = points[i].scan_angle * M_PI / 180.0;
 		double th = fl.theta_across;
 		Vector_3 beam(cos(th) * sin(a), sin(th) * sin(a), -cos(a));
 		double test = nmls[i] * beam;
-		if (fabs(test) > SCAN_TOL + 2 * (1 - qual[i]))
-		{
+		if (fabs(test) > SCAN_TOL + 2 * (1 - qual[i])) {
 			oriented[i] = EScanline;
-			if (test > 0)
-			{
+			if (test > 0) {
 				nmls[i] = -nmls[i];
 			}
-			by_scan++;
+			byScan++;
 		}
 	}
 
-	size_t by_z = 0;
-	for (size_t i = 0; i < point_num; ++i)
-	{
-		if (oriented[i] >= EPositiveZ)
-		{
+	size_t byZ = 0;
+	for (size_t i = 0; i < pointNum; ++i) {
+		if (oriented[i] >= EPositiveZ) {
 			continue;
 		}
-		if (fabs(nmls[i].z()) > NML_Z_TOL + 2 * (1 - qual[i]))
-		{
+		if (fabs(nmls[i].z()) > NML_Z_TOL + 2 * (1 - qual[i])) {
 			oriented[i] = EPositiveZ;
-			if (nmls[i].z() < 0)
-			{
+			if (nmls[i].z() < 0) {
 				nmls[i] = -nmls[i];
 			}
-			by_z++;
+			byZ++;
 		}
 	}
 
@@ -292,16 +251,12 @@ void cgal_estimate_and_orient_normals(Vec3 *pos, size_t point_num,
 	 * sign; write a (0,0,0) placeholder instead -- feeding a coin-flipped
 	 * normal to Poisson is worse than feeding nothing. No compaction: every
 	 * point stays, so pos/nml/points all stay index-aligned. */
-	for (size_t i = 0; i < point_num; ++i)
-	{
-		if (oriented[i] >= EOriented)
-		{
+	for (size_t i = 0; i < pointNum; ++i) {
+		if (oriented[i] >= EOriented) {
 			nml[i].x = (float)nmls[i].x();
 			nml[i].y = (float)nmls[i].y();
 			nml[i].z = (float)nmls[i].z();
-		}
-		else
-		{
+		} else {
 			nml[i] = Vec3{0.f, 0.f, 0.f};
 		}
 	}
@@ -310,17 +265,15 @@ void cgal_estimate_and_orient_normals(Vec3 *pos, size_t point_num,
 	 * (las_resample.h) built over this pass's result, on the hypothesis
 	 * that the terrain is tight (single-valued, no overhangs) within a few
 	 * cells. */
-	Grid grid = build_grid(pos, nml, point_num, (float)grid_res);
-	size_t recovered = fix_zero_normals(pos, nml, point_num, grid,
-										(float)grid_res, verbose);
+	Grid grid = build_grid(pos, nml, pointNum, (float)gridRes);
+	size_t recovered =
+		fix_zero_normals(pos, nml, pointNum, grid, (float)gridRes, verbose);
 
-	if (verbose)
-	{
+	if (verbose) {
 		printf("Eval. normal orientations  : %d/%d flight lines valid, "
 			   "%zu by beam + %zu by +Z, %zu recovered by grid, %zu still "
 			   "zero, %.2f s\n",
-			   valid, source_num, by_scan, by_z, recovered,
-			   point_num - by_scan - by_z - recovered,
-			   1e-6 * chrono.stop());
+			   valid, sourceNum, byScan, byZ, recovered,
+			   pointNum - byScan - byZ - recovered, 1e-6 * chrono.stop());
 	}
 }

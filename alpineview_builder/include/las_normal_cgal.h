@@ -20,7 +20,8 @@
  *
  * Every kept point gets a unit, beam-oriented normal. Unreliable LAS
  * classes (1 = unclassified, 3 = low vegetation) are excluded upstream by
- * alpineview_builder.cpp's filter_las_point(), so this pipeline never sees them.
+ * alpineview_builder.cpp's filter_las_point(), so this pipeline never sees
+ * them.
  */
 
 /* Global range scale of the cloud (same units as `pos`), estimated on a
@@ -28,7 +29,7 @@
  * a spatial subset preserves local density where a random subsample would
  * dilute it and inflate the estimate. */
 double cgal_estimate_scale(const Vec3 *pos, size_t point_num,
-			   size_t window_target = 40000);
+						   size_t window_target = 40000);
 
 /* Estimate normals by PCA plane fit (neighborhood = the nearest neighbors
  * within `neighbor_radius`, capped to the 15 nearest; pass radius =
@@ -68,6 +69,6 @@ double cgal_estimate_scale(const Vec3 *pos, size_t point_num,
  * points are dropped or reordered, so the count returned by the caller
  * still matches `points`. */
 void cgal_estimate_and_orient_normals(Vec3 *pos, size_t point_num,
-				      std::vector<LasPoint> &points,
-				      double neighbor_radius, double grid_res,
-				      Vec3 *nml, bool verbose);
+									  std::vector<LasPoint> &points,
+									  double neighbor_radius, double grid_res,
+									  Vec3 *nml, bool verbose);

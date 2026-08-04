@@ -11,12 +11,11 @@
 #include "mesh.h"
 #include "vec3.h"
 
-Aabb compute_mesh_bounds(const Vec3 *positions, size_t vertex_count)
-{
+Aabb compute_mesh_bounds(const Vec3 *positions, size_t vertexCount) {
 	Vec3 min = positions[0];
 	Vec3 max = positions[0];
 
-	for (size_t i = 1; i < vertex_count; ++i) {
+	for (size_t i = 1; i < vertexCount; ++i) {
 		const Vec3 &pos = positions[i];
 
 		for (size_t j = 0; j < 3; ++j) {
@@ -28,32 +27,27 @@ Aabb compute_mesh_bounds(const Vec3 *positions, size_t vertex_count)
 	return {min, max};
 }
 
-Aabb compute_mesh_bounds(const TriMesh &mesh)
-{
+Aabb compute_mesh_bounds(const TriMesh &mesh) {
 	return (compute_mesh_bounds(mesh.verts.data(), mesh.verts.size()));
 }
 
-namespace
-{
+namespace {
 
 struct PosKey {
 	uint32_t x, y, z;
-	bool operator==(const PosKey &o) const
-	{
+	bool operator==(const PosKey &o) const {
 		return x == o.x && y == o.y && z == o.z;
 	}
 };
 
 struct PosKeyHash {
-	size_t operator()(const PosKey &k) const
-	{
+	size_t operator()(const PosKey &k) const {
 		return (size_t)(k.x * 73856093) ^ (size_t)(k.y * 19349663) ^
-		       (size_t)(k.z * 83492791);
+			   (size_t)(k.z * 83492791);
 	}
 };
 
-PosKey pos_key(const Vec3 &v)
-{
+PosKey posKey(const Vec3 &v) {
 	PosKey k;
 	memcpy(&k.x, &v.x, sizeof(uint32_t));
 	memcpy(&k.y, &v.y, sizeof(uint32_t));
@@ -63,14 +57,13 @@ PosKey pos_key(const Vec3 &v)
 
 } // namespace
 
-uint32_t build_position_remap(const TriMesh &mesh, uint32_t *remap)
-{
+uint32_t build_position_remap(const TriMesh &mesh, uint32_t *remap) {
 	std::unordered_map<PosKey, uint32_t, PosKeyHash> seen;
 	seen.reserve(mesh.verts.size());
 
 	uint32_t num = 0;
 	for (size_t i = 0; i < mesh.verts.size(); ++i) {
-		auto res = seen.emplace(pos_key(mesh.verts[i]), (uint32_t)i);
+		auto res = seen.emplace(posKey(mesh.verts[i]), (uint32_t)i);
 		remap[i] = res.first->second;
 		if (res.second)
 			num++;
@@ -78,13 +71,12 @@ uint32_t build_position_remap(const TriMesh &mesh, uint32_t *remap)
 	return (num);
 }
 
-void compute_mesh_normals(TriMesh &mesh)
-{
-	size_t vertex_count = mesh.verts.size();
+void compute_mesh_normals(TriMesh &mesh) {
+	size_t vertexCount = mesh.verts.size();
 
-	mesh.normals.assign(vertex_count, Vec3::Zero);
+	mesh.normals.assign(vertexCount, Vec3::Zero);
 
-	std::vector<uint32_t> remap(vertex_count);
+	std::vector<uint32_t> remap(vertexCount);
 	build_position_remap(mesh, &remap[0]);
 
 	for (size_t i = 0; i < mesh.faces.size(); i += 3) {
@@ -102,7 +94,7 @@ void compute_mesh_normals(TriMesh &mesh)
 	}
 
 	/* Normalize remap targets and copy them to remap sources */
-	for (size_t i = 0; i < vertex_count; ++i) {
+	for (size_t i = 0; i < vertexCount; ++i) {
 		if (remap[i] == i) {
 			mesh.normals[i] = normalized(mesh.normals[i]);
 		} else {
@@ -112,8 +104,7 @@ void compute_mesh_normals(TriMesh &mesh)
 	}
 }
 
-static uint32_t uf_find(std::vector<uint32_t> &parent, uint32_t i)
-{
+static uint32_t ufFind(std::vector<uint32_t> &parent, uint32_t i) {
 	while (parent[i] != i) {
 		parent[i] = parent[parent[i]];
 		i = parent[i];
@@ -121,95 +112,91 @@ static uint32_t uf_find(std::vector<uint32_t> &parent, uint32_t i)
 	return (i);
 }
 
-static void uf_union(std::vector<uint32_t> &parent, uint32_t a, uint32_t b)
-{
-	a = uf_find(parent, a);
-	b = uf_find(parent, b);
+static void ufUnion(std::vector<uint32_t> &parent, uint32_t a, uint32_t b) {
+	a = ufFind(parent, a);
+	b = ufFind(parent, b);
 	if (a != b)
 		parent[b] = a;
 }
 
-uint32_t select_principal_connected_component(TriMesh &mesh)
-{
-	size_t tri_count = mesh.faces.size() / 3;
-	if (tri_count == 0)
+uint32_t select_principal_connected_component(TriMesh &mesh) {
+	size_t triCount = mesh.faces.size() / 3;
+	if (triCount == 0)
 		return (0);
 
 	const uint32_t *indices = mesh.faces.data();
 
 	/* Union triangles sharing an (undirected) edge. */
-	std::vector<uint32_t> parent(tri_count);
-	for (size_t i = 0; i < tri_count; ++i)
+	std::vector<uint32_t> parent(triCount);
+	for (size_t i = 0; i < triCount; ++i)
 		parent[i] = i;
 
-	std::unordered_map<uint64_t, uint32_t> edge_owner;
-	edge_owner.reserve(3 * tri_count);
-	for (size_t i = 0; i < tri_count; ++i) {
+	std::unordered_map<uint64_t, uint32_t> edgeOwner;
+	edgeOwner.reserve(3 * triCount);
+	for (size_t i = 0; i < triCount; ++i) {
 		for (int e = 0; e < 3; ++e) {
 			uint32_t a = indices[3 * i + e];
 			uint32_t b = indices[3 * i + (e + 1) % 3];
-			uint64_t key = a < b ? ((uint64_t)a << 32) | b
-					     : ((uint64_t)b << 32) | a;
-			auto it = edge_owner.find(key);
-			if (it == edge_owner.end())
-				edge_owner.emplace(key, (uint32_t)i);
+			uint64_t key =
+				a < b ? ((uint64_t)a << 32) | b : ((uint64_t)b << 32) | a;
+			auto it = edgeOwner.find(key);
+			if (it == edgeOwner.end())
+				edgeOwner.emplace(key, (uint32_t)i);
 			else
-				uf_union(parent, it->second, (uint32_t)i);
+				ufUnion(parent, it->second, (uint32_t)i);
 		}
 	}
 
 	std::unordered_map<uint32_t, uint32_t> counts;
-	for (size_t i = 0; i < tri_count; ++i)
-		counts[uf_find(parent, (uint32_t)i)]++;
+	for (size_t i = 0; i < triCount; ++i)
+		counts[ufFind(parent, (uint32_t)i)]++;
 
-	uint32_t num_cc = (uint32_t)counts.size();
-	if (num_cc <= 1)
-		return (num_cc);
+	uint32_t numCc = (uint32_t)counts.size();
+	if (numCc <= 1)
+		return (numCc);
 
-	uint32_t root_max = counts.begin()->first;
+	uint32_t rootMax = counts.begin()->first;
 	for (const auto &kv : counts) {
-		if (kv.second > counts[root_max])
-			root_max = kv.first;
+		if (kv.second > counts[rootMax])
+			rootMax = kv.first;
 	}
 
-	size_t new_index_count = 0;
-	for (size_t i = 0; i < tri_count; ++i) {
-		if (uf_find(parent, (uint32_t)i) != root_max)
+	size_t newIndexCount = 0;
+	for (size_t i = 0; i < triCount; ++i) {
+		if (ufFind(parent, (uint32_t)i) != rootMax)
 			continue;
-		mesh.faces[new_index_count++] = mesh.faces[3 * i + 0];
-		mesh.faces[new_index_count++] = mesh.faces[3 * i + 1];
-		mesh.faces[new_index_count++] = mesh.faces[3 * i + 2];
+		mesh.faces[newIndexCount++] = mesh.faces[3 * i + 0];
+		mesh.faces[newIndexCount++] = mesh.faces[3 * i + 1];
+		mesh.faces[newIndexCount++] = mesh.faces[3 * i + 2];
 	}
-	mesh.faces.resize(new_index_count);
+	mesh.faces.resize(newIndexCount);
 
-	return (num_cc);
+	return (numCc);
 }
 
-void compact_mesh(TriMesh &mesh)
-{
+void compact_mesh(TriMesh &mesh) {
 	std::vector<uint32_t> remap(mesh.verts.size());
 	build_position_remap(mesh, &remap[0]);
 
-	std::vector<uint32_t> new_idx(mesh.verts.size(), UINT32_MAX);
+	std::vector<uint32_t> newIdx(mesh.verts.size(), UINT32_MAX);
 	std::vector<Vec3> verts;
 	verts.reserve(mesh.verts.size());
 
-	size_t total_indices = 0;
+	size_t totalIndices = 0;
 	for (size_t i = 0; i < mesh.faces.size(); i += 3) {
-		uint32_t t[3] = {remap[mesh.faces[i + 0]],
-				 remap[mesh.faces[i + 1]],
-				 remap[mesh.faces[i + 2]]};
+		uint32_t t[3] = {remap[mesh.faces[i + 0]], remap[mesh.faces[i + 1]],
+						 remap[mesh.faces[i + 2]]};
 		if (t[0] == t[1] || t[0] == t[2] || t[1] == t[2])
 			continue;
 		for (int k = 0; k < 3; ++k) {
-			if (new_idx[t[k]] == UINT32_MAX) {
-				new_idx[t[k]] = (uint32_t)verts.size();
+			if (newIdx[t[k]] == UINT32_MAX) {
+				newIdx[t[k]] = (uint32_t)verts.size();
 				verts.push_back(mesh.verts[t[k]]);
 			}
-			mesh.faces[total_indices++] = new_idx[t[k]];
+			mesh.faces[totalIndices++] = newIdx[t[k]];
 		}
 	}
-	mesh.faces.resize(total_indices);
+	mesh.faces.resize(totalIndices);
 	mesh.verts = std::move(verts);
 	mesh.normals.clear();
 }

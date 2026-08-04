@@ -17,4 +17,4 @@ Vec3d geo_work_to_geodetic(const Vec3d &work);
 double geo_wmq_tile_size(int level);
 void geo_wmq_tile_of(double work_x, double work_y, int level, int &tx, int &ty);
 void geo_wmq_tile_bounds(int level, int tx, int ty, double &x0, double &y0,
-			 double &x1, double &y1);
+						 double &x1, double &y1);

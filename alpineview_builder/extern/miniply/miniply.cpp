@@ -52,18 +52,18 @@ namespace miniply {
   // PLY constants
   //
 
-  static constexpr uint32_t kPLYReadBufferSize = 128 * 1024;
-  static constexpr uint32_t kPLYTempBufferSize = kPLYReadBufferSize;
+  static constexpr uint32_t K_PLY_READ_BUFFER_SIZE = 128 * 1024;
+  static constexpr uint32_t K_PLY_TEMP_BUFFER_SIZE = K_PLY_READ_BUFFER_SIZE;
 
   static const char* kPLYFileTypes[] = { "ascii", "binary_little_endian", "binary_big_endian", nullptr };
-  static const uint32_t kPLYPropertySize[]= { 1, 1, 2, 2, 4, 4, 4, 8 };
+  static const uint32_t K_PLY_PROPERTY_SIZE[]= { 1, 1, 2, 2, 4, 4, 4, 8 };
 
   struct PLYTypeAlias {
     const char* name;
     PLYPropertyType type;
   };
 
-  static const PLYTypeAlias kTypeAliases[] = {
+  static const PLYTypeAlias K_TYPE_ALIASES[] = {
     { "char",   PLYPropertyType::Char   },
     { "uchar",  PLYPropertyType::UChar  },
     { "short",  PLYPropertyType::Short  },
@@ -91,9 +91,9 @@ namespace miniply {
   // Constants
   //
 
-  static constexpr double kDoubleDigits[10] = { 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0 };
+  static constexpr double K_DOUBLE_DIGITS[10] = { 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0 };
 
-  static constexpr float kPi = 3.14159265358979323846f;
+  static constexpr float K_PI = 3.14159265358979323846f;
 
 
   //
@@ -131,50 +131,50 @@ namespace miniply {
   // Internal-only functions
   //
 
-  static inline bool is_whitespace(char ch)
+  static inline bool isWhitespace(char ch)
   {
     return ch == ' ' || ch == '\t' || ch == '\r';
   }
 
 
-  static inline bool is_digit(char ch)
+  static inline bool isDigit(char ch)
   {
     return ch >= '0' && ch <= '9';
   }
 
 
-  static inline bool is_letter(char ch)
+  static inline bool isLetter(char ch)
   {
     ch |= 32; // upper and lower case letters differ only at this bit.
     return ch >= 'a' && ch <= 'z';
   }
 
 
-  static inline bool is_alnum(char ch)
+  static inline bool isAlnum(char ch)
   {
-    return is_digit(ch) || is_letter(ch);
+    return isDigit(ch) || isLetter(ch);
   }
 
 
-  static inline bool is_keyword_start(char ch)
+  static inline bool isKeywordStart(char ch)
   {
-    return is_letter(ch) || ch == '_';
+    return isLetter(ch) || ch == '_';
   }
 
 
-  static inline bool is_keyword_part(char ch)
+  static inline bool isKeywordPart(char ch)
   {
-    return is_alnum(ch) || ch == '_';
+    return isAlnum(ch) || ch == '_';
   }
 
 
-  static inline bool is_safe_buffer_end(char ch)
+  static inline bool isSafeBufferEnd(char ch)
   {
     return (ch > 0 && ch <= 32) || (ch >= 127);
   }
 
 
-  static int file_open(FILE** f, const char* filename, const char* mode)
+  static int fileOpen(FILE** f, const char* filename, const char* mode)
   {
   #ifdef _WIN32
     return fopen_s(f, filename, mode);
@@ -185,7 +185,7 @@ namespace miniply {
   }
 
 
-  static inline int file_seek(FILE* file, int64_t offset, int origin)
+  static inline int fileSeek(FILE* file, int64_t offset, int origin)
   {
   #ifdef _WIN32
     return _fseeki64(file, offset, origin);
@@ -196,7 +196,7 @@ namespace miniply {
   }
 
 
-  static bool int_literal(const char* start, char const** end, int* val)
+  static bool intLiteral(const char* start, char const** end, int* val)
   {
     const char* pos = start;
 
@@ -218,7 +218,7 @@ namespace miniply {
 
     int numDigits = 0;
     int localVal = 0;
-    while (is_digit(*pos)) {
+    while (isDigit(*pos)) {
       // FIXME: this will overflow if we get too many digits.
       localVal = localVal * 10 + static_cast<int>(*pos - '0');
       ++numDigits;
@@ -229,7 +229,7 @@ namespace miniply {
       numDigits = 1;
     }
 
-    if (numDigits == 0 || is_letter(*pos) || *pos == '_') {
+    if (numDigits == 0 || isLetter(*pos) || *pos == '_') {
       return false;
     }
     else if (numDigits > 10) {
@@ -248,7 +248,7 @@ namespace miniply {
   }
 
 
-  static bool double_literal(const char* start, char const** end, double* val)
+  static bool doubleLiteral(const char* start, char const** end, double* val)
   {
     const char* pos = start;
 
@@ -263,12 +263,12 @@ namespace miniply {
 
     double localVal = 0.0;
 
-    bool hasIntDigits = is_digit(*pos);
+    bool hasIntDigits = isDigit(*pos);
     if (hasIntDigits) {
       do {
-        localVal = localVal * 10.0 + kDoubleDigits[*pos - '0'];
+        localVal = localVal * 10.0 + K_DOUBLE_DIGITS[*pos - '0'];
         ++pos;
-      } while (is_digit(*pos));
+      } while (isDigit(*pos));
     }
     else if (*pos != '.') {
 //      set_error("Not a floating point number");
@@ -278,14 +278,14 @@ namespace miniply {
     bool hasFracDigits = false;
     if (*pos == '.') {
       ++pos;
-      hasFracDigits = is_digit(*pos);
+      hasFracDigits = isDigit(*pos);
       if (hasFracDigits) {
         double scale = 0.1;
         do {
-          localVal += scale * kDoubleDigits[*pos - '0'];
+          localVal += scale * K_DOUBLE_DIGITS[*pos - '0'];
           scale *= 0.1;
           ++pos;
-        } while (is_digit(*pos));
+        } while (isDigit(*pos));
       }
       else if (!hasIntDigits) {
 //        set_error("Floating point number has no digits before or after the decimal point");
@@ -305,16 +305,16 @@ namespace miniply {
         ++pos;
       }
 
-      if (!is_digit(*pos)) {
+      if (!isDigit(*pos)) {
 //        set_error("Floating point exponent has no digits");
         return false; // error: exponent part has no digits.
       }
 
       double exponent = 0.0;
       do {
-        exponent = exponent * 10.0 + kDoubleDigits[*pos - '0'];
+        exponent = exponent * 10.0 + K_DOUBLE_DIGITS[*pos - '0'];
         ++pos;
-      } while (is_digit(*pos));
+      } while (isDigit(*pos));
 
       if (val != nullptr) {
         if (negativeExponent) {
@@ -324,7 +324,7 @@ namespace miniply {
       }
     }
 
-    if (*pos == '.' || *pos == '_' || is_alnum(*pos)) {
+    if (*pos == '.' || *pos == '_' || isAlnum(*pos)) {
 //      set_error("Floating point number has trailing chars");
       return false;
     }
@@ -343,10 +343,10 @@ namespace miniply {
   }
 
 
-  static bool float_literal(const char* start, char const** end, float* val)
+  static bool floatLiteral(const char* start, char const** end, float* val)
   {
     double tmp = 0.0;
-    bool ok = double_literal(start, end, &tmp);
+    bool ok = doubleLiteral(start, end, &tmp);
     if (ok && val != nullptr) {
       *val = static_cast<float>(tmp);
     }
@@ -354,7 +354,7 @@ namespace miniply {
   }
 
 
-  static inline void endian_swap_2(uint8_t* data)
+  static inline void endianSwap2(uint8_t* data)
   {
     uint16_t tmp = *reinterpret_cast<uint16_t*>(data);
     tmp = static_cast<uint16_t>((tmp >> 8) | (tmp << 8));
@@ -362,7 +362,7 @@ namespace miniply {
   }
 
 
-  static inline void endian_swap_4(uint8_t* data)
+  static inline void endianSwap4(uint8_t* data)
   {
     uint32_t tmp = *reinterpret_cast<uint32_t*>(data);
     tmp = (tmp >> 16) | (tmp << 16);
@@ -371,7 +371,7 @@ namespace miniply {
   }
 
 
-  static inline void endian_swap_8(uint8_t* data)
+  static inline void endianSwap8(uint8_t* data)
   {
     uint64_t tmp = *reinterpret_cast<uint64_t*>(data);
     tmp = (tmp >> 32) | (tmp << 32);
@@ -381,33 +381,33 @@ namespace miniply {
   }
 
 
-  static inline void endian_swap(uint8_t* data, PLYPropertyType type)
+  static inline void endianSwap(uint8_t* data, PLYPropertyType type)
   {
-    switch (kPLYPropertySize[uint32_t(type)]) {
-    case 2: endian_swap_2(data); break;
-    case 4: endian_swap_4(data); break;
-    case 8: endian_swap_8(data); break;
+    switch (K_PLY_PROPERTY_SIZE[uint32_t(type)]) {
+    case 2: endianSwap2(data); break;
+    case 4: endianSwap4(data); break;
+    case 8: endianSwap8(data); break;
     default: break;
     }
   }
 
 
-  static inline void endian_swap_array(uint8_t* data, PLYPropertyType type, int n)
+  static inline void endianSwapArray(uint8_t* data, PLYPropertyType type, int n)
   {
-    switch (kPLYPropertySize[uint32_t(type)]) {
+    switch (K_PLY_PROPERTY_SIZE[uint32_t(type)]) {
     case 2:
       for (const uint8_t* end = data + 2 * n; data < end; data += 2) {
-        endian_swap_2(data);
+        endianSwap2(data);
       }
       break;
     case 4:
       for (const uint8_t* end = data + 4 * n; data < end; data += 4) {
-        endian_swap_4(data);
+        endianSwap4(data);
       }
       break;
     case 8:
       for (const uint8_t* end = data + 8 * n; data < end; data += 8) {
-        endian_swap_8(data);
+        endianSwap8(data);
       }
       break;
     default:
@@ -417,7 +417,7 @@ namespace miniply {
 
 
   template <class T>
-  static void copy_and_convert_to(T* dest, const uint8_t* src, PLYPropertyType srcType)
+  static void copyAndConvertTo(T* dest, const uint8_t* src, PLYPropertyType srcType)
   {
     switch (srcType) {
     case PLYPropertyType::Char:   *dest = static_cast<T>(*reinterpret_cast<const int8_t*>(src)); break;
@@ -433,23 +433,23 @@ namespace miniply {
   }
 
 
-  static void copy_and_convert(uint8_t* dest, PLYPropertyType destType, const uint8_t* src, PLYPropertyType srcType)
+  static void copyAndConvert(uint8_t* dest, PLYPropertyType destType, const uint8_t* src, PLYPropertyType srcType)
   {
     switch (destType) {
-    case PLYPropertyType::Char:   copy_and_convert_to(reinterpret_cast<int8_t*>  (dest), src, srcType); break;
-    case PLYPropertyType::UChar:  copy_and_convert_to(reinterpret_cast<uint8_t*> (dest), src, srcType); break;
-    case PLYPropertyType::Short:  copy_and_convert_to(reinterpret_cast<int16_t*> (dest), src, srcType); break;
-    case PLYPropertyType::UShort: copy_and_convert_to(reinterpret_cast<uint16_t*>(dest), src, srcType); break;
-    case PLYPropertyType::Int:    copy_and_convert_to(reinterpret_cast<int32_t*> (dest), src, srcType); break;
-    case PLYPropertyType::UInt:   copy_and_convert_to(reinterpret_cast<uint32_t*>(dest), src, srcType); break;
-    case PLYPropertyType::Float:  copy_and_convert_to(reinterpret_cast<float*>   (dest), src, srcType); break;
-    case PLYPropertyType::Double: copy_and_convert_to(reinterpret_cast<double*>  (dest), src, srcType); break;
+    case PLYPropertyType::Char:   copyAndConvertTo(reinterpret_cast<int8_t*>  (dest), src, srcType); break;
+    case PLYPropertyType::UChar:  copyAndConvertTo(reinterpret_cast<uint8_t*> (dest), src, srcType); break;
+    case PLYPropertyType::Short:  copyAndConvertTo(reinterpret_cast<int16_t*> (dest), src, srcType); break;
+    case PLYPropertyType::UShort: copyAndConvertTo(reinterpret_cast<uint16_t*>(dest), src, srcType); break;
+    case PLYPropertyType::Int:    copyAndConvertTo(reinterpret_cast<int32_t*> (dest), src, srcType); break;
+    case PLYPropertyType::UInt:   copyAndConvertTo(reinterpret_cast<uint32_t*>(dest), src, srcType); break;
+    case PLYPropertyType::Float:  copyAndConvertTo(reinterpret_cast<float*>   (dest), src, srcType); break;
+    case PLYPropertyType::Double: copyAndConvertTo(reinterpret_cast<double*>  (dest), src, srcType); break;
     case PLYPropertyType::None:   break;
     }
   }
 
 
-  static inline bool compatible_types(PLYPropertyType srcType, PLYPropertyType destType)
+  static inline bool compatibleTypes(PLYPropertyType srcType, PLYPropertyType destType)
   {
     return (srcType == destType) ||
         (srcType < PLYPropertyType::Float && (uint32_t(srcType) ^ 0x1) == uint32_t(destType));
@@ -479,7 +479,7 @@ namespace miniply {
         continue;
       }
       prop.offset = rowStride;
-      rowStride += kPLYPropertySize[uint32_t(prop.type)];
+      rowStride += K_PLY_PROPERTY_SIZE[uint32_t(prop.type)];
     }
   }
 
@@ -543,7 +543,7 @@ namespace miniply {
     countProp.name = nameBuf;
     countProp.type = oldListProp.countType;
     countProp.countType = PLYPropertyType::None;
-    countProp.stride = kPLYPropertySize[uint32_t(oldListProp.countType)];
+    countProp.stride = K_PLY_PROPERTY_SIZE[uint32_t(oldListProp.countType)];
 
     if (listSize > 0) {
       // Set up additional properties for the list entries, 1 per entry.
@@ -562,7 +562,7 @@ namespace miniply {
         itemProp.name = nameBuf;
         itemProp.type = oldListProp.type;
         itemProp.countType = PLYPropertyType::None;
-        itemProp.stride = kPLYPropertySize[uint32_t(oldListProp.type)];
+        itemProp.stride = K_PLY_PROPERTY_SIZE[uint32_t(oldListProp.type)];
 
         newPropIdxs[i] = propIdx;
       }
@@ -583,17 +583,17 @@ namespace miniply {
 
   PLYReader::PLYReader(const char* filename)
   {
-    m_buf = new char[kPLYReadBufferSize + 1];
-    m_buf[kPLYReadBufferSize] = '\0';
+    m_buf = new char[K_PLY_READ_BUFFER_SIZE + 1];
+    m_buf[K_PLY_READ_BUFFER_SIZE] = '\0';
 
-    m_tmpBuf = new char[kPLYTempBufferSize + 1];
-    m_tmpBuf[kPLYTempBufferSize] = '\0';
+    m_tmpBuf = new char[K_PLY_TEMP_BUFFER_SIZE + 1];
+    m_tmpBuf[K_PLY_TEMP_BUFFER_SIZE] = '\0';
 
-    m_bufEnd = m_buf + kPLYReadBufferSize;
+    m_bufEnd = m_buf + K_PLY_READ_BUFFER_SIZE;
     m_pos = m_bufEnd;
     m_end = m_bufEnd;
 
-    if (file_open(&m_f, filename, "rb") != 0) {
+    if (fileOpen(&m_f, filename, "rb") != 0) {
       m_f = nullptr;
       m_valid = false;
       return;
@@ -707,10 +707,10 @@ namespace miniply {
       int64_t elementStart = static_cast<int64_t>(m_pos - m_buf);
       int64_t elementSize = elem.rowStride * elem.count;
       int64_t elementEnd = elementStart + elementSize;
-      if (elementEnd >= kPLYReadBufferSize) {
+      if (elementEnd >= K_PLY_READ_BUFFER_SIZE) {
         m_bufOffset += elementEnd;
-        file_seek(m_f, m_bufOffset, SEEK_SET);
-        m_bufEnd = m_buf + kPLYReadBufferSize;
+        fileSeek(m_f, m_bufOffset, SEEK_SET);
+        m_bufEnd = m_buf + K_PLY_READ_BUFFER_SIZE;
         m_pos = m_bufEnd;
         m_end = m_bufEnd;
         refill_buffer();
@@ -724,7 +724,7 @@ namespace miniply {
       for (uint32_t row = 0; row < elem.count; row++) {
         for (const PLYProperty& prop : elem.properties) {
           if (prop.countType == PLYPropertyType::None) {
-            uint32_t numBytes = kPLYPropertySize[uint32_t(prop.type)];
+            uint32_t numBytes = K_PLY_PROPERTY_SIZE[uint32_t(prop.type)];
             if (m_pos + numBytes > m_bufEnd) {
               if (!refill_buffer() || m_pos + numBytes > m_bufEnd) {
                 m_valid = false;
@@ -736,7 +736,7 @@ namespace miniply {
             continue;
           }
 
-          uint32_t numBytes = kPLYPropertySize[uint32_t(prop.countType)];
+          uint32_t numBytes = K_PLY_PROPERTY_SIZE[uint32_t(prop.countType)];
           if (m_pos + numBytes > m_bufEnd) {
             if (!refill_buffer() || m_pos + numBytes > m_bufEnd) {
               m_valid = false;
@@ -745,14 +745,14 @@ namespace miniply {
           }
 
           int count = 0;
-          copy_and_convert_to(&count, reinterpret_cast<const uint8_t*>(m_pos), prop.countType);
+          copyAndConvertTo(&count, reinterpret_cast<const uint8_t*>(m_pos), prop.countType);
 
           if (count < 0) {
             m_valid = false;
             return;
           }
 
-          numBytes += uint32_t(count) * kPLYPropertySize[uint32_t(prop.type)];
+          numBytes += uint32_t(count) * K_PLY_PROPERTY_SIZE[uint32_t(prop.type)];
           if (m_pos + numBytes > m_bufEnd) {
             if (!refill_buffer() || m_pos + numBytes > m_bufEnd) {
               m_valid = false;
@@ -768,7 +768,7 @@ namespace miniply {
       for (uint32_t row = 0; row < elem.count; row++) {
         for (const PLYProperty& prop : elem.properties) {
           if (prop.countType == PLYPropertyType::None) {
-            uint32_t numBytes = kPLYPropertySize[uint32_t(prop.type)];
+            uint32_t numBytes = K_PLY_PROPERTY_SIZE[uint32_t(prop.type)];
             if (m_pos + numBytes > m_bufEnd) {
               if (!refill_buffer() || m_pos + numBytes > m_bufEnd) {
                 m_valid = false;
@@ -780,7 +780,7 @@ namespace miniply {
             continue;
           }
 
-          uint32_t numBytes = kPLYPropertySize[uint32_t(prop.countType)];
+          uint32_t numBytes = K_PLY_PROPERTY_SIZE[uint32_t(prop.countType)];
           if (m_pos + numBytes > m_bufEnd) {
             if (!refill_buffer() || m_pos + numBytes > m_bufEnd) {
               m_valid = false;
@@ -791,15 +791,15 @@ namespace miniply {
           int count = 0;
           uint8_t tmp[8];
           memcpy(tmp, m_pos, numBytes);
-          endian_swap(tmp, prop.countType);
-          copy_and_convert_to(&count, tmp, prop.countType);
+          endianSwap(tmp, prop.countType);
+          copyAndConvertTo(&count, tmp, prop.countType);
 
           if (count < 0) {
             m_valid = false;
             return;
           }
 
-          numBytes += uint32_t(count) * kPLYPropertySize[uint32_t(prop.type)];
+          numBytes += uint32_t(count) * K_PLY_PROPERTY_SIZE[uint32_t(prop.type)];
           if (m_pos + numBytes > m_bufEnd) {
             if (!refill_buffer() || m_pos + numBytes > m_bufEnd) {
               m_valid = false;
@@ -915,7 +915,7 @@ namespace miniply {
         contiguousCols = false;
         break;
       }
-      expectedOffset = prop.offset + kPLYPropertySize[uint32_t(prop.type)];
+      expectedOffset = prop.offset + K_PLY_PROPERTY_SIZE[uint32_t(prop.type)];
     }
 
     // If the row we're extracting is contiguous in memory (i.e. there are no
@@ -932,7 +932,7 @@ namespace miniply {
     for (uint32_t i = 0; i < numProps; i++) {
       uint32_t propIdx = propIdxs[i];
       const PLYProperty& prop = elem->properties[propIdx];
-      if (!compatible_types(prop.type, destType)) {
+      if (!compatibleTypes(prop.type, destType)) {
         conversionRequired = true;
         break;
       }
@@ -965,7 +965,7 @@ namespace miniply {
         const uint8_t* row = m_elementData.data();
         const uint8_t* end = m_elementData.data() + m_elementData.size();
         uint8_t* to = reinterpret_cast<uint8_t*>(dest);
-        size_t colBytes = kPLYPropertySize[uint32_t(destType)]; // size of an output column in bytes.
+        size_t colBytes = K_PLY_PROPERTY_SIZE[uint32_t(destType)]; // size of an output column in bytes.
         while (row < end) {
           for (uint32_t i = 0; i < numProps; i++) {
             uint32_t propIdx = propIdxs[i];
@@ -984,12 +984,12 @@ namespace miniply {
       const uint8_t* row = m_elementData.data();
       const uint8_t* end = m_elementData.data() + m_elementData.size();
       uint8_t* to = reinterpret_cast<uint8_t*>(dest);
-      size_t colBytes = kPLYPropertySize[uint32_t(destType)]; // size of an output column in bytes.
+      size_t colBytes = K_PLY_PROPERTY_SIZE[uint32_t(destType)]; // size of an output column in bytes.
       while (row < end) {
         for (uint32_t i = 0; i < numProps; i++) {
           uint32_t propIdx = propIdxs[i];
           const PLYProperty& prop = elem->properties[propIdx];
-          copy_and_convert(to, destType, row + prop.offset, prop.type);
+          copyAndConvert(to, destType, row + prop.offset, prop.type);
           to += colBytes;
         }
         row += elem->rowStride;
@@ -1009,7 +1009,7 @@ namespace miniply {
     // The destination stride must be greater than or equal to the combined
     // size of all properties we're extracting. Zero is treated as a special
     // value meaning packed with no spacing.
-    const uint32_t minDestStride = numProps * kPLYPropertySize[uint32_t(destType)];
+    const uint32_t minDestStride = numProps * K_PLY_PROPERTY_SIZE[uint32_t(destType)];
     if (destStride == 0 || destStride == minDestStride) {
       return extract_properties(propIdxs, numProps, destType, dest);
     }
@@ -1038,7 +1038,7 @@ namespace miniply {
         contiguousCols = false;
         break;
       }
-      expectedOffset = prop.offset + kPLYPropertySize[uint32_t(prop.type)];
+      expectedOffset = prop.offset + K_PLY_PROPERTY_SIZE[uint32_t(prop.type)];
     }
 
     // If no data conversion is required, we can memcpy chunks of data
@@ -1048,7 +1048,7 @@ namespace miniply {
     for (uint32_t i = 0; i < numProps; i++) {
       uint32_t propIdx = propIdxs[i];
       const PLYProperty& prop = elem->properties[propIdx];
-      if (!compatible_types(prop.type, destType)) {
+      if (!compatibleTypes(prop.type, destType)) {
         conversionRequired = true;
         break;
       }
@@ -1076,7 +1076,7 @@ namespace miniply {
         const uint8_t* row = m_elementData.data();
         const uint8_t* end = m_elementData.data() + m_elementData.size();
         uint8_t* to = reinterpret_cast<uint8_t*>(dest);
-        const size_t colBytes = kPLYPropertySize[uint32_t(destType)]; // size of an output column in bytes.
+        const size_t colBytes = K_PLY_PROPERTY_SIZE[uint32_t(destType)]; // size of an output column in bytes.
         const size_t colPadding = destStride - minDestStride;
         while (row < end) {
           for (uint32_t i = 0; i < numProps; i++) {
@@ -1097,13 +1097,13 @@ namespace miniply {
       const uint8_t* row = m_elementData.data();
       const uint8_t* end = m_elementData.data() + m_elementData.size();
       uint8_t* to = reinterpret_cast<uint8_t*>(dest);
-      size_t colBytes = kPLYPropertySize[uint32_t(destType)]; // size of an output column in bytes.
+      size_t colBytes = K_PLY_PROPERTY_SIZE[uint32_t(destType)]; // size of an output column in bytes.
       size_t colPadding = destStride - minDestStride;
       while (row < end) {
         for (uint32_t i = 0; i < numProps; i++) {
           uint32_t propIdx = propIdxs[i];
           const PLYProperty& prop = elem->properties[propIdx];
-          copy_and_convert(to, destType, row + prop.offset, prop.type);
+          copyAndConvert(to, destType, row + prop.offset, prop.type);
           to += colBytes;
         }
         row += elem->rowStride;
@@ -1130,7 +1130,7 @@ namespace miniply {
       return 0;
     }
     const PLYProperty& prop = element()->properties[propIdx];
-    return prop.listData.size() / kPLYPropertySize[uint32_t(prop.type)];
+    return prop.listData.size() / K_PLY_PROPERTY_SIZE[uint32_t(prop.type)];
   }
 
 
@@ -1150,7 +1150,7 @@ namespace miniply {
     }
 
     const PLYProperty& prop = element()->properties[propIdx];
-    if (compatible_types(prop.type, destType)) {
+    if (compatibleTypes(prop.type, destType)) {
       // If no type conversion is required, we can just copy the list data
       // directly over with a single memcpy.
       std::memcpy(dest, prop.listData.data(), prop.listData.size());
@@ -1160,10 +1160,10 @@ namespace miniply {
       const uint8_t* from = prop.listData.data();
       const uint8_t* end = prop.listData.data() + prop.listData.size();
       uint8_t* to = reinterpret_cast<uint8_t*>(dest);
-      const size_t toBytes = kPLYPropertySize[uint32_t(destType)];
-      const size_t fromBytes = kPLYPropertySize[uint32_t(prop.type)];
+      const size_t toBytes = K_PLY_PROPERTY_SIZE[uint32_t(destType)];
+      const size_t fromBytes = K_PLY_PROPERTY_SIZE[uint32_t(prop.type)];
       while (from < end) {
-        copy_and_convert(to, destType, from, prop.type);
+        copyAndConvert(to, destType, from, prop.type);
         to += toBytes;
         from += fromBytes;
       }
@@ -1222,11 +1222,11 @@ namespace miniply {
 
     uint8_t* to = reinterpret_cast<uint8_t*>(dest);
 
-    bool convertSrc = !compatible_types(elem->properties[propIdx].type, PLYPropertyType::Int);
-    bool convertDst = !compatible_types(PLYPropertyType::Int, destType);
+    bool convertSrc = !compatibleTypes(elem->properties[propIdx].type, PLYPropertyType::Int);
+    bool convertDst = !compatibleTypes(PLYPropertyType::Int, destType);
 
-    size_t srcValBytes  = kPLYPropertySize[uint32_t(prop.type)];
-    size_t destValBytes = kPLYPropertySize[uint32_t(destType)];
+    size_t srcValBytes  = K_PLY_PROPERTY_SIZE[uint32_t(prop.type)];
+    size_t destValBytes = K_PLY_PROPERTY_SIZE[uint32_t(destType)];
 
     if (convertSrc && convertDst) {
       std::vector<int> faceIndices, triIndices;
@@ -1239,14 +1239,14 @@ namespace miniply {
         faceIndices.reserve(counts[faceIdx]);
         for (; face < faceEnd; face += srcValBytes) {
           int idx = -1;
-          copy_and_convert_to(&idx, face, prop.type);
+          copyAndConvertTo(&idx, face, prop.type);
           faceIndices.push_back(idx);
         }
 
         triIndices.resize((counts[faceIdx] - 2) * 3);
         triangulate_polygon(counts[faceIdx], pos, numVerts, faceIndices.data(), triIndices.data());
         for (int idx : triIndices) {
-          copy_and_convert(to, destType, reinterpret_cast<const uint8_t*>(&idx), PLYPropertyType::Int);
+          copyAndConvert(to, destType, reinterpret_cast<const uint8_t*>(&idx), PLYPropertyType::Int);
           to += destValBytes;
         }
       }
@@ -1261,7 +1261,7 @@ namespace miniply {
         faceIndices.reserve(counts[faceIdx]);
         for (; face < faceEnd; face += srcValBytes) {
           int idx = -1;
-          copy_and_convert_to(&idx, face, prop.type);
+          copyAndConvertTo(&idx, face, prop.type);
           faceIndices.push_back(idx);
         }
 
@@ -1277,7 +1277,7 @@ namespace miniply {
         triIndices.resize((counts[faceIdx] - 2) * 3);
         triangulate_polygon(counts[faceIdx], pos, numVerts, reinterpret_cast<const int*>(face), triIndices.data());
         for (int idx : triIndices) {
-          copy_and_convert(to, destType, reinterpret_cast<const uint8_t*>(&idx), PLYPropertyType::Int);
+          copyAndConvert(to, destType, reinterpret_cast<const uint8_t*>(&idx), PLYPropertyType::Int);
           to += destValBytes;
         }
         face += srcValBytes * counts[faceIdx];
@@ -1350,10 +1350,10 @@ namespace miniply {
     // Move everything from the start of the current token onwards, to the
     // start of the read buffer.
     int64_t bufSize = static_cast<int64_t>(m_bufEnd - m_buf);
-    if (bufSize < kPLYReadBufferSize) {
-      m_buf[bufSize] = m_buf[kPLYReadBufferSize];
-      m_buf[kPLYReadBufferSize] = '\0';
-      m_bufEnd = m_buf + kPLYReadBufferSize;
+    if (bufSize < K_PLY_READ_BUFFER_SIZE) {
+      m_buf[bufSize] = m_buf[K_PLY_READ_BUFFER_SIZE];
+      m_buf[K_PLY_READ_BUFFER_SIZE] = '\0';
+      m_bufEnd = m_buf + K_PLY_READ_BUFFER_SIZE;
     }
     size_t keep = static_cast<size_t>(m_bufEnd - m_pos);
     if (keep > 0 && m_pos > m_buf) {
@@ -1364,8 +1364,8 @@ namespace miniply {
     m_pos = m_buf;
 
     // Fill the remaining space in the buffer with data from the file.
-    size_t fetched = fread(m_buf + keep, sizeof(char), kPLYReadBufferSize - keep, m_f) + keep;
-    m_atEOF = fetched < kPLYReadBufferSize;
+    size_t fetched = fread(m_buf + keep, sizeof(char), K_PLY_READ_BUFFER_SIZE - keep, m_f) + keep;
+    m_atEOF = fetched < K_PLY_READ_BUFFER_SIZE;
     m_bufEnd = m_buf + fetched;
 
     if (!m_inDataSection || m_fileType == PLYFileType::ASCII) {
@@ -1380,14 +1380,14 @@ namespace miniply {
     // If it looks like a token might run past the end of this buffer, move
     // the buffer end pointer back before it & rewind the file. This way the
     // next refill will pick up the whole of the token.
-    if (!m_atEOF && (m_bufEnd[-1] == '\n' || !is_safe_buffer_end(m_bufEnd[-1]))) {
+    if (!m_atEOF && (m_bufEnd[-1] == '\n' || !isSafeBufferEnd(m_bufEnd[-1]))) {
       const char* safe = m_bufEnd - 2;
       // If '\n' is the last char in the buffer, then a call to `next_line()`
       // will move `m_pos` to point at the null terminator but won't refresh
       // the buffer. It would be clearer to fix this in `next_line()` but I
       // believe it'll be more performant to simply treat `\n` as an unsafe
       // character here.
-      while (safe >= m_end && (*safe == '\n' || !is_safe_buffer_end(*safe))) {
+      while (safe >= m_end && (*safe == '\n' || !isSafeBufferEnd(*safe))) {
         --safe;
       }
       if (safe < m_end) {
@@ -1395,7 +1395,7 @@ namespace miniply {
         return false;
       }
       ++safe;
-      m_buf[kPLYReadBufferSize] = *safe;
+      m_buf[K_PLY_READ_BUFFER_SIZE] = *safe;
       m_bufEnd = safe;
     }
     m_buf[m_bufEnd - m_buf] = '\0';
@@ -1416,7 +1416,7 @@ namespace miniply {
   {
     m_pos = m_end;
     while (true) {
-      while (is_whitespace(*m_pos)) {
+      while (isWhitespace(*m_pos)) {
         ++m_pos;
       }
       if (m_pos == m_bufEnd) {
@@ -1483,9 +1483,9 @@ namespace miniply {
 
   bool PLYReader::which_property_type(PLYPropertyType* type)
   {
-    for (uint32_t i = 0; kTypeAliases[i].name != nullptr; i++) {
-      if (keyword(kTypeAliases[i].name)) {
-        *type = kTypeAliases[i].type;
+    for (uint32_t i = 0; K_TYPE_ALIASES[i].name != nullptr; i++) {
+      if (keyword(K_TYPE_ALIASES[i].name)) {
+        *type = K_TYPE_ALIASES[i].type;
         return true;
       }
     }
@@ -1495,19 +1495,19 @@ namespace miniply {
 
   bool PLYReader::keyword(const char* kw)
   {
-    return match(kw) && !is_keyword_part(*m_end);
+    return match(kw) && !isKeywordPart(*m_end);
   }
 
 
   bool PLYReader::identifier(char* dest, size_t destLen)
   {
     m_end = m_pos;
-    if (!is_keyword_start(*m_end) || destLen == 0) {
+    if (!isKeywordStart(*m_end) || destLen == 0) {
       return false;
     }
     do {
       ++m_end;
-    } while (is_keyword_part(*m_end));
+    } while (isKeywordPart(*m_end));
 
     size_t len = static_cast<size_t>(m_end - m_pos);
     if (len >= destLen) {
@@ -1521,19 +1521,19 @@ namespace miniply {
 
   bool PLYReader::int_literal(int* value)
   {
-    return miniply::int_literal(m_pos, &m_end, value);
+    return miniply::intLiteral(m_pos, &m_end, value);
   }
 
 
   bool PLYReader::float_literal(float* value)
   {
-    return miniply::float_literal(m_pos, &m_end, value);
+    return miniply::floatLiteral(m_pos, &m_end, value);
   }
 
 
   bool PLYReader::double_literal(double* value)
   {
-    return miniply::double_literal(m_pos, &m_end, value);
+    return miniply::doubleLiteral(m_pos, &m_end, value);
   }
 
 
@@ -1552,7 +1552,7 @@ namespace miniply {
     int count = 0;
 
     m_valid = keyword("element") && advance() &&
-              identifier(m_tmpBuf, kPLYTempBufferSize) && advance() &&
+              identifier(m_tmpBuf, K_PLY_TEMP_BUFFER_SIZE) && advance() &&
               int_literal(&count) && next_line();
     if (!m_valid || count < 0) {
       return false;
@@ -1591,7 +1591,7 @@ namespace miniply {
     }
 
     m_valid = which_property_type(&type) && advance() &&
-              identifier(m_tmpBuf, kPLYTempBufferSize) && next_line();
+              identifier(m_tmpBuf, K_PLY_TEMP_BUFFER_SIZE) && next_line();
     if (!m_valid) {
       return false;
     }
@@ -1652,16 +1652,16 @@ namespace miniply {
         uint8_t* data = m_elementData.data();
         for (uint32_t row = 0; row < elem.count; row++) {
           for (PLYProperty& prop : elem.properties) {
-            size_t numBytes = kPLYPropertySize[uint32_t(prop.type)];
+            size_t numBytes = K_PLY_PROPERTY_SIZE[uint32_t(prop.type)];
             switch (numBytes) {
             case 2:
-              endian_swap_2(data);
+              endianSwap2(data);
               break;
             case 4:
-              endian_swap_4(data);
+              endianSwap4(data);
               break;
             case 8:
-              endian_swap_8(data);
+              endianSwap8(data);
               break;
             default:
               break;
@@ -1688,7 +1688,7 @@ namespace miniply {
     // listData vector as many times during loading.
     for (PLYProperty& prop : elem.properties) {
       if (prop.countType != PLYPropertyType::None) {
-        prop.listData.reserve(elem.count * kPLYPropertySize[uint32_t(prop.type)] * 3);
+        prop.listData.reserve(elem.count * K_PLY_PROPERTY_SIZE[uint32_t(prop.type)] * 3);
       }
     }
 
@@ -1745,7 +1745,7 @@ namespace miniply {
       return false;
     }
 
-    size_t numBytes = kPLYPropertySize[uint32_t(prop.type)];
+    size_t numBytes = K_PLY_PROPERTY_SIZE[uint32_t(prop.type)];
     std::memcpy(m_elementData.data() + destIndex, value, numBytes);
     destIndex += numBytes;
     return true;
@@ -1760,7 +1760,7 @@ namespace miniply {
       return false;
     }
 
-    const size_t numBytes = kPLYPropertySize[uint32_t(prop.type)];
+    const size_t numBytes = K_PLY_PROPERTY_SIZE[uint32_t(prop.type)];
 
     size_t back = prop.listData.size();
     prop.rowCount.push_back(static_cast<uint32_t>(count));
@@ -1780,7 +1780,7 @@ namespace miniply {
 
   bool PLYReader::load_binary_scalar_property(PLYProperty& prop, size_t& destIndex)
   {
-    size_t numBytes = kPLYPropertySize[uint32_t(prop.type)];
+    size_t numBytes = K_PLY_PROPERTY_SIZE[uint32_t(prop.type)];
     if (m_pos + numBytes > m_bufEnd) {
       if (!refill_buffer() || m_pos + numBytes > m_bufEnd) {
         m_valid = false;
@@ -1797,7 +1797,7 @@ namespace miniply {
 
   bool PLYReader::load_binary_list_property(PLYProperty& prop)
   {
-    size_t countBytes = kPLYPropertySize[uint32_t(prop.countType)];
+    size_t countBytes = K_PLY_PROPERTY_SIZE[uint32_t(prop.countType)];
     if (m_pos + countBytes > m_bufEnd) {
       if (!refill_buffer() || m_pos + countBytes > m_bufEnd) {
         m_valid = false;
@@ -1806,7 +1806,7 @@ namespace miniply {
     }
 
     int count = 0;
-    copy_and_convert_to(&count, reinterpret_cast<const uint8_t*>(m_pos), prop.countType);
+    copyAndConvertTo(&count, reinterpret_cast<const uint8_t*>(m_pos), prop.countType);
 
     if (count < 0) {
       m_valid = false;
@@ -1816,7 +1816,7 @@ namespace miniply {
     m_pos += countBytes;
     m_end = m_pos;
 
-    const size_t listBytes = kPLYPropertySize[uint32_t(prop.type)] * uint32_t(count);
+    const size_t listBytes = K_PLY_PROPERTY_SIZE[uint32_t(prop.type)] * uint32_t(count);
     if (m_pos + listBytes > m_bufEnd) {
       if (!refill_buffer() || m_pos + listBytes > m_bufEnd) {
         m_valid = false;
@@ -1838,7 +1838,7 @@ namespace miniply {
   {
     size_t startIndex = destIndex;
     if (load_binary_scalar_property(prop, destIndex)) {
-      endian_swap(m_elementData.data() + startIndex, prop.type);
+      endianSwap(m_elementData.data() + startIndex, prop.type);
       return true;
     }
     else {
@@ -1849,7 +1849,7 @@ namespace miniply {
 
   bool PLYReader::load_binary_list_property_big_endian(PLYProperty &prop)
   {
-    size_t countBytes = kPLYPropertySize[uint32_t(prop.countType)];
+    size_t countBytes = K_PLY_PROPERTY_SIZE[uint32_t(prop.countType)];
     if (m_pos + countBytes > m_bufEnd) {
       if (!refill_buffer() || m_pos + countBytes > m_bufEnd) {
         m_valid = false;
@@ -1860,8 +1860,8 @@ namespace miniply {
     int count = 0;
     uint8_t tmp[8];
     std::memcpy(tmp, m_pos, countBytes);
-    endian_swap(tmp, prop.countType);
-    copy_and_convert_to(&count, tmp, prop.countType);
+    endianSwap(tmp, prop.countType);
+    copyAndConvertTo(&count, tmp, prop.countType);
 
     if (count < 0) {
       m_valid = false;
@@ -1871,7 +1871,7 @@ namespace miniply {
     m_pos += countBytes;
     m_end = m_pos;
 
-    const size_t typeBytes = kPLYPropertySize[uint32_t(prop.type)];
+    const size_t typeBytes = K_PLY_PROPERTY_SIZE[uint32_t(prop.type)];
     const size_t listBytes = typeBytes * uint32_t(count);
     if (m_pos + listBytes > m_bufEnd) {
       if (!refill_buffer() || m_pos + listBytes > m_bufEnd) {
@@ -1885,7 +1885,7 @@ namespace miniply {
 
     uint8_t* list = prop.listData.data() + back;
     std::memcpy(list, m_pos, listBytes);
-    endian_swap_array(list, prop.type, count);
+    endianSwapArray(list, prop.type, count);
 
     m_pos += listBytes;
     m_end = m_pos;
@@ -1946,7 +1946,7 @@ namespace miniply {
   // Polygon triangulation
   //
 
-  static float angle_at_vert(uint32_t idx,
+  static float angleAtVert(uint32_t idx,
                              const std::vector<Vec2>& points2D,
                              const std::vector<uint32_t>& prev,
                              const std::vector<uint32_t>& next)
@@ -1955,7 +1955,7 @@ namespace miniply {
     Vec2 yaxis = Vec2{-xaxis.y, xaxis.x};
     Vec2 p2p0 = points2D[prev[idx]] - points2D[idx];
     float angle = std::atan2(dot(p2p0, yaxis), dot(p2p0, xaxis));
-    if (angle <= 0.0f || angle >= kPi) {
+    if (angle <= 0.0f || angle >= K_PI) {
       angle = 10000.0f;
     }
     return angle;
@@ -2020,9 +2020,9 @@ namespace miniply {
     while (n > 3) {
       // Find the (remaining) vertex with the sharpest angle.
       uint32_t bestI = first;
-      float bestAngle = angle_at_vert(first, points2D, prev, next);
+      float bestAngle = angleAtVert(first, points2D, prev, next);
       for (uint32_t i = next[first]; i != first; i = next[i]) {
-        float angle = angle_at_vert(i, points2D, prev, next);
+        float angle = angleAtVert(i, points2D, prev, next);
         if (angle < bestAngle) {
           bestI = i;
           bestAngle = angle;

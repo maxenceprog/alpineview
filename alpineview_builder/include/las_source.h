@@ -33,12 +33,12 @@ struct SourceFlightLine {
 int las_get_sources(std::vector<LasPoint> &points);
 
 void las_stat_sources(const std::vector<LasPoint> &points,
-		      std::vector<SourceStat> &stats);
+					  std::vector<SourceStat> &stats);
 
 /* Sets fls[i].theta_along / theta_across per source. A source whose two
  * azimuths are near-parallel (degenerate) is left is_valid = false and must
  * not be used for orientation. Returns the number of valid sources. */
 int las_approx_flight_lines(const std::vector<LasPoint> &points,
-			    const double *scale,
-			    const std::vector<SourceStat> &stats,
-			    std::vector<SourceFlightLine> &fls);
+							const double *scale,
+							const std::vector<SourceStat> &stats,
+							std::vector<SourceFlightLine> &fls);

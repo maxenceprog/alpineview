@@ -3,14 +3,12 @@
 
 #include <chrono.h>
 
-void Timer::start()
-{
+void Timer::start() {
 	gettimeofday(&tv0, NULL);
 	launched = true;
 }
 
-unsigned int Timer::stop(const char *str)
-{
+unsigned int Timer::stop(const char *str) {
 	if (!launched)
 		return 0;
 	gettimeofday(&tv1, NULL);
@@ -27,4 +25,3 @@ unsigned int Timer::stop(const char *str)
 	launched = false;
 	return (mus);
 }
-

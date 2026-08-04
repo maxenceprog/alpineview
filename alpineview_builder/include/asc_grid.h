@@ -33,7 +33,7 @@ int asc_index(const char *dir, std::vector<AscTile> &tiles);
 /* Load the grid of every tile whose extent meets [x0,x1] x [y0,y1] in L93
  * metres; leaves the others unloaded. Returns how many were loaded. */
 int asc_load_overlapping(std::vector<AscTile> &tiles, double x0, double y0,
-			 double x1, double y1);
+						 double x1, double y1);
 
 /* Bilinear height at an L93 position, NAN outside every loaded tile or on
  * NODATA. */

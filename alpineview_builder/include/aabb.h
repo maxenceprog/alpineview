@@ -2,8 +2,7 @@
 
 #include "vec3.h"
 
-template <typename T>
-struct TAabb {
+template <typename T> struct TAabb {
 	TVec3<T> min;
 	TVec3<T> max;
 
@@ -13,9 +12,7 @@ struct TAabb {
 };
 typedef TAabb<float> Aabb;
 
-template <typename T>
-TAabb<T> &TAabb<T>::operator|=(const TAabb<T> &other)
-{
+template <typename T> TAabb<T> &TAabb<T>::operator|=(const TAabb<T> &other) {
 	if (other.min.x < min.x)
 		min.x = other.min.x;
 	if (other.min.y < min.y)
@@ -32,9 +29,7 @@ TAabb<T> &TAabb<T>::operator|=(const TAabb<T> &other)
 	return *this;
 }
 
-template <typename T>
-TAabb<T> &TAabb<T>::operator&=(const TAabb<T> &other)
-{
+template <typename T> TAabb<T> &TAabb<T>::operator&=(const TAabb<T> &other) {
 	if (other.min.x > min.x)
 		min.x = other.min.x;
 	if (other.min.y > min.y)
@@ -51,8 +46,6 @@ TAabb<T> &TAabb<T>::operator&=(const TAabb<T> &other)
 	return *this;
 }
 
-template <typename T>
-bool TAabb<T>::is_empty() const
-{
+template <typename T> bool TAabb<T>::is_empty() const {
 	return min.x > max.x || min.y > max.y || min.z > max.z;
 }

@@ -101,26 +101,26 @@
 namespace meshopt
 {
 
-const unsigned char kVertexHeader = 0xa0;
+const unsigned char K_VERTEX_HEADER = 0xa0;
 
 static int gEncodeVertexVersion = 0;
 
-const size_t kVertexBlockSizeBytes = 8192;
-const size_t kVertexBlockMaxSize = 256;
-const size_t kByteGroupSize = 16;
-const size_t kByteGroupDecodeLimit = 24;
-const size_t kTailMaxSize = 32;
+const size_t K_VERTEX_BLOCK_SIZE_BYTES = 8192;
+const size_t K_VERTEX_BLOCK_MAX_SIZE = 256;
+const size_t K_BYTE_GROUP_SIZE = 16;
+const size_t K_BYTE_GROUP_DECODE_LIMIT = 24;
+const size_t K_TAIL_MAX_SIZE = 32;
 
-static size_t getVertexBlockSize(size_t vertex_size)
+static size_t getVertexBlockSize(size_t vertexSize)
 {
 	// make sure the entire block fits into the scratch buffer
-	size_t result = kVertexBlockSizeBytes / vertex_size;
+	size_t result = K_VERTEX_BLOCK_SIZE_BYTES / vertexSize;
 
 	// align to byte group size; we encode each byte as a byte group
 	// if vertex block is misaligned, it results in wasted bytes, so just truncate the block size
-	result &= ~(kByteGroupSize - 1);
+	result &= ~(K_BYTE_GROUP_SIZE - 1);
 
-	return (result < kVertexBlockMaxSize) ? result : kVertexBlockMaxSize;
+	return (result < K_VERTEX_BLOCK_MAX_SIZE) ? result : K_VERTEX_BLOCK_MAX_SIZE;
 }
 
 inline unsigned char zigzag8(unsigned char v)
@@ -135,7 +135,7 @@ inline unsigned char unzigzag8(unsigned char v)
 
 static bool encodeBytesGroupZero(const unsigned char* buffer)
 {
-	for (size_t i = 0; i < kByteGroupSize; ++i)
+	for (size_t i = 0; i < K_BYTE_GROUP_SIZE; ++i)
 		if (buffer[i])
 			return false;
 
@@ -150,13 +150,13 @@ static size_t encodeBytesGroupMeasure(const unsigned char* buffer, int bits)
 		return encodeBytesGroupZero(buffer) ? 0 : size_t(-1);
 
 	if (bits == 8)
-		return kByteGroupSize;
+		return K_BYTE_GROUP_SIZE;
 
-	size_t result = kByteGroupSize * bits / 8;
+	size_t result = K_BYTE_GROUP_SIZE * bits / 8;
 
 	unsigned char sentinel = (1 << bits) - 1;
 
-	for (size_t i = 0; i < kByteGroupSize; ++i)
+	for (size_t i = 0; i < K_BYTE_GROUP_SIZE; ++i)
 		result += buffer[i] >= sentinel;
 
 	return result;
@@ -171,22 +171,22 @@ static unsigned char* encodeBytesGroup(unsigned char* data, const unsigned char*
 
 	if (bits == 8)
 	{
-		memcpy(data, buffer, kByteGroupSize);
-		return data + kByteGroupSize;
+		memcpy(data, buffer, K_BYTE_GROUP_SIZE);
+		return data + K_BYTE_GROUP_SIZE;
 	}
 
-	size_t byte_size = 8 / bits;
+	size_t byteSize = 8 / bits;
 	assert(kByteGroupSize % byte_size == 0);
 
 	// fixed portion: bits bits for each value
 	// variable portion: full byte for each out-of-range value (using 1...1 as sentinel)
 	unsigned char sentinel = (1 << bits) - 1;
 
-	for (size_t i = 0; i < kByteGroupSize; i += byte_size)
+	for (size_t i = 0; i < K_BYTE_GROUP_SIZE; i += byteSize)
 	{
 		unsigned char byte = 0;
 
-		for (size_t k = 0; k < byte_size; ++k)
+		for (size_t k = 0; k < byteSize; ++k)
 		{
 			unsigned char enc = (buffer[i + k] >= sentinel) ? sentinel : buffer[i + k];
 
@@ -197,7 +197,7 @@ static unsigned char* encodeBytesGroup(unsigned char* data, const unsigned char*
 		*data++ = byte;
 	}
 
-	for (size_t i = 0; i < kByteGroupSize; ++i)
+	for (size_t i = 0; i < K_BYTE_GROUP_SIZE; ++i)
 	{
 		if (buffer[i] >= sentinel)
 		{
@@ -208,49 +208,49 @@ static unsigned char* encodeBytesGroup(unsigned char* data, const unsigned char*
 	return data;
 }
 
-static unsigned char* encodeBytes(unsigned char* data, unsigned char* data_end, const unsigned char* buffer, size_t buffer_size)
+static unsigned char* encodeBytes(unsigned char* data, unsigned char* dataEnd, const unsigned char* buffer, size_t bufferSize)
 {
 	assert(buffer_size % kByteGroupSize == 0);
 
 	unsigned char* header = data;
 
 	// round number of groups to 4 to get number of header bytes
-	size_t header_size = (buffer_size / kByteGroupSize + 3) / 4;
+	size_t headerSize = (bufferSize / K_BYTE_GROUP_SIZE + 3) / 4;
 
-	if (size_t(data_end - data) < header_size)
+	if (size_t(dataEnd - data) < headerSize)
 		return 0;
 
-	data += header_size;
+	data += headerSize;
 
-	memset(header, 0, header_size);
+	memset(header, 0, headerSize);
 
-	for (size_t i = 0; i < buffer_size; i += kByteGroupSize)
+	for (size_t i = 0; i < bufferSize; i += K_BYTE_GROUP_SIZE)
 	{
-		if (size_t(data_end - data) < kByteGroupDecodeLimit)
+		if (size_t(dataEnd - data) < K_BYTE_GROUP_DECODE_LIMIT)
 			return 0;
 
-		int best_bits = 8;
-		size_t best_size = encodeBytesGroupMeasure(buffer + i, 8);
+		int bestBits = 8;
+		size_t bestSize = encodeBytesGroupMeasure(buffer + i, 8);
 
 		for (int bits = 1; bits < 8; bits *= 2)
 		{
 			size_t size = encodeBytesGroupMeasure(buffer + i, bits);
 
-			if (size < best_size)
+			if (size < bestSize)
 			{
-				best_bits = bits;
-				best_size = size;
+				bestBits = bits;
+				bestSize = size;
 			}
 		}
 
-		int bitslog2 = (best_bits == 1) ? 0 : (best_bits == 2) ? 1 : (best_bits == 4) ? 2 : 3;
+		int bitslog2 = (bestBits == 1) ? 0 : (bestBits == 2) ? 1 : (bestBits == 4) ? 2 : 3;
 		assert((1 << bitslog2) == best_bits);
 
-		size_t header_offset = i / kByteGroupSize;
+		size_t headerOffset = i / K_BYTE_GROUP_SIZE;
 
-		header[header_offset / 4] |= bitslog2 << ((header_offset % 4) * 2);
+		header[headerOffset / 4] |= bitslog2 << ((headerOffset % 4) * 2);
 
-		unsigned char* next = encodeBytesGroup(data, buffer + i, best_bits);
+		unsigned char* next = encodeBytesGroup(data, buffer + i, bestBits);
 
 		assert(data + best_size == next);
 		data = next;
@@ -259,37 +259,37 @@ static unsigned char* encodeBytes(unsigned char* data, unsigned char* data_end, 
 	return data;
 }
 
-static unsigned char* encodeVertexBlock(unsigned char* data, unsigned char* data_end, const unsigned char* vertex_data, size_t vertex_count, size_t vertex_size, unsigned char last_vertex[256])
+static unsigned char* encodeVertexBlock(unsigned char* data, unsigned char* dataEnd, const unsigned char* vertexData, size_t vertexCount, size_t vertexSize, unsigned char lastVertex[256])
 {
 	assert(vertex_count > 0 && vertex_count <= kVertexBlockMaxSize);
 
-	unsigned char buffer[kVertexBlockMaxSize];
+	unsigned char buffer[K_VERTEX_BLOCK_MAX_SIZE];
 	assert(sizeof(buffer) % kByteGroupSize == 0);
 
 	// we sometimes encode elements we didn't fill when rounding to kByteGroupSize
 	memset(buffer, 0, sizeof(buffer));
 
-	for (size_t k = 0; k < vertex_size; ++k)
+	for (size_t k = 0; k < vertexSize; ++k)
 	{
-		size_t vertex_offset = k;
+		size_t vertexOffset = k;
 
-		unsigned char p = last_vertex[k];
+		unsigned char p = lastVertex[k];
 
-		for (size_t i = 0; i < vertex_count; ++i)
+		for (size_t i = 0; i < vertexCount; ++i)
 		{
-			buffer[i] = zigzag8(vertex_data[vertex_offset] - p);
+			buffer[i] = zigzag8(vertexData[vertexOffset] - p);
 
-			p = vertex_data[vertex_offset];
+			p = vertexData[vertexOffset];
 
-			vertex_offset += vertex_size;
+			vertexOffset += vertexSize;
 		}
 
-		data = encodeBytes(data, data_end, buffer, (vertex_count + kByteGroupSize - 1) & ~(kByteGroupSize - 1));
+		data = encodeBytes(data, dataEnd, buffer, (vertexCount + K_BYTE_GROUP_SIZE - 1) & ~(K_BYTE_GROUP_SIZE - 1));
 		if (!data)
 			return 0;
 	}
 
-	memcpy(last_vertex, &vertex_data[vertex_size * (vertex_count - 1)], vertex_size);
+	memcpy(lastVertex, &vertexData[vertexSize * (vertexCount - 1)], vertexSize);
 
 	return data;
 }
@@ -306,7 +306,7 @@ static const unsigned char* decodeBytesGroup(const unsigned char* data, unsigned
 	switch (bitslog2)
 	{
 	case 0:
-		memset(buffer, 0, kByteGroupSize);
+		memset(buffer, 0, K_BYTE_GROUP_SIZE);
 		return data;
 	case 1:
 		data_var = data + 4;
@@ -333,8 +333,8 @@ static const unsigned char* decodeBytesGroup(const unsigned char* data, unsigned
 
 		return data_var;
 	case 3:
-		memcpy(buffer, data, kByteGroupSize);
-		return data + kByteGroupSize;
+		memcpy(buffer, data, K_BYTE_GROUP_SIZE);
+		return data + K_BYTE_GROUP_SIZE;
 	default:
 		assert(!"Unexpected bit length"); // unreachable since bitslog2 is a 2-bit value
 		return data;
@@ -344,28 +344,28 @@ static const unsigned char* decodeBytesGroup(const unsigned char* data, unsigned
 #undef NEXT
 }
 
-static const unsigned char* decodeBytes(const unsigned char* data, const unsigned char* data_end, unsigned char* buffer, size_t buffer_size)
+static const unsigned char* decodeBytes(const unsigned char* data, const unsigned char* dataEnd, unsigned char* buffer, size_t bufferSize)
 {
 	assert(buffer_size % kByteGroupSize == 0);
 
 	const unsigned char* header = data;
 
 	// round number of groups to 4 to get number of header bytes
-	size_t header_size = (buffer_size / kByteGroupSize + 3) / 4;
+	size_t headerSize = (bufferSize / K_BYTE_GROUP_SIZE + 3) / 4;
 
-	if (size_t(data_end - data) < header_size)
+	if (size_t(dataEnd - data) < headerSize)
 		return 0;
 
-	data += header_size;
+	data += headerSize;
 
-	for (size_t i = 0; i < buffer_size; i += kByteGroupSize)
+	for (size_t i = 0; i < bufferSize; i += K_BYTE_GROUP_SIZE)
 	{
-		if (size_t(data_end - data) < kByteGroupDecodeLimit)
+		if (size_t(dataEnd - data) < K_BYTE_GROUP_DECODE_LIMIT)
 			return 0;
 
-		size_t header_offset = i / kByteGroupSize;
+		size_t headerOffset = i / K_BYTE_GROUP_SIZE;
 
-		int bitslog2 = (header[header_offset / 4] >> ((header_offset % 4) * 2)) & 3;
+		int bitslog2 = (header[headerOffset / 4] >> ((headerOffset % 4) * 2)) & 3;
 
 		data = decodeBytesGroup(data, buffer + i, bitslog2);
 	}
@@ -373,39 +373,39 @@ static const unsigned char* decodeBytes(const unsigned char* data, const unsigne
 	return data;
 }
 
-static const unsigned char* decodeVertexBlock(const unsigned char* data, const unsigned char* data_end, unsigned char* vertex_data, size_t vertex_count, size_t vertex_size, unsigned char last_vertex[256])
+static const unsigned char* decodeVertexBlock(const unsigned char* data, const unsigned char* dataEnd, unsigned char* vertexData, size_t vertexCount, size_t vertexSize, unsigned char lastVertex[256])
 {
 	assert(vertex_count > 0 && vertex_count <= kVertexBlockMaxSize);
 
-	unsigned char buffer[kVertexBlockMaxSize];
-	unsigned char transposed[kVertexBlockSizeBytes];
+	unsigned char buffer[K_VERTEX_BLOCK_MAX_SIZE];
+	unsigned char transposed[K_VERTEX_BLOCK_SIZE_BYTES];
 
-	size_t vertex_count_aligned = (vertex_count + kByteGroupSize - 1) & ~(kByteGroupSize - 1);
+	size_t vertexCountAligned = (vertexCount + K_BYTE_GROUP_SIZE - 1) & ~(K_BYTE_GROUP_SIZE - 1);
 
-	for (size_t k = 0; k < vertex_size; ++k)
+	for (size_t k = 0; k < vertexSize; ++k)
 	{
-		data = decodeBytes(data, data_end, buffer, vertex_count_aligned);
+		data = decodeBytes(data, dataEnd, buffer, vertexCountAligned);
 		if (!data)
 			return 0;
 
-		size_t vertex_offset = k;
+		size_t vertexOffset = k;
 
-		unsigned char p = last_vertex[k];
+		unsigned char p = lastVertex[k];
 
-		for (size_t i = 0; i < vertex_count; ++i)
+		for (size_t i = 0; i < vertexCount; ++i)
 		{
 			unsigned char v = unzigzag8(buffer[i]) + p;
 
-			transposed[vertex_offset] = v;
+			transposed[vertexOffset] = v;
 			p = v;
 
-			vertex_offset += vertex_size;
+			vertexOffset += vertexSize;
 		}
 	}
 
-	memcpy(vertex_data, transposed, vertex_count * vertex_size);
+	memcpy(vertexData, transposed, vertexCount * vertexSize);
 
-	memcpy(last_vertex, &transposed[vertex_size * (vertex_count - 1)], vertex_size);
+	memcpy(lastVertex, &transposed[vertexSize * (vertexCount - 1)], vertexSize);
 
 	return data;
 }
@@ -473,7 +473,7 @@ static const unsigned char* decodeBytesGroupSimd(const unsigned char* data, unsi
 	case 1:
 	{
 #ifdef __GNUC__
-		typedef int __attribute__((aligned(1))) unaligned_int;
+		typedef int __attribute__((aligned(1))) UnalignedInt;
 #else
 		typedef int unaligned_int;
 #endif
@@ -490,7 +490,7 @@ static const unsigned char* decodeBytesGroupSimd(const unsigned char* data, unsi
 		int datacnt = int(((data64 & 0x1111111111111111ull) * 0x1111111111111111ull) >> 60);
 #endif
 
-		__m128i sel2 = _mm_cvtsi32_si128(*reinterpret_cast<const unaligned_int*>(data));
+		__m128i sel2 = _mm_cvtsi32_si128(*reinterpret_cast<const UnalignedInt*>(data));
 		__m128i rest = _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + 4));
 
 		__m128i sel22 = _mm_unpacklo_epi8(_mm_srli_epi16(sel2, 4), sel2);
@@ -928,7 +928,7 @@ static v128_t unzigzag8(v128_t v)
 
 #if defined(SIMD_SSE) || defined(SIMD_AVX) || defined(SIMD_NEON) || defined(SIMD_WASM)
 SIMD_TARGET
-static const unsigned char* decodeBytesSimd(const unsigned char* data, const unsigned char* data_end, unsigned char* buffer, size_t buffer_size)
+static const unsigned char* decodeBytesSimd(const unsigned char* data, const unsigned char* dataEnd, unsigned char* buffer, size_t bufferSize)
 {
 	assert(buffer_size % kByteGroupSize == 0);
 	assert(kByteGroupSize == 16);
@@ -936,36 +936,36 @@ static const unsigned char* decodeBytesSimd(const unsigned char* data, const uns
 	const unsigned char* header = data;
 
 	// round number of groups to 4 to get number of header bytes
-	size_t header_size = (buffer_size / kByteGroupSize + 3) / 4;
+	size_t headerSize = (bufferSize / K_BYTE_GROUP_SIZE + 3) / 4;
 
-	if (size_t(data_end - data) < header_size)
+	if (size_t(dataEnd - data) < headerSize)
 		return 0;
 
-	data += header_size;
+	data += headerSize;
 
 	size_t i = 0;
 
 	// fast-path: process 4 groups at a time, do a shared bounds check - each group reads <=24b
-	for (; i + kByteGroupSize * 4 <= buffer_size && size_t(data_end - data) >= kByteGroupDecodeLimit * 4; i += kByteGroupSize * 4)
+	for (; i + K_BYTE_GROUP_SIZE * 4 <= bufferSize && size_t(dataEnd - data) >= K_BYTE_GROUP_DECODE_LIMIT * 4; i += K_BYTE_GROUP_SIZE * 4)
 	{
-		size_t header_offset = i / kByteGroupSize;
-		unsigned char header_byte = header[header_offset / 4];
+		size_t headerOffset = i / K_BYTE_GROUP_SIZE;
+		unsigned char headerByte = header[headerOffset / 4];
 
-		data = decodeBytesGroupSimd(data, buffer + i + kByteGroupSize * 0, (header_byte >> 0) & 3);
-		data = decodeBytesGroupSimd(data, buffer + i + kByteGroupSize * 1, (header_byte >> 2) & 3);
-		data = decodeBytesGroupSimd(data, buffer + i + kByteGroupSize * 2, (header_byte >> 4) & 3);
-		data = decodeBytesGroupSimd(data, buffer + i + kByteGroupSize * 3, (header_byte >> 6) & 3);
+		data = decodeBytesGroupSimd(data, buffer + i + K_BYTE_GROUP_SIZE * 0, (headerByte >> 0) & 3);
+		data = decodeBytesGroupSimd(data, buffer + i + K_BYTE_GROUP_SIZE * 1, (headerByte >> 2) & 3);
+		data = decodeBytesGroupSimd(data, buffer + i + K_BYTE_GROUP_SIZE * 2, (headerByte >> 4) & 3);
+		data = decodeBytesGroupSimd(data, buffer + i + K_BYTE_GROUP_SIZE * 3, (headerByte >> 6) & 3);
 	}
 
 	// slow-path: process remaining groups
-	for (; i < buffer_size; i += kByteGroupSize)
+	for (; i < bufferSize; i += K_BYTE_GROUP_SIZE)
 	{
-		if (size_t(data_end - data) < kByteGroupDecodeLimit)
+		if (size_t(dataEnd - data) < K_BYTE_GROUP_DECODE_LIMIT)
 			return 0;
 
-		size_t header_offset = i / kByteGroupSize;
+		size_t headerOffset = i / K_BYTE_GROUP_SIZE;
 
-		int bitslog2 = (header[header_offset / 4] >> ((header_offset % 4) * 2)) & 3;
+		int bitslog2 = (header[headerOffset / 4] >> ((headerOffset % 4) * 2)) & 3;
 
 		data = decodeBytesGroupSimd(data, buffer + i, bitslog2);
 	}
@@ -974,20 +974,20 @@ static const unsigned char* decodeBytesSimd(const unsigned char* data, const uns
 }
 
 SIMD_TARGET
-static const unsigned char* decodeVertexBlockSimd(const unsigned char* data, const unsigned char* data_end, unsigned char* vertex_data, size_t vertex_count, size_t vertex_size, unsigned char last_vertex[256])
+static const unsigned char* decodeVertexBlockSimd(const unsigned char* data, const unsigned char* dataEnd, unsigned char* vertexData, size_t vertexCount, size_t vertex_size, unsigned char last_vertex[256])
 {
 	assert(vertex_count > 0 && vertex_count <= kVertexBlockMaxSize);
 
-	unsigned char buffer[kVertexBlockMaxSize * 4];
-	unsigned char transposed[kVertexBlockSizeBytes];
+	unsigned char buffer[K_VERTEX_BLOCK_MAX_SIZE * 4];
+	unsigned char transposed[K_VERTEX_BLOCK_SIZE_BYTES];
 
-	size_t vertex_count_aligned = (vertex_count + kByteGroupSize - 1) & ~(kByteGroupSize - 1);
+	size_t vertex_count_aligned = (vertexCount + K_BYTE_GROUP_SIZE - 1) & ~(K_BYTE_GROUP_SIZE - 1);
 
 	for (size_t k = 0; k < vertex_size; k += 4)
 	{
 		for (size_t j = 0; j < 4; ++j)
 		{
-			data = decodeBytesSimd(data, data_end, buffer + j * vertex_count_aligned, vertex_count_aligned);
+			data = decodeBytesSimd(data, dataEnd, buffer + j * vertex_count_aligned, vertex_count_aligned);
 			if (!data)
 				return 0;
 		}
@@ -1064,9 +1064,9 @@ static const unsigned char* decodeVertexBlockSimd(const unsigned char* data, con
 		}
 	}
 
-	memcpy(vertex_data, transposed, vertex_count * vertex_size);
+	memcpy(vertexData, transposed, vertexCount * vertex_size);
 
-	memcpy(last_vertex, &transposed[vertex_size * (vertex_count - 1)], vertex_size);
+	memcpy(last_vertex, &transposed[vertex_size * (vertexCount - 1)], vertex_size);
 
 	return data;
 }
@@ -1089,61 +1089,61 @@ static unsigned int cpuid = getCpuFeatures();
 
 } // namespace meshopt
 
-size_t meshopt_encodeVertexBuffer(unsigned char* buffer, size_t buffer_size, const void* vertices, size_t vertex_count, size_t vertex_size)
+size_t meshopt_encodeVertexBuffer(unsigned char* buffer, size_t bufferSize, const void* vertices, size_t vertexCount, size_t vertexSize)
 {
 	using namespace meshopt;
 
 	assert(vertex_size > 0 && vertex_size <= 256);
 	assert(vertex_size % 4 == 0);
 
-	const unsigned char* vertex_data = static_cast<const unsigned char*>(vertices);
+	const unsigned char* vertexData = static_cast<const unsigned char*>(vertices);
 
 	unsigned char* data = buffer;
-	unsigned char* data_end = buffer + buffer_size;
+	unsigned char* dataEnd = buffer + bufferSize;
 
-	if (size_t(data_end - data) < 1 + vertex_size)
+	if (size_t(dataEnd - data) < 1 + vertexSize)
 		return 0;
 
 	int version = gEncodeVertexVersion;
 
-	*data++ = (unsigned char)(kVertexHeader | version);
+	*data++ = (unsigned char)(K_VERTEX_HEADER | version);
 
-	unsigned char first_vertex[256] = {};
-	if (vertex_count > 0)
-		memcpy(first_vertex, vertex_data, vertex_size);
+	unsigned char firstVertex[256] = {};
+	if (vertexCount > 0)
+		memcpy(firstVertex, vertexData, vertexSize);
 
-	unsigned char last_vertex[256] = {};
-	memcpy(last_vertex, first_vertex, vertex_size);
+	unsigned char lastVertex[256] = {};
+	memcpy(lastVertex, firstVertex, vertexSize);
 
-	size_t vertex_block_size = getVertexBlockSize(vertex_size);
+	size_t vertexBlockSize = getVertexBlockSize(vertexSize);
 
-	size_t vertex_offset = 0;
+	size_t vertexOffset = 0;
 
-	while (vertex_offset < vertex_count)
+	while (vertexOffset < vertexCount)
 	{
-		size_t block_size = (vertex_offset + vertex_block_size < vertex_count) ? vertex_block_size : vertex_count - vertex_offset;
+		size_t blockSize = (vertexOffset + vertexBlockSize < vertexCount) ? vertexBlockSize : vertexCount - vertexOffset;
 
-		data = encodeVertexBlock(data, data_end, vertex_data + vertex_offset * vertex_size, block_size, vertex_size, last_vertex);
+		data = encodeVertexBlock(data, dataEnd, vertexData + vertexOffset * vertexSize, blockSize, vertexSize, lastVertex);
 		if (!data)
 			return 0;
 
-		vertex_offset += block_size;
+		vertexOffset += blockSize;
 	}
 
-	size_t tail_size = vertex_size < kTailMaxSize ? kTailMaxSize : vertex_size;
+	size_t tailSize = vertexSize < K_TAIL_MAX_SIZE ? K_TAIL_MAX_SIZE : vertexSize;
 
-	if (size_t(data_end - data) < tail_size)
+	if (size_t(dataEnd - data) < tailSize)
 		return 0;
 
 	// write first vertex to the end of the stream and pad it to 32 bytes; this is important to simplify bounds checks in decoder
-	if (vertex_size < kTailMaxSize)
+	if (vertexSize < K_TAIL_MAX_SIZE)
 	{
-		memset(data, 0, kTailMaxSize - vertex_size);
-		data += kTailMaxSize - vertex_size;
+		memset(data, 0, K_TAIL_MAX_SIZE - vertexSize);
+		data += K_TAIL_MAX_SIZE - vertexSize;
 	}
 
-	memcpy(data, first_vertex, vertex_size);
-	data += vertex_size;
+	memcpy(data, firstVertex, vertexSize);
+	data += vertexSize;
 
 	assert(data >= buffer + tail_size);
 	assert(data <= buffer + buffer_size);
@@ -1151,22 +1151,22 @@ size_t meshopt_encodeVertexBuffer(unsigned char* buffer, size_t buffer_size, con
 	return data - buffer;
 }
 
-size_t meshopt_encodeVertexBufferBound(size_t vertex_count, size_t vertex_size)
+size_t meshopt_encodeVertexBufferBound(size_t vertexCount, size_t vertexSize)
 {
 	using namespace meshopt;
 
 	assert(vertex_size > 0 && vertex_size <= 256);
 	assert(vertex_size % 4 == 0);
 
-	size_t vertex_block_size = getVertexBlockSize(vertex_size);
-	size_t vertex_block_count = (vertex_count + vertex_block_size - 1) / vertex_block_size;
+	size_t vertexBlockSize = getVertexBlockSize(vertexSize);
+	size_t vertexBlockCount = (vertexCount + vertexBlockSize - 1) / vertexBlockSize;
 
-	size_t vertex_block_header_size = (vertex_block_size / kByteGroupSize + 3) / 4;
-	size_t vertex_block_data_size = vertex_block_size;
+	size_t vertexBlockHeaderSize = (vertexBlockSize / K_BYTE_GROUP_SIZE + 3) / 4;
+	size_t vertexBlockDataSize = vertexBlockSize;
 
-	size_t tail_size = vertex_size < kTailMaxSize ? kTailMaxSize : vertex_size;
+	size_t tailSize = vertexSize < K_TAIL_MAX_SIZE ? K_TAIL_MAX_SIZE : vertexSize;
 
-	return 1 + vertex_block_count * vertex_size * (vertex_block_header_size + vertex_block_data_size) + tail_size;
+	return 1 + vertexBlockCount * vertexSize * (vertexBlockHeaderSize + vertexBlockDataSize) + tailSize;
 }
 
 void meshopt_encodeVertexVersion(int version)
@@ -1176,7 +1176,7 @@ void meshopt_encodeVertexVersion(int version)
 	meshopt::gEncodeVertexVersion = version;
 }
 
-int meshopt_decodeVertexBuffer(void* destination, size_t vertex_count, size_t vertex_size, const unsigned char* buffer, size_t buffer_size)
+int meshopt_decodeVertexBuffer(void* destination, size_t vertexCount, size_t vertexSize, const unsigned char* buffer, size_t bufferSize)
 {
 	using namespace meshopt;
 
@@ -1198,44 +1198,44 @@ int meshopt_decodeVertexBuffer(void* destination, size_t vertex_count, size_t ve
 	(void)gDecodeBytesGroupInitialized;
 #endif
 
-	unsigned char* vertex_data = static_cast<unsigned char*>(destination);
+	unsigned char* vertexData = static_cast<unsigned char*>(destination);
 
 	const unsigned char* data = buffer;
-	const unsigned char* data_end = buffer + buffer_size;
+	const unsigned char* dataEnd = buffer + bufferSize;
 
-	if (size_t(data_end - data) < 1 + vertex_size)
+	if (size_t(dataEnd - data) < 1 + vertexSize)
 		return -2;
 
-	unsigned char data_header = *data++;
+	unsigned char dataHeader = *data++;
 
-	if ((data_header & 0xf0) != kVertexHeader)
+	if ((dataHeader & 0xf0) != K_VERTEX_HEADER)
 		return -1;
 
-	int version = data_header & 0x0f;
+	int version = dataHeader & 0x0f;
 	if (version > 0)
 		return -1;
 
-	unsigned char last_vertex[256];
-	memcpy(last_vertex, data_end - vertex_size, vertex_size);
+	unsigned char lastVertex[256];
+	memcpy(lastVertex, dataEnd - vertexSize, vertexSize);
 
-	size_t vertex_block_size = getVertexBlockSize(vertex_size);
+	size_t vertexBlockSize = getVertexBlockSize(vertexSize);
 
-	size_t vertex_offset = 0;
+	size_t vertexOffset = 0;
 
-	while (vertex_offset < vertex_count)
+	while (vertexOffset < vertexCount)
 	{
-		size_t block_size = (vertex_offset + vertex_block_size < vertex_count) ? vertex_block_size : vertex_count - vertex_offset;
+		size_t blockSize = (vertexOffset + vertexBlockSize < vertexCount) ? vertexBlockSize : vertexCount - vertexOffset;
 
-		data = decode(data, data_end, vertex_data + vertex_offset * vertex_size, block_size, vertex_size, last_vertex);
+		data = decode(data, dataEnd, vertexData + vertexOffset * vertexSize, blockSize, vertexSize, lastVertex);
 		if (!data)
 			return -2;
 
-		vertex_offset += block_size;
+		vertexOffset += blockSize;
 	}
 
-	size_t tail_size = vertex_size < kTailMaxSize ? kTailMaxSize : vertex_size;
+	size_t tailSize = vertexSize < K_TAIL_MAX_SIZE ? K_TAIL_MAX_SIZE : vertexSize;
 
-	if (size_t(data_end - data) != tail_size)
+	if (size_t(dataEnd - data) != tailSize)
 		return -3;
 
 	return 0;
