@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-import { getSunDirection, getAmbientIntensity, registerLitMaterial, unregisterLitMaterial } from "./sunLighting.js";
+import { getAmbientIntensity, getSunDirection, registerLitMaterial, unregisterLitMaterial } from "./sunLighting.js";
 
 const TILE_DRAW = {
   side: THREE.FrontSide,
