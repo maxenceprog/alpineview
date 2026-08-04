@@ -1,167 +1,158 @@
-# lidalps3d.fr 
+# lidalps3d.fr
 
-/!\ PROJET ENCORE EN PHASE ALPHA /!\
+/!\ PROJECT STILL IN ALPHA PHASE /!\
 
-## But du projet
+## Project goal
 
-Une réutilisation open source des données IGN pour obtenir une visualisation
-web 3D détaillée des Alpes françaises.
+An open source reuse of IGN data to get a detailed 3D web visualization
+of the French Alps.
 
-Contactez-moi si vous souhaitez réutiliser mon travail, m'aider, ou signaler
-un bug.
+Contact me if you'd like to reuse my work, help out, or report a bug.
 
-## Lexique
+## Glossary
 
 - **[WebMercatorQuad](https://www.ogc.org/standards/)** —
-  grille de tuilage standardisée (OGC), le découpage Web Mercator utilisé
-  aussi bien par les tuiles d'imagerie que par les cellules du terrain ici.
+  standardized OGC tiling grid, the Web Mercator tiling scheme used both
+  by the imagery tiles and by the terrain cells here.
 - **[WMTS](https://www.ogc.org/standards/wmts/)** — Web Map Tile Service,
-  standard OGC de diffusion d'images découpées en tuiles (c'est comme ça que
-  l'imagerie IGN est servie).
-- **[3D Tiles](https://www.ogc.org/standard/3dtiles/)** — standard OGC pour
-  diffuser de grandes scènes 3D sous forme de tuiles, avec niveaux de détail.
-- **[glTF / .glb](https://www.khronos.org/gltf/)** — format standard de
-  maillage 3D ; `.glb` est sa variante en un seul fichier binaire.
-- **[LiDAR HD](https://geoservices.ign.fr/lidarhd)** — programme IGN de
-  relevé LiDAR aérien haute densité (le nuage de points source).
-- **[RGE ALTI](https://geoservices.ign.fr/rgealti)** — modèle numérique de
-  terrain IGN (grille régulière d'altitudes), ici en résolution 5 m.
-- **[iTowns](https://github.com/iTowns/itowns)** — moteur de rendu 3D web
-  (basé sur three.js) utilisé par la webapp.
+  OGC standard for serving images split into tiles (this is how IGN
+  imagery is served).
+- **[3D Tiles](https://www.ogc.org/standard/3dtiles/)** — OGC standard for
+  streaming large 3D scenes as tiles, with levels of detail.
+- **[glTF / .glb](https://www.khronos.org/gltf/)** — standard 3D mesh
+  format; `.glb` is its single binary file variant.
+- **[LiDAR HD](https://geoservices.ign.fr/lidarhd)** — IGN's high-density
+  aerial LiDAR survey program (the source point cloud).
+- **[RGE ALTI](https://geoservices.ign.fr/rgealti)** — IGN digital terrain
+  model (regular elevation grid), here at 5 m resolution.
+- **[iTowns](https://github.com/iTowns/itowns)** — 3D web rendering
+  engine (based on three.js) used by the webapp.
 
 ## Third parties
 
-- **IGN** — LiDAR HD, RGE ALTI, WMTS (orthophotos, plan IGN)
-- **[Camptocamp](https://www.camptocamp.org/)** — points d'intérêt, topoguide,
-  recherche
-- **[PoissonRecon](https://github.com/mkazhdan/PoissonRecon)** — reconstruction
-  de surface à partir du nuage de points
-- Inspiration pour la generation du terrain / le calcul des normals + arcitecture de base du builder C++ :
+- **IGN** — LiDAR HD, RGE ALTI, WMTS (orthophotos, IGN map)
+- **[Camptocamp](https://www.camptocamp.org/)** — points of interest, topo guide,
+  search
+- **[PoissonRecon](https://github.com/mkazhdan/PoissonRecon)** — surface
+  reconstruction from the point cloud
+- Inspiration for terrain generation / normals computation + base architecture
+  of the C++ builder:
   [OscarPilote/LidarTerrainMesh](https://github.com/oscarpilote/LidarTerrainMesh)
+- **OpenTOpoMap** Additional map layer
 
-Détails complets des licences et des dépendances vendorisées :
+Full dependency details:
 [NOTICE.md](NOTICE.md).
 
-## Remarque
+## Note
 
-Utilisation de [Claude](https://claude.ai) pour l'implementation.
+[Claude](https://claude.ai) is used for the implementation.
 
 
 ## TODO
 
-- Meilleure CI et tests
-- Mettre à jour les scripts d'installation (`project.toml` / `environment.yml` pas à jour.)
-- Enrichir la base de données (couverture LiDAR HD)
+- Better CI and tests
+- Update install scripts (`project.toml` / `environment.yml` are out of date.)
+- Enrich the database (LiDAR HD coverage)
 
-## Comment construire des tiles ?
+## How to build tiles?
 
-Le terrain se construit avec une petite GUI :
+Terrain is built with a small GUI:
 
 ```
 python alpineview_builder/gui/main.py
 ```
 
-1. Dessiner un rectangle sur la carte (bouton "Select rect") pour choisir la
-   zone à construire.
-2. Vérifier les chemins (exécutables `builder`/`coarse`, dossier RGE ALTI,
-   dossier de sortie) et les options (`processes`, `force rebuild`).
-3. Cliquer sur "Build". La GUI enchaîne : reconstruction fine (LiDAR HD),
-   reconstruction grossière (RGE ALTI), puis l'assemblage du tileset
+1. Draw a rectangle on the map ("Select rect" button) to choose the
+   zone to build.
+2. Check the paths (`builder`/`coarse` executables, RGE ALTI folder,
+   output folder) and the options (`processes`, `force rebuild`).
+3. Click "Build". The GUI chains: fine reconstruction (LiDAR HD),
+   coarse reconstruction (RGE ALTI), then tileset assembly
    (`ogc3d_tiler`).
 
 
---> `terrainPack.json` est mis à jour ainsi que les fichiers .glb.
+--> `terrainPack.json` gets updated along with the .glb files.
 
-## Workflow de build
+## Build workflow
 
 ```
    LiDAR HD (.laz)              RGE ALTI 5 m (.asc)
          |                            |
          v                            v
    alpineview_builder          alpineview_coarse
-   (Poisson Recon + nettoyage / simplification / découpe)
+   (Poisson Recon + cleanup / simplification / cropping)
          \                            /
           \                          /
            v                        v
-              tuiles .glb (position seule)
+              .glb tiles (position only)
                         |
                         v
               ogc3d_tiler/build_tileset.py
                         |
                         v
-              un seul fichier : tileset + subtrees
+              a single file: tileset + subtrees
               (webapp/src/terrainPack.json)
 ```
 
-**Système de coordonnées.** Tout le pipeline travaille dans un seul repère :
-une projection Mercator centrée sur les Alpes (métrique, sans déformation de la zone couverte), le même découpage que la grille WebMercatorQuad
-utilisée par les tuiles d'imagerie IGN.
+**Coordinate system.** The whole pipeline works in a single frame:
+a Mercator projection centered on the Alps (metric, no distortion over the
+covered area), the same tiling scheme as the WebMercatorQuad grid used by
+the IGN imagery tiles.
 
-**Altitude.** Le Z des tuiles reste en NGF69 (l'altitude brute des fichiers
-sources) du début à la fin.
+**Altitude.** Tile Z stays in NGF69 (the raw altitude from the source
+files) end to end.
 
-**Nommage des tuiles.** 
-Le terrain est d'abord découpé en cellules, une par tuile de la grille WebMercatorQuad au niveau CELL_LEVEL (zoom 11). 
+**Tile naming.**
+The terrain is first split into tiles of about 190km2 (Zoom 11 Pseudo-Mercator).
 
+Inside, one subfolder per level of detail, then one file per tile:
 
-A l'intérieur, un sous-dossier par niveau de détail,
-puis un fichier par tuile :
+The level of details are relative to the Pseudo-Mercator level 11.
 
 ```
 public/pm/
-└── 1024.700/            <- cellule (x.y au niveau CELL_LEVEL)
+└── 1024.700/            <- cell (x.y at CELL_LEVEL)
     ├── 0/0.0.glb
-    ├── 1/0.0.glb  1.0.glb  0.1.glb  1.1.glb
-    └── subtrees/         <- disponibilité (3D Tiles implicit tiling)
+    └── 1/0.0.glb  1.0.glb  0.1.glb  1.1.glb
 ```
 
-**Poisson Recon et post-traitement.** Pour la zone LiDAR HD : nuage de
-points → reconstruction de surface implicite (PoissonRecon) → on garde la
-composante connexe principale → simplification ("Quadratic Error Metric simplication") → découpe aux limites exactes de la tuile. Le maillage
-final ne contient que les positions ; les normales sont recalculées côté
-client.
+**Poisson Recon and post-processing.** For the LiDAR HD zone: point
+cloud → implicit surface reconstruction (PoissonRecon) → keep the main
+connected component → simplification ("Quadratic Error Metric simplification")
+→ crop to the tile's exact boundaries.
 
-**RGE ALTI 5 m vs nuage de points.** Au dela d'un certain niveau de detail (Zoom 15). 
-Utiliser la precision du nuage de point est inutile, il est plus rapide d'tiliser les donnees de RGE ALTi 5m.
+**RGE ALTI 5 m vs point cloud.** Beyond a certain level of detail (Zoom 15),
+using the point cloud's precision is pointless, it's faster to use the
+RGE ALTI 5m data.
 
-**Le tileset 3D Tiles.** `ogc3d_tiler/build_tileset.py` Relit que les
-`.glb` déjà produits en un tileset.
+**The 3D Tiles tileset.** `ogc3d_tiler/build_tileset.py`
 
-Je suis plus ou moins la norme:
+I more or less follow the standard:
 https://github.com/CesiumGS/3d-tiles/blob/main/specification/ImplicitTiling/README.adoc
 
-Au détails pres que le tout est ecrit en un seul fichier .json, commité directement dans le repo.
+With the difference that everything is written into a single .json file,
+committed directly to the repo.
 
 
-## Workflow de la webapp
-
-*(on se limite ici à la partie terrain — pas les contrôles caméra, l'UI, etc.)*
+## Webapp workflow
 
 ```
-  terrainPack.json (1 requête)
+  terrainPack.json
          |
          v
-  tuiles 3D Tiles (.glb) chargées à la volée par iTowns
+  3D Tiles tiles (.glb) loaded on the fly by iTowns based on camera placement
          |
          v
-  UV calculées pour chaque sommet (repère terrain -> Mercator)
+  Fetches the WMTS tile matching the zoom level
          |
          v
-  tuile WMTS IGN (ortho ou plan) récupérée et plaquée sur le maillage
+  UVs computed for each vertex
+         |
+         v
+  Normals computed and a "skirt" added to avoid holes in the mesh.
 ```
 
-**Système de coordonnées.** La webapp reste dans le même repère que le
-builder (Mercator recentré, métrique) — un seul décalage global est appliqué
-au chargement pour garder la scène proche de l'origine (précision GPU), rien
-de plus.
+**Coordinate system.** Pseudo Mercator, metric
 
-**Des 3D Tiles à la tuile texturée.** Quand iTowns charge un maillage, on
-calcule la position réelle de chaque sommet sur la grille Mercator, on en
-déduit des UV, puis on va chercher la tuile WMTS IGN correspondante (même
-grille, donc correspondance directe, sans mosaïquage) pour la plaquer comme
-texture.
-
-**Camptocamp.** En parallèle du terrain, la webapp interroge l'API
-Camptocamp pour afficher les points d'intérêt (sommets, refuges...) et
-permettre une recherche — une couche indépendante du terrain, purement
-informative.
+**Note** UVs and normals are recomputed dynamically to minimize the size of
+requests to cloud storage.
