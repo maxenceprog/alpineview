@@ -9,6 +9,7 @@ const WMTS_SOURCES = {
 };
 
 const tileUrl = (sourceKey, x, y, z) => {
+  if (sourceKey === "opentopomap") return `https://a.tile.opentopomap.org/${z}/${x}/${y}.png`;
   const { layer, format } = WMTS_SOURCES[sourceKey];
   return `https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0` +
     `&LAYER=${layer}&STYLE=normal&FORMAT=${format}` +
@@ -36,37 +37,84 @@ export function setMapSource(sourceKey) {
 
 const IMAGE_TIMEOUT_MS = 10_000;
 const IMAGE_CACHE_MAX = IS_MOBILE ? 200 : 800;
-const _imageCache = new Map();
 
-async function fetchTile(url) {
-  const res = await fetch(url, { signal: AbortSignal.timeout(IMAGE_TIMEOUT_MS) });
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`Failed to load tile: ${url} (${res.status})`);
-  // three.js can't apply texture.flipY to an ImageBitmap at upload time (the
-  // WebGL spec doesn't allow flipping one post-creation), so the UVs baked
-  // against a flipY=true convention (v=0 at the tile's south edge) need the
-  // flip done here instead, at bitmap creation.
-  return createImageBitmap(await res.blob(), { imageOrientation: "flipY" });
-}
+const _rawCache = new Map();
+const _rawResolved = new Map();
 
-function loadImage(url) {
-  const cached = _imageCache.get(url);
+function fetchRaw(url) {
+  const cached = _rawCache.get(url);
   if (cached) {
-    _imageCache.delete(url);
-    _imageCache.set(url, cached);
+    _rawCache.delete(url);
+    _rawCache.set(url, cached);
     return cached;
   }
 
-  const promise = fetchTile(url)
-    .catch((err) => { _imageCache.delete(url); throw err; });
+  const promise = (async () => {
+    const res = await fetch(url, { signal: AbortSignal.timeout(IMAGE_TIMEOUT_MS) });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`Failed to load tile: ${url} (${res.status})`);
+    return createImageBitmap(await res.blob());
+  })();
 
-  _imageCache.set(url, promise);
-  if (_imageCache.size > IMAGE_CACHE_MAX) {
-    _imageCache.delete(_imageCache.keys().next().value);
+  promise.then((bitmap) => _rawResolved.set(url, bitmap))
+    .catch(() => { _rawCache.delete(url); _rawResolved.delete(url); });
+
+  _rawCache.set(url, promise);
+  if (_rawCache.size > IMAGE_CACHE_MAX) {
+    const oldest = _rawCache.keys().next().value;
+    _rawCache.delete(oldest);
+    _rawResolved.delete(oldest);
   }
   return promise;
 }
 
+function cropTile(raw, ox, oy, scale) {
+  if (!raw) return Promise.resolve(null);
+  if (scale === 1) return createImageBitmap(raw, { imageOrientation: "flipY" });
+  const s = raw.width / scale;
+  return createImageBitmap(raw, ox * s, oy * s, s, s, { imageOrientation: "flipY" });
+}
+
+let _blankBitmapPromise = null;
+
+function blankBitmap() {
+  if (!_blankBitmapPromise) {
+    const canvas = new OffscreenCanvas(1, 1);
+    canvas.getContext("2d").fillRect(0, 0, 1, 1);
+    _blankBitmapPromise = createImageBitmap(canvas);
+  }
+  return _blankBitmapPromise;
+}
+
+const MAX_ZOOM = 17;
+
+function effectiveTile(sourceKey, x, y, z) {
+  if (z > MAX_ZOOM) {
+    const scale = 2 ** (z - MAX_ZOOM);
+    return { z: MAX_ZOOM, x: Math.floor(x / scale), y: Math.floor(y / scale) };
+  }
+  return { z, x, y };
+}
+
 export function fetchWmtsTile(x, y, z, sourceKey = currentMapSource) {
-  return loadImage(tileUrl(sourceKey, x, y, z));
+  if (sourceKey === "none") return blankBitmap();
+  const eff = effectiveTile(sourceKey, x, y, z);
+  const scale = 2 ** (z - eff.z);
+  const url = tileUrl(sourceKey, eff.x, eff.y, eff.z);
+  return fetchRaw(url).then((raw) => cropTile(raw, x - eff.x * scale, y - eff.y * scale, scale));
+}
+
+const PLACEHOLDER_MAX_LEVELS = 6;
+
+export function peekPlaceholderTile(x, y, z, sourceKey = currentMapSource) {
+  if (sourceKey === "none") return null;
+  for (let dz = 1; dz <= Math.min(PLACEHOLDER_MAX_LEVELS, z); dz++) {
+    const az = z - dz;
+    const eff = effectiveTile(sourceKey, x >> dz, y >> dz, az);
+    const raw = _rawResolved.get(tileUrl(sourceKey, eff.x, eff.y, eff.z));
+    if (!raw) continue;
+    const scale = 2 ** (z - eff.z);
+    return cropTile(raw, x - eff.x * scale, y - eff.y * scale, scale);
+  }
+  return null;
 }

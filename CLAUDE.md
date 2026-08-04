@@ -117,7 +117,7 @@ faces down), never a per-vertex flip-to-+Z, which would invert overhangs. UVs
 are produced at load time in `src/tilesTexture.js`.
 
 Terrain tiling now goes through `ogc3d_tiler/build_tileset.py`, which scans
-`public/terrain/{x_km}.{y_km}/{level}/` for `.glb` and writes **only** the pack —
+`public/pm/{x_km}.{y_km}/{level}/` for `.glb` and writes **only** the pack —
 no per-cell `tileset.json`, no `.subtree` files on disk. `MAX_LEVEL = 8` caps
 `availableLevels`, and `subtreeLevels` equals it, so one subtree spans every
 content level of a cell; mind the `SUBTREELoader` cost noted below before raising

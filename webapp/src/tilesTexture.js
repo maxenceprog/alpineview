@@ -3,7 +3,7 @@ import geoConstants from "../../geo_constants.json";
 import { buildVerticalDiffuseMaterial, disposeLayerMaterials, replaceMeshMaterial } from "./layers.js";
 import { localToWork } from "./terrainPack.js";
 import { applySkirtAndNormals } from "./tileSkirtAndNormals.js";
-import { fetchWmtsTile, mercBounds } from "./wmts.js";
+import { fetchWmtsTile, mercBounds, peekPlaceholderTile } from "./wmts.js";
 import { WORK_TO_MERC } from "./workFrame.js";
 
 const CELL_LEVEL = geoConstants.cell_level.value;
@@ -56,16 +56,7 @@ function bakeUVs(mesh, x, y, z) {
   mesh.geometry.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
 }
 
-async function drapeMesh(mesh, tileKey) {
-  await applySkirtAndNormals(mesh.geometry);
-  if (!mesh.parent) return;
-
-  mesh.updateWorldMatrix(true, false);
-  bakeUVs(mesh, tileKey.x, tileKey.y, tileKey.z);
-
-  const bitmap = await fetchWmtsTile(tileKey.x, tileKey.y, tileKey.z);
-  if (!mesh.parent || !bitmap) return;
-
+function applyBitmap(mesh, bitmap) {
   const texture = new THREE.Texture(bitmap);
   texture.needsUpdate = true;
   texture.flipY = false;
@@ -73,6 +64,28 @@ async function drapeMesh(mesh, tileKey) {
   texture.anisotropy = 8;
   texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
   replaceMeshMaterial(mesh, buildVerticalDiffuseMaterial(texture));
+}
+
+async function drapeMesh(mesh, tileKey, redraw) {
+  await applySkirtAndNormals(mesh.geometry);
+  if (!mesh.parent) return;
+
+  mesh.updateWorldMatrix(true, false);
+  bakeUVs(mesh, tileKey.x, tileKey.y, tileKey.z);
+
+  const placeholder = peekPlaceholderTile(tileKey.x, tileKey.y, tileKey.z);
+  if (placeholder) {
+    const bitmap = await placeholder;
+    if (!mesh.parent) return;
+    if (bitmap) {
+      applyBitmap(mesh, bitmap);
+      redraw();
+    }
+  }
+
+  const bitmap = await fetchWmtsTile(tileKey.x, tileKey.y, tileKey.z);
+  if (!mesh.parent || !bitmap) return;
+  applyBitmap(mesh, bitmap);
 }
 
 /**
@@ -103,7 +116,7 @@ export function installWmtsDraping(view, tilesLayer) {
         loaded.push(o);
       }
     });
-    Promise.all(loaded.map((mesh) => drapeMesh(mesh, tileKey))).then(redraw).catch((err) => {
+    Promise.all(loaded.map((mesh) => drapeMesh(mesh, tileKey, redraw))).then(redraw).catch((err) => {
       console.warn("wmts draping failed", err);
     });
   });
@@ -117,7 +130,7 @@ export function installWmtsDraping(view, tilesLayer) {
 
   return {
     async refreshTextures() {
-      await Promise.all([...meshes].map(([mesh, tileKey]) => drapeMesh(mesh, tileKey)));
+      await Promise.all([...meshes].map(([mesh, tileKey]) => drapeMesh(mesh, tileKey, redraw)));
       redraw();
     },
   };

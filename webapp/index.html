@@ -174,6 +174,32 @@
       display: none;
     }
 
+    #layer-panel {
+      position: fixed;
+      top: 52px;
+      left: 12ch;
+      z-index: 10;
+      background: rgba(10, 20, 35, 0.75);
+      color: #dde6f0;
+      font: 12px system-ui, sans-serif;
+      padding: 10px 12px;
+      border-radius: 8px;
+      display: grid;
+      gap: 6px;
+    }
+
+    #layer-panel label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    #layer-panel.hidden {
+      display: none;
+    }
+
     #search-form {
       position: fixed;
       top: 10px;
@@ -406,7 +432,7 @@
       display: flex;
       align-items: center;
       gap: 8px;
-      background: rgba(10, 20, 35, 0.35);
+      background: rgba(10, 20, 35, 0.75);
       padding: 4px 8px;
       border-radius: 8px;
     }
@@ -414,7 +440,7 @@
     #credits-banner img {
       height: 20px;
       width: auto;
-      opacity: 0.85;
+      opacity: 1.0;
     }
 
     #credits-banner a {
@@ -470,6 +496,7 @@
       }
 
       #env-panel,
+      #layer-panel,
       #help-panel,
       #poi-panel,
       #poi-panel.maximized {
@@ -496,13 +523,20 @@
 <body>
   <div id="viewerDiv"></div>
   <button id="env-toggle" title="Soleil, lumière et brume">☀️</button>
-  <button id="layer-toggle" title="Photo aérienne / Plan IGN">🛰️🗺</button>
+  <button id="layer-toggle" title="Fond de carte">🗺</button>
   <button id="help-toggle" title="Aide — commandes">?</button>
 
   <div id="search-form">
     <input id="search-input" type="text" placeholder="Rechercher un lieu…" autocomplete="off" />
     <button id="search-btn">Go</button>
     <div id="search-results"></div>
+  </div>
+
+  <div id="layer-panel" class="hidden">
+    <label><input type="radio" name="layer-source" value="ortho" checked /> Photo aérienne</label>
+    <label><input type="radio" name="layer-source" value="plan" /> Plan IGN</label>
+    <label><input type="radio" name="layer-source" value="opentopomap" /> OpenTopoMap</label>
+    <label><input type="radio" name="layer-source" value="none" /> Aucune (relief seul)</label>
   </div>
 
   <div id="help-panel">
@@ -596,6 +630,9 @@
     </a>
     <a href="https://github.com/maxenceprog/alpineview/blob/master/NOTICE.md" target="_blank" rel="noopener">
       <img src="/credits/camptocamp-logo.png" alt="Camptocamp" />
+    </a>
+    <a href="https://github.com/maxenceprog/alpineview/blob/master/NOTICE.md" target="_blank" rel="noopener">
+      <img src="/credits/opentopomap-logo.ico" alt="OpenTopoMap" />
     </a>
     <a href="https://github.com/maxenceprog/alpineview/blob/master/NOTICE.md" target="_blank" rel="noopener">Crédits</a>
   </div>

@@ -3,7 +3,7 @@ import struct
 from dataclasses import dataclass
 from pathlib import Path
 
-DEFAULT_PATH = Path.home() / "github/alpineview/webapp/public/wm/terrain"
+DEFAULT_PATH = Path.home() / "github/alpineview/webapp/public/terrain"
 
 PACK_PATH = DEFAULT_PATH.parents[2] / "src" / "terrainPack.json"
 
@@ -79,8 +79,12 @@ def demorton(level: int, subtree: ImplicitTilingSubtree):
         x = compact1by1(morton)
         y = compact1by1(morton >> 1)
 
-        yield (level, x, y), DEFAULT_PATH / subtree.tile_path_format.format(
-            level=level,
-            x=x,
-            y=y,
+        yield (
+            (level, x, y),
+            DEFAULT_PATH
+            / subtree.tile_path_format.format(
+                level=level,
+                x=x,
+                y=y,
+            ),
         )

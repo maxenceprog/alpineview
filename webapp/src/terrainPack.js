@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { API_BASE_URL } from "./apiConfig.js";
 import pack from "./terrainPack.json";
 
-export const TILESET_URL = `${API_BASE_URL}/wm/terrain/tileset.json`;
+export const TILESET_URL = `${API_BASE_URL}/pm/tileset.json`;
 
 const TERRAIN_BASE = new URL(TILESET_URL.replace(/\/[^/]*$/, "/"), window.location.href).toString();
 

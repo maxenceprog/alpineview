@@ -35,13 +35,12 @@ export function createPoiOcclusion(tilesLayer) {
     raycaster.far = distance - BIAS;
 
     const { visibleTiles } = tilesLayer.tilesRenderer;
-    for (const [mesh, { tile, box }] of tiles) {
+    for (const [, { tile, box }] of tiles) {
       if (!visibleTiles.has(tile)) continue;
-      if (!box.containsPoint(camera.position)) {
-        if (!raycaster.ray.intersectBox(box, hitPoint)) continue;
-        if (hitPoint.distanceTo(camera.position) > raycaster.far) continue;
-      }
-      if (raycaster.intersectObject(mesh, false).length > 0) return true;
+      if (box.containsPoint(camera.position)) return true;
+      if (!raycaster.ray.intersectBox(box, hitPoint)) continue;
+      if (hitPoint.distanceTo(camera.position) > raycaster.far) continue;
+      return true;
     }
     return false;
   };

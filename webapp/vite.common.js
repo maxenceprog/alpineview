@@ -40,10 +40,8 @@ export const baseConfig = {
   server: {
     watch: {
       ignored: [
-        "**/public/*tile*/**",
-        "**/public/terrain",
-        "**/public/wm",
-        "**/public/vegetation",
+        "**/public/pm",
+        "**/public/buildings",
 
       ],
     },

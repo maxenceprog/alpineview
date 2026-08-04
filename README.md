@@ -108,7 +108,7 @@ A l'intérieur, un sous-dossier par niveau de détail,
 puis un fichier par tuile :
 
 ```
-public/wm/terrain/
+public/pm/
 └── 1024.700/            <- cellule (x.y au niveau CELL_LEVEL)
     ├── 0/0.0.glb
     ├── 1/0.0.glb  1.0.glb  0.1.glb  1.1.glb

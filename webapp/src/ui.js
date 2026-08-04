@@ -11,14 +11,36 @@ const SEARCH_MIN_CHARS = 3;
 const SEARCH_RANGE = 3000;
 const SEARCH_PITCH = Math.PI / 4;
 
-function initLayerToggle(view, refreshTextures) {
-  let planVisible = false;
-  document.getElementById("layer-toggle").addEventListener("click", () => {
-    planVisible = !planVisible;
-    setMapSource(planVisible ? "plan" : "ortho");
+const _exclusivePanels = new Set();
+
+function initTogglePanel(toggleId, panelId) {
+  const panel = document.getElementById(panelId);
+  _exclusivePanels.add(panel);
+  document.getElementById(toggleId).addEventListener("click", () => {
+    const willOpen = panel.classList.contains("hidden");
+    for (const p of _exclusivePanels) p.classList.add("hidden");
+    if (willOpen) panel.classList.remove("hidden");
+  });
+  return panel;
+}
+
+function initLayerPanel(view, refreshTextures) {
+  const layerPanel = initTogglePanel("layer-toggle", "layer-panel");
+  const inputs = layerPanel.querySelectorAll("input[name=layer-source]");
+  for (const input of inputs) {
+    input.addEventListener("change", () => {
+      setMapSource(input.value);
+      refreshTextures();
+      view.notifyChange(view.camera3D);
+    });
+  }
+
+  const checked = [...inputs].find((input) => input.checked);
+  if (checked && checked.value !== "ortho") {
+    setMapSource(checked.value);
     refreshTextures();
     view.notifyChange(view.camera3D);
-  });
+  }
 }
 
 function initEnvPanel(view, { setSunDate, setEnabled, setShadowsEnabled }) {
@@ -32,11 +54,8 @@ function initEnvPanel(view, { setSunDate, setEnabled, setShadowsEnabled }) {
     setShadowsEnabled(shadowsInput.checked);
   });
 
-  const envPanel = document.getElementById("env-panel");
+  const envPanel = initTogglePanel("env-toggle", "env-panel");
   if (IS_MOBILE) envPanel.classList.add("hidden");
-  document.getElementById("env-toggle").addEventListener("click", () => {
-    envPanel.classList.toggle("hidden");
-  });
 
   const sunDateInput = document.getElementById("sun-date");
   const sunTimeInput = document.getElementById("sun-time");
@@ -172,7 +191,7 @@ function initSearch(view) {
  * view, which differs between the Draco terrain and the 3D Tiles one.
  */
 export function initUi(view, { setSunDate, setEnabled, setShadowsEnabled, refreshTextures }) {
-  initLayerToggle(view, refreshTextures);
+  initLayerPanel(view, refreshTextures);
   initEnvPanel(view, { setSunDate, setEnabled, setShadowsEnabled });
   initHelpPanel(view);
   initSearch(view);
