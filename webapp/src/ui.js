@@ -1,8 +1,9 @@
 import * as THREE from "three";
+import { searchWaypoints } from "./camptocampApi.js";
 import { IS_MOBILE } from "./deviceInfo.js";
 import { initHdAvailability } from "./hdAvailability.js";
 import { setBrightness } from "./layers.js";
-import { searchWaypoints, showPoiPanel } from "./poi.js";
+import { showPoiPanel } from "./poiLayer.js";
 import { setMapSource } from "./wmts.js";
 
 const SEARCH_RESULT_LIMIT = 5;

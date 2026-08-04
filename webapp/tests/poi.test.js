@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { fetchCellPois, fetchWaypointDetail, imageUrl, resolveEmbeddedImages } from "../src/poi.js";
+import { fetchCellPois, fetchWaypointDetail, imageUrl, resolveEmbeddedImages } from "../src/camptocampApi.js";
 
 describe("fetchCellPois", () => {
   it("GETs the Camptocamp waypoints endpoint with the cell's bbox and keeps only titled docs", async () => {

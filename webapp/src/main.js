@@ -3,7 +3,7 @@ import * as itowns from "itowns";
 import * as THREE from "three";
 import { initEnvironment } from "./environment.js";
 import { initBuildings } from "./overlays.js";
-import { initPoi } from "./poi.js";
+import { initPoi } from "./poiLayer.js";
 import { wgs84ToWebMercator } from "./proj.js";
 import { TILESET_URL, terrainPackPlugin } from "./terrainPack.js";
 import { installWmtsDraping } from "./tilesTexture.js";

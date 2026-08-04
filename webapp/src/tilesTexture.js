@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import geoConstants from "../../geo_constants.json";
+import { onTracesChanged, paintTraces, tileNeedsRedrape } from "./gpxPainter.js";
 import { buildVerticalDiffuseMaterial, disposeLayerMaterials, replaceMeshMaterial } from "./layers.js";
 import { localToWork } from "./terrainPack.js";
 import { applySkirtAndNormals } from "./tileSkirtAndNormals.js";
@@ -39,6 +40,17 @@ function tightenTileHeight(tile, scene) {
   obb.box.max.z = _tileBox.max.z;
   obb.update();
 }
+
+const meshes = new Map();
+let redrawView = null;
+
+onTracesChanged((prev, next) => {
+  const pending = [];
+  for (const [mesh, tileKey] of meshes) {
+    if (tileNeedsRedrape(prev, next, tileKey)) pending.push(drapeMesh(mesh, tileKey, redrawView));
+  }
+  Promise.all(pending).then(() => redrawView?.()).catch(() => redrawView?.());
+});
 
 const _vertex = new THREE.Vector3();
 
@@ -85,7 +97,7 @@ async function drapeMesh(mesh, tileKey, redraw) {
 
   const bitmap = await fetchWmtsTile(tileKey.x, tileKey.y, tileKey.z);
   if (!mesh.parent || !bitmap) return;
-  applyBitmap(mesh, bitmap);
+  applyBitmap(mesh, await paintTraces(bitmap, tileKey));
 }
 
 /**
@@ -94,9 +106,8 @@ async function drapeMesh(mesh, tileKey, redraw) {
  * setMapSource() switches which layer is served.
  */
 export function installWmtsDraping(view, tilesLayer) {
-  const meshes = new Map();
-
   const redraw = () => view.notifyChange(view.camera3D);
+  redrawView = redraw;
 
   tilesLayer.addEventListener("load-model", (e) => {
     const tileKey = tileKeyFromUrl(e.tile.content?.uri ?? "");
