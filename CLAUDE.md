@@ -196,8 +196,11 @@ The tileset answers every terrain question the controls ask:
 gated on a usable pick, and smart travel drop-tests against it. Smart travel
 **teleports** — no animated flight.
 
-`src/touchControls.js` replaces the touch gestures wholesale (1 finger orients,
-2 fingers move/zoom/rotate, double-tap travels).
+`src/touchControls.js` replaces the touch gestures wholesale (1 finger pans,
+2 fingers zoom/rotate/pitch, double-tap travels). Both this and the mouse
+controls in `main.js` share `dragStepCapFor` / `capDragStep` /
+`isTargetAllowed` from `src/utils.js` — a drag-anchored ground pick must clear
+`isTargetAllowed`'s pitch/distance gate before pan or smart travel act on it.
 
 ## UI
 

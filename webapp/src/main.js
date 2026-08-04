@@ -9,7 +9,7 @@ import { TILESET_URL, terrainPackPlugin } from "./terrainPack.js";
 import { installWmtsDraping } from "./tilesTexture.js";
 import { initTouchControls } from "./touchControls.js";
 import { initUi } from "./ui.js";
-import { itownsPlacement } from "./utils.js";
+import { capDragStep, dragStepCapFor, isTargetAllowed, itownsPlacement } from "./utils.js";
 import { mercToLocal } from "./workFrame.js";
 
 // Barre des Ecrins, used when the URL carries no ?x/?y.
@@ -84,7 +84,7 @@ view.getPickingPositionFromDepth = (mouseCoords, target = new THREE.Vector3()) =
   const pickIsUsable = (event) => {
     if (!event) return false;
     const picked = view.getPickingPositionFromDepth(view.eventToViewCoords(event));
-    return picked !== undefined && picked.z > 1;
+    return picked !== undefined && picked.z > 1 && isTargetAllowed(view, picked);
   };
   const { initiateZoom } = view.controls;
   view.controls.initiateZoom = (event) => {
@@ -102,17 +102,16 @@ view.getPickingPositionFromDepth = (mouseCoords, target = new THREE.Vector3()) =
   let dragStepCap = Infinity;
   view.controls.initiateDrag = function () {
     initiateDrag.call(this);
-    const ground = terrainZAt(this.camera.position.x, this.camera.position.y);
-    const height = ground === null ? this.camera.position.z : this.camera.position.z - ground;
-    dragStepCap = 0.25 * Math.max(height, 10);
+    dragStepCap = dragStepCapFor(
+      this.camera.position.z,
+      terrainZAt(this.camera.position.x, this.camera.position.y),
+    );
   };
   view.controls.handleDragMovement = function () {
     _dragBefore.copy(this.camera.position);
     handleDragMovement.call(this);
     _dragStep.subVectors(this.camera.position, _dragBefore);
-    if (_dragStep.length() > dragStepCap) {
-      this.camera.position.copy(_dragBefore).add(_dragStep.setLength(dragStepCap));
-    }
+    this.camera.position.copy(_dragBefore).add(capDragStep(_dragStep, dragStepCap));
   };
 
   const _ray = new THREE.Raycaster();
