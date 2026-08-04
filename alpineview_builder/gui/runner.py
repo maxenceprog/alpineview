@@ -86,7 +86,9 @@ class BuildRunner(QObject):
     def _run_phase(self, jobs):
         nworkers = max(1, min(self.nproc, len(jobs)))
         with ThreadPool(nworkers) as pool:
-            for _ in pool.imap_unordered(self._build, self._tiles_to_build_iterator(jobs)):
+            for _ in pool.imap_unordered(
+                self._build, self._tiles_to_build_iterator(jobs)
+            ):
                 pass
 
     def _tiles_to_build_iterator(self, jobs):

@@ -38,7 +38,9 @@ needs_binary = pytest.mark.skipif(
 )
 
 
-def _convert(x: float, y: float, z: float, proj_in: str, proj_out: str) -> tuple[float, float, float]:
+def _convert(
+    x: float, y: float, z: float, proj_in: str, proj_out: str
+) -> tuple[float, float, float]:
     out = subprocess.run(
         [str(_BINARY), str(x), str(y), str(z), proj_in, proj_out],
         check=True,

@@ -39,7 +39,6 @@ ROOT_GEOMETRIC_ERROR = 4096
 CELL_GEOMETRIC_ERROR = 512
 
 
-
 def cell_bounds(cx, cy):
     size = 2.0 * WORK_EXTENT / 2.0**CELL_LEVEL
     x0 = -WORK_EXTENT + cx * size
@@ -55,10 +54,22 @@ def cell_origin(cx, cy):
 def translate_transform(ox, oy):
     """Column-major 4x4, identity rotation, as 3D Tiles wants it."""
     return [
-        1.0, 0.0, 0.0, 0.0,
-        0.0, 1.0, 0.0, 0.0,
-        0.0, 0.0, 1.0, 0.0,
-        ox, oy, 0.0, 1.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        ox,
+        oy,
+        0.0,
+        1.0,
     ]
 
 
@@ -121,10 +132,18 @@ def make_box(centre, half):
     cell's boxes are mirrored north-south, which no numeric check would
     catch."""
     return [
-        centre[0], centre[1], centre[2],
-        half[0], 0, 0,
-        0, -half[1], 0,
-        0, 0, half[2],
+        centre[0],
+        centre[1],
+        centre[2],
+        half[0],
+        0,
+        0,
+        0,
+        -half[1],
+        0,
+        0,
+        0,
+        half[2],
     ]
 
 
@@ -221,9 +240,7 @@ def main():
     # coordinates; a sphere avoids pretending an axis-aligned box means
     # anything there.
     centre = [(a + b) / 2 for a, b in zip(root_lo, root_hi)]
-    radius = (
-        max(b - a for a, b in zip(root_lo, root_hi)) / 2 + 20000.0
-    )
+    radius = max(b - a for a, b in zip(root_lo, root_hi)) / 2 + 20000.0
 
     tileset = {
         "asset": {"version": "1.1"},

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Show a Draco terrain tile next to its cached LiDAR HD ground points (class 2).
 
-    python scripts/view_tile_laz.py 955.6434.0
+python scripts/view_tile_laz.py 955.6434.0
 """
 
 import sys
