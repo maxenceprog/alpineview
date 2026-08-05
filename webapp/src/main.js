@@ -40,8 +40,30 @@ view.camera3D.near = 0.1;
 view.camera3D.far = 200000;
 view.camera3D.fov = 60;
 view.camera3D.updateProjectionMatrix();
-itownsPlacement(view, x, y);
+
+const LAST_CAMERA_KEY = "alpineview.lastCamera";
+const restoredCamera = (() => {
+  if (params.has("x") || params.has("y")) return false;
+  const saved = localStorage.getItem(LAST_CAMERA_KEY);
+  if (!saved) return false;
+  try {
+    const { p, q } = JSON.parse(saved);
+    view.camera3D.position.set(...p);
+    view.camera3D.quaternion.set(...q);
+    view.camera3D.updateMatrixWorld(true);
+    return true;
+  } catch {
+    return false;
+  }
+})();
+if (!restoredCamera) itownsPlacement(view, x, y);
+
 view.controls = new itowns.PlanarControls(view, PLANAR_CONTROLS);
+setInterval(() => {
+  const { x: px, y: py, z: pz } = view.camera3D.position;
+  const q = view.camera3D.quaternion;
+  localStorage.setItem(LAST_CAMERA_KEY, JSON.stringify({ p: [px, py, pz], q: [q.x, q.y, q.z, q.w] }));
+}, 2000);
 
 window.view = view;
 
