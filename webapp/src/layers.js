@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-import { getAmbientIntensity, getSunDirection, registerLitMaterial, unregisterLitMaterial } from "./sunLighting.js";
+import { getSunDirection, registerLitMaterial, unregisterLitMaterial } from "./sunLighting.js";
 
 const TILE_DRAW = {
   side: THREE.FrontSide,
@@ -45,7 +45,6 @@ export function buildVerticalDiffuseMaterial(texture) {
       uShadowLift: { value: currentBrightness },
       uLit: { value: currentLit },
       uSunDir: { value: getSunDirection().clone() },
-      uAmbient: { value: getAmbientIntensity() },
     },
     vertexShader: `
       #include <common>
@@ -77,7 +76,7 @@ export function buildVerticalDiffuseMaterial(texture) {
       uniform float uShadowLift;
       uniform float uLit;
       uniform vec3 uSunDir;
-      uniform float uAmbient;
+      const float AMBIENT = 0.15;
       varying vec2 vUv;
       varying vec3 vWorldNormal;
       void main() {
@@ -89,13 +88,13 @@ export function buildVerticalDiffuseMaterial(texture) {
         gl_FragColor = packDepthToRGBA(gl_FragDepthEXT);
         #else
         vec4 c = texture2D(map, vUv);
-        float direct = (1.0 - uAmbient) * max(0.0, dot(vWorldNormal, uSunDir));
+        float direct = (1.0 - AMBIENT) * max(0.0, dot(vWorldNormal, uSunDir));
         #if defined( USE_SHADOWMAP ) && NUM_DIR_LIGHT_SHADOWS > 0
           direct *= getShadow(directionalShadowMap[0], directionalLightShadows[0].shadowMapSize,
             directionalLightShadows[0].shadowIntensity, directionalLightShadows[0].shadowBias,
             directionalLightShadows[0].shadowRadius, vDirectionalShadowCoord[0]);
         #endif
-        float d = mix(1.0, uAmbient + direct, uLit);
+        float d = mix(1.0, AMBIENT + direct, uLit);
         // Shadow lift: brightens dark pixels more than bright
         // ones (reduces contrast) instead of a flat multiply, which would blow out highlights.
         float liftAmount = uShadowLift - 1.0;

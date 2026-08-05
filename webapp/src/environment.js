@@ -74,7 +74,7 @@ export function initEnvironment(view) {
   scene.add(sun.target);
 
   const fill = new THREE.DirectionalLight(0xb0c8ff, 0.3);
-  fill.position.set(-0.8, 0.6, 0.4);
+  fill.position.set(0, 0, 1);
   scene.add(fill);
   fill.updateMatrixWorld();
 
