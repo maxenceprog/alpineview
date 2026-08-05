@@ -2,7 +2,7 @@ import * as itowns from "itowns";
 import * as THREE from "three";
 import { setTerrainLightingEnabled } from "./layers.js";
 import { sunDirectionAt } from "./sun.js";
-import { setAmbientIntensity, setSunDirection } from "./sunLighting.js";
+import { setSunDirection } from "./sunLighting.js";
 
 export const DEFAULT_FOG_DENSITY_PER_KM = 0.05;
 
@@ -129,7 +129,7 @@ export function initEnvironment(view) {
     sunMesh.visible = aboveHorizon;
     sunGlow.visible = aboveHorizon;
     if (aboveHorizon) {
-      sunMesh.position.copy(cam).addScaledVector(_sunDir, 150000);
+      sunMesh.position.copy(cam).addScaledVector(_sunDir, 350000);
       sunGlow.position.copy(sunMesh.position);
     }
 
@@ -159,7 +159,6 @@ export function initEnvironment(view) {
     sun.intensity = Math.max(0, _sunDir.z) * 1.2;
     const t = Math.max(0, Math.min(1, (_sunDir.z + 0.2) / 0.5));
     ambient.intensity = 0.05 + 0.35 * (t * t * (3 - 2 * t));
-    setAmbientIntensity(ambient.intensity);
 
     const c = drawSky(_sunDir.z);
     scene.fog.color.copy(c);
