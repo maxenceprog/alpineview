@@ -1,5 +1,4 @@
 import * as THREE from "three";
-import { showInfoToast } from "./infoToast.js";
 import { capDragStep, dragStepCapFor, isTargetAllowed } from "./utils.js";
 
 const TAP_MAX_MS = 500;
@@ -8,11 +7,7 @@ const LOOK_SMOOTHING = 0.15;
 const ZOOM_SMOOTHING = 0.2;
 const TWIST_DEADZONE_RAD = 0.015; // filters incidental twist noise from a 2-finger drag
 const ZOOM_DEADZONE_PX = 2; // filters incidental spread noise from a 2-finger drag
-const CAM_MODE_SWITCH_MSG_3D = "Caméra mode 3D";
-const CAM_MODE_SWITCH_MSG_2D = "Caméra mode 2D";
-const CAM_MODE_SWITCH_TOAST_COOLDOWN_MS = 3000;
-const PITCH_2D_THRESHOLD_DEG = 20; // pitch (from horizon) above this = 2D mode
-const PHI_3D_MIN = THREE.MathUtils.degToRad(90 - PITCH_2D_THRESHOLD_DEG); // zenith angle above this = 3D mode
+const VIRTUAL_ANCHOR_DISTANCE = 6000; // metres; used when no ground is picked (e.g. looking at the horizon)
 
 export function initTouchControls(view) {
   const controls = view.controls;
@@ -30,8 +25,6 @@ export function initTouchControls(view) {
   const dragPlane = new THREE.Plane();
 
   let gesture = null; // active Gesture, or null between touches
-  let lastIs2D = true;
-  let lastModeToast = 0;
   let tapStart = null;
   let lastTap = null;
 
@@ -62,32 +55,20 @@ export function initTouchControls(view) {
     return Math.acos(THREE.MathUtils.clamp(-dir.z, -1, 1));
   };
 
-  const setMode2D = (next, timeStamp) => {
-    if (next === lastIs2D) return;
-    lastIs2D = next;
-    if (timeStamp - lastModeToast > CAM_MODE_SWITCH_TOAST_COOLDOWN_MS) {
-      lastModeToast = timeStamp;
-      showInfoToast(next ? CAM_MODE_SWITCH_MSG_2D : CAM_MODE_SWITCH_MSG_3D);
-    }
-  };
-
-  const applyRotation = (thetaTwist, pitchDrag, timeStamp) => {
+  const applyRotation = (thetaTwist, pitchDrag, yawDrag) => {
     const camera = view.camera3D;
-    let phi = zenithAngle();
-    const is2D = phi < PHI_3D_MIN;
-    if (thetaTwist !== 0) {
-      if (is2D && gesture.orbitEnabled) {
-        quat.setFromAxisAngle(zAxis, thetaTwist);
-        offset.copy(camera.position).sub(gesture.centerPoint).applyQuaternion(quat);
-        camera.position.copy(gesture.centerPoint).add(offset);
-        dir.applyQuaternion(quat);
-      } else if (!is2D) {
-        quat.setFromAxisAngle(zAxis, thetaTwist);
-        dir.applyQuaternion(quat);
-      }
+    const phi = zenithAngle();
+    if (gesture.orbitEnabled && thetaTwist !== 0) {
+      quat.setFromAxisAngle(zAxis, thetaTwist);
+      offset.copy(camera.position).sub(gesture.centerPoint).applyQuaternion(quat);
+      camera.position.copy(gesture.centerPoint).add(offset);
+      dir.applyQuaternion(quat);
+    }
+    if (yawDrag !== 0) {
+      quat.setFromAxisAngle(zAxis, yawDrag);
+      dir.applyQuaternion(quat);
     }
     if (pitchDrag !== 0 && phi + pitchDrag >= controls.minZenithAngle && phi + pitchDrag <= controls.maxZenithAngle) {
-      phi += pitchDrag;
       right.setFromMatrixColumn(camera.matrix, 0);
       quat.setFromAxisAngle(right, pitchDrag);
       dir.applyQuaternion(quat);
@@ -96,7 +77,6 @@ export function initTouchControls(view) {
     camera.up.set(0, 0, 1);
     camera.lookAt(lookTarget.copy(camera.position).add(dir));
     camera.updateMatrixWorld();
-    setMode2D(phi < PHI_3D_MIN, timeStamp);
   };
 
   // Base gesture: anchors to the picked ground point under the touch(es) and
@@ -105,10 +85,6 @@ export function initTouchControls(view) {
     #centerPoint = null;
     #dragAnchor = null;
     #dragStepCap = Infinity;
-
-    constructor(touches) {
-      this.start(touches);
-    }
 
     get orbitEnabled() {
       return this.#centerPoint !== null && this.#dragAnchor !== null;
@@ -119,11 +95,10 @@ export function initTouchControls(view) {
     }
 
     anchorAt(x, y) {
-      const picked = pickGround(x, y);
+      let picked = pickGround(x, y);
       if (!picked) {
-        this.#centerPoint = null;
-        this.#dragAnchor = null;
-        return;
+        view.camera3D.getWorldDirection(dir);
+        picked = new THREE.Vector3().copy(view.camera3D.position).addScaledVector(dir, VIRTUAL_ANCHOR_DISTANCE);
       }
       this.#centerPoint = picked;
       this.#dragAnchor = pickPlane(x, y, picked.z);
@@ -138,9 +113,9 @@ export function initTouchControls(view) {
       }
     }
 
-    start(_touches) {}
-    update(_touches, _timeStamp) {}
-    stop() {}
+    start(_touches) { }
+    update(_touches, _timeStamp) { }
+    stop() { }
   }
 
   class OneFingerGesture extends Gesture {
@@ -159,18 +134,21 @@ export function initTouchControls(view) {
     #lastDist = 0;
     #smoothedDist = 0;
     #lastAngle = 0;
+    #lastMidX = 0;
     #lastMidY = 0;
     #smoothedTwist = 0;
     #smoothedPitch = 0;
+    #smoothedYaw = 0;
 
     start(touches) {
       this.anchorAt(midX(touches), midY(touches));
       this.#lastDist = this.#smoothedDist = spread(touches);
       this.#lastAngle = angle(touches);
+      this.#lastMidX = midX(touches);
       this.#lastMidY = midY(touches);
     }
 
-    update(touches, timeStamp) {
+    update(touches) {
       const cam = view.camera3D;
 
       let rawDist = spread(touches);
@@ -182,10 +160,14 @@ export function initTouchControls(view) {
       }
       this.#lastDist = this.#smoothedDist;
 
+      const mx = midX(touches);
       const my = midY(touches);
       const pitchRaw = (-controls.rotateSpeed * (my - this.#lastMidY)) / view.mainLoop.gfxEngine.height;
+      const yawRaw = (-controls.rotateSpeed * (mx - this.#lastMidX)) / view.mainLoop.gfxEngine.width;
+      this.#lastMidX = mx;
       this.#lastMidY = my;
       this.#smoothedPitch += (pitchRaw - this.#smoothedPitch) * LOOK_SMOOTHING;
+      this.#smoothedYaw += (yawRaw - this.#smoothedYaw) * LOOK_SMOOTHING;
 
       const a = angle(touches);
       let da = a - this.#lastAngle;
@@ -195,16 +177,18 @@ export function initTouchControls(view) {
       if (Math.abs(da) < TWIST_DEADZONE_RAD) da = 0;
       this.#smoothedTwist += (da - this.#smoothedTwist) * LOOK_SMOOTHING;
 
-      applyRotation(this.#smoothedTwist, this.#smoothedPitch, timeStamp);
+      applyRotation(this.#smoothedTwist, this.#smoothedPitch, this.#smoothedYaw);
     }
   }
 
   const startOneFinger = (e) => {
-    gesture = new OneFingerGesture(e.touches);
+    gesture = new OneFingerGesture();
+    gesture.start(e.touches);
   };
 
   const startTwoFingers = (e) => {
-    gesture = new TwoFingerGesture(e.touches);
+    gesture = new TwoFingerGesture();
+    gesture.start(e.touches);
   };
 
   const teleportTo = (x, y) => controls.initiateSmartTravel(at(x, y));
