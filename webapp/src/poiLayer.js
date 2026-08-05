@@ -75,11 +75,6 @@ function pushTraces() {
   setActiveTraces(poiTraces.flatMap((t) => t.lines));
 }
 
-function clearTraces() {
-  for (const t of poiTraces) console.log("route deleted", t.documentId);
-  poiTraces = [];
-  pushTraces();
-}
 
 function drawTrace(doc) {
   if (!doc.geometry?.geom_detail) return;
@@ -87,8 +82,6 @@ function drawTrace(doc) {
   const lines = (geojson.type === "MultiLineString" ? geojson.coordinates : [geojson.coordinates])
     .map((coords) => coords.map(([mx, my]) => [mx, my]));
   poiTraces.push({ documentId: doc.document_id, lines });
-  console.log("route created", doc.document_id);
-  pushTraces();
 }
 
 export function showPoiPanel(poi) {
@@ -120,10 +113,12 @@ export function showPoiPanel(poi) {
       ...outings.map((o) => fetchDocDetail("outings", o.document_id)),
     ]).then((results) => {
       if (token !== poiRequestToken) return;
+      poiTraces = [];
       for (const result of results) {
         if (result.status === "fulfilled") drawTrace(result.value);
         else console.warn("trace fetch failed", result.reason);
       }
+      pushTraces();
     });
 
     const locale = doc.locales?.[0];
@@ -159,7 +154,6 @@ export function initPoi(view, tilesLayer) {
   const panel = document.getElementById("poi-panel");
   document.getElementById("poi-close")?.addEventListener("click", () => {
     panel.classList.add("hidden");
-    clearTraces();
   });
   const maximize = document.getElementById("poi-maximize");
   maximize?.addEventListener("click", () => {
