@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { searchWaypoints } from "./camptocampApi.js";
 import { IS_MOBILE } from "./deviceInfo.js";
 import { initHdAvailability } from "./hdAvailability.js";
-import { setBrightness } from "./layers.js";
+import { setShadowLift } from "./layers.js";
 import { showPoiPanel } from "./poiLayer.js";
 import { setMapSource } from "./wmts.js";
 
@@ -80,12 +80,12 @@ function initEnvPanel(view, { setSunDate, setEnabled, setShadowsEnabled }) {
   sunDateInput.addEventListener("change", applySunInputs);
   sunTimeInput.addEventListener("input", applySunInputs);
 
-  const brightnessInput = document.getElementById("brightness");
-  const brightnessValue = document.getElementById("brightness-value");
-  setBrightness(parseFloat(brightnessInput.value));
+  const brightnessInput = document.getElementById("shadowLift");
+  const brightnessValue = document.getElementById("shadowLift-value");
+  setShadowLift(parseFloat(brightnessInput.value));
   brightnessInput.addEventListener("input", () => {
     const v = parseFloat(brightnessInput.value);
-    setBrightness(v);
+    setShadowLift(v);
     brightnessValue.textContent = v.toFixed(2);
     view.notifyChange(view.camera3D);
   });

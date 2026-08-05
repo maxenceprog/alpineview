@@ -171,7 +171,7 @@ a `setMapSource` switch.
 ## Layers and lighting
 
 `src/layers.js` holds `buildVerticalDiffuseMaterial` — the shared terrain
-shader: fog, shadows, sun direction, brightness lift, and a `MODE_DEPTH` branch
+shader: fog, shadows, sun direction, shadowLift lift, and a `MODE_DEPTH` branch
 that packs depth to RGBA so iTowns' depth picking sees the mesh. Materials
 register themselves with `src/sunLighting.js`, so `setBrightness` /
 `setSunDirection` reach every one of them at once. Always go through

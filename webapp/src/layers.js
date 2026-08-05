@@ -18,12 +18,12 @@ export function setTerrainLightingEnabled(on) {
   for (const mat of verticalDiffuseMaterials) mat.uniforms.uLit.value = currentLit;
 }
 
-export function setBrightness(value) {
+export function setShadowLift(value) {
   currentBrightness = value;
-  for (const mat of verticalDiffuseMaterials) mat.uniforms.uBrightness.value = value;
+  for (const mat of verticalDiffuseMaterials) mat.uniforms.uShadowLift.value = value;
 }
 
-export function getBrightness() {
+export function getShadowLift() {
   return currentBrightness;
 }
 
@@ -42,7 +42,7 @@ export function buildVerticalDiffuseMaterial(texture) {
       ...THREE.UniformsLib.fog,
       ...THREE.UniformsLib.lights,
       map: { value: texture },
-      uBrightness: { value: currentBrightness },
+      uShadowLift: { value: currentBrightness },
       uLit: { value: currentLit },
       uSunDir: { value: getSunDirection().clone() },
       uAmbient: { value: getAmbientIntensity() },
@@ -74,7 +74,7 @@ export function buildVerticalDiffuseMaterial(texture) {
       #include <fog_pars_fragment>
       #include <logdepthbuf_pars_fragment>
       uniform sampler2D map;
-      uniform float uBrightness;
+      uniform float uShadowLift;
       uniform float uLit;
       uniform vec3 uSunDir;
       uniform float uAmbient;
@@ -96,10 +96,10 @@ export function buildVerticalDiffuseMaterial(texture) {
             directionalLightShadows[0].shadowRadius, vDirectionalShadowCoord[0]);
         #endif
         float d = mix(1.0, uAmbient + direct, uLit);
-        // Screen-like lift: brightens dark pixels more than bright ones (reduces
-        // contrast) instead of a flat multiply, which would blow out highlights.
-        float amt = uBrightness - 1.0;
-        vec3 lifted = clamp(c.rgb + amt * (1.0 - c.rgb), 0.0, 1.0);
+        // Shadow lift: brightens dark pixels more than bright
+        // ones (reduces contrast) instead of a flat multiply, which would blow out highlights.
+        float liftAmount = uShadowLift - 1.0;
+        vec3 lifted = clamp(c.rgb + liftAmount * (1.0 - c.rgb), 0.0, 1.0);
         gl_FragColor = vec4(lifted * d, c.a);
         #include <fog_fragment>
         #endif
