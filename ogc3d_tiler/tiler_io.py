@@ -3,9 +3,9 @@ import struct
 from dataclasses import dataclass
 from pathlib import Path
 
-DEFAULT_PATH = Path.home() / "github/alpineview/webapp/public/terrain"
+DEFAULT_PATH = Path.home() / "github/alpineview/webapp/public/pm"
 
-PACK_PATH = DEFAULT_PATH.parents[2] / "src" / "terrainPack.json"
+PACK_PATH = DEFAULT_PATH.parents[1] / "src" / "terrainPack.json"
 
 
 @dataclass
