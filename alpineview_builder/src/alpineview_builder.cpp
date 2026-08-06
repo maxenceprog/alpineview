@@ -114,7 +114,7 @@ static void printUsage(const char *prog) {
 		"  --encode             write encoded .bin mesh (default: off)\n"
 		"\n"
 		"Downsampling (grid thinning, see las_resample.h):\n"
-		"  --downsample         enable thinning (default: off)\n"
+		"  --downsample         enable thinning (default: on)\n"
 		"  --ds-grid F          grid cell size, m (default: 1)\n"
 		"  --ds-radius N        neighbor radius, cells (default: 5)\n"
 		"  --ds-slope F         slope threshold, deg (default: 45)\n"
