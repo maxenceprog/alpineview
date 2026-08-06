@@ -1,15 +1,15 @@
 // Small info box, tucked at the end of the help panel: a Leaflet map of the
-// built extent, with a WebMercatorQuad cell lit up wherever LiDAR HD terrain
-// is actually built (derived from the tileset — see tilesetCoverage.js), over
-// a WMS Plan IGN backdrop.
-// The bbox is computed from the coverage itself (its extent + a margin), not
-// hardcoded, so it tracks whatever's actually been built. Clicking the map
-// starts a fast travel to that spot in the 3D scene.
+// built extent, with each built lod_level0 WMQ tile lit up wherever LiDAR HD
+// terrain is actually built (pack.x15/y15 — see terrainPack.js), over a WMS
+// Plan IGN backdrop.
+// The bbox is computed from the tiles themselves (their extent + a margin),
+// not hardcoded, so it tracks whatever's actually been built. Clicking the
+// map starts a fast travel to that spot in the 3D scene.
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import * as THREE from "three";
 import { webMercatorToWgs84, wgs84ToWebMercator } from "./proj.js";
-import { CELL_LEVEL, loadTilesetCoverage } from "./tilesetCoverage.js";
+import { hdLevelTiles } from "./terrainPack.js";
 import { itownsPlacement } from "./utils.js";
 import { mercBounds } from "./wmts.js";
 import { mercToLocal } from "./workFrame.js";
@@ -36,15 +36,14 @@ function travelTo(view, x, y) {
 }
 
 // bbox: {xmin, xmax, ymin, ymax}, Web Mercator metres, half-open on the max
-// side (a cell "cx.cy" covers the WMQ tile at CELL_LEVEL).
-function computeBbox(coverage) {
+// side.
+function computeBbox(level, xs, ys) {
   let xmin = Infinity;
   let xmax = -Infinity;
   let ymin = Infinity;
   let ymax = -Infinity;
-  for (const cell of coverage) {
-    const [xStr, yStr] = cell.split(".");
-    const { x0, y0, s } = mercBounds(CELL_LEVEL, Number(xStr), Number(yStr));
+  for (let i = 0; i < xs.length; i++) {
+    const { x0, y0, s } = mercBounds(level, xs[i], ys[i]);
     if (x0 < xmin) xmin = x0;
     if (x0 + s > xmax) xmax = x0 + s;
     if (y0 < ymin) ymin = y0;
@@ -83,13 +82,13 @@ function latLng(x, y) {
   return [lat, lng];
 }
 
-async function drawMap(mapEl, container, view) {
-  const coverage = await loadTilesetCoverage();
-  if (!coverage) {
+function drawMap(mapEl, container, view) {
+  const { level, x: xs, y: ys } = hdLevelTiles();
+  if (!xs.length) {
     return;
   }
 
-  const bbox = computeBbox(coverage);
+  const bbox = computeBbox(level, xs, ys);
   const bounds = L.latLngBounds(
     latLng(bbox.xmin, bbox.ymin),
     latLng(bbox.xmax, bbox.ymax),
@@ -130,17 +129,16 @@ async function drawMap(mapEl, container, view) {
   });
 
   const renderer = L.canvas();
-  for (const cell of coverage) {
-    const [xStr, yStr] = cell.split(".");
-    const { x0, y0, s } = mercBounds(CELL_LEVEL, Number(xStr), Number(yStr));
+  for (let i = 0; i < xs.length; i++) {
+    const { x0, y0, s } = mercBounds(level, xs[i], ys[i]);
     L.rectangle(
       L.latLngBounds(latLng(x0, y0), latLng(x0 + s, y0 + s)),
       {
         renderer,
         color: "#654ade",
-        weight: 2,
+        weight: 0,
         fillColor: "#654ade",
-        fillOpacity: 0.25,
+        fillOpacity: 0.35,
       },
     ).addTo(map);
   }

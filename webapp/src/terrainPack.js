@@ -57,6 +57,17 @@ export const terrainPackPlugin = {
   },
 };
 
+// Absolute WebMercatorQuad level pack.hdLevel tile indices of every built HD
+// tile -- the real (non-square) LiDAR HD footprint, finer-grained than a
+// cell's availableLevels flag. See ogc3d_tiler/build_tileset.py.
+export function hdLevelTiles() {
+  return {
+    level: pack.hdLevel,
+    x: new Uint16Array(toArrayBuffer(pack.x15)),
+    y: new Uint16Array(toArrayBuffer(pack.y15)),
+  };
+}
+
 export function cellLevels() {
   const levels = new Map();
 

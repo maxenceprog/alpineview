@@ -33,6 +33,12 @@ from tiler_io import PACK_PATH, ImplicitTilingSubtree
 CELL_LEVEL = GEO.cell_level
 WORK_EXTENT = GEO.work_extent
 
+# lod_level0 is the finest level the fine builder emits as one whole
+# reconstruction job -- levels below it are LOD refinements of the same
+# footprint, so it's the level whose tile grid actually traces the built
+# LiDAR HD extent (a coarse cell is a square; the real footprint isn't).
+LOD_LOCAL_LEVEL = GEO.lod_level0 - CELL_LEVEL
+
 # Screen-space error budget, in metres of geometric error. A cell's children
 # halve it per level, so this sets when the root refines into cells at all.
 ROOT_GEOMETRIC_ERROR = 4096
@@ -202,6 +208,8 @@ def main():
     subtrees = {}
     root_lo = [1e30, 1e30, 1e30]
     root_hi = [-1e30, -1e30, -1e30]
+    hd_x = []
+    hd_y = []
 
     for cell_dir in cells:
         cx, cy = (int(v) for v in cell_dir.name.split("."))
@@ -226,6 +234,11 @@ def main():
         subtrees[f"{cell_dir.name}/subtrees/0.0.0.subtree"] = build_cell_subtree(
             cell_dir.name, level_count
         )
+
+        for level, x, y, _, _ in tiles:
+            if level == LOD_LOCAL_LEVEL:
+                hd_x.append(cx * (1 << LOD_LOCAL_LEVEL) + x)
+                hd_y.append(cy * (1 << LOD_LOCAL_LEVEL) + y)
 
         x0, y0, _, _ = cell_bounds(cx, cy)
         for i, v in enumerate((x0, y0, 0.0)):
@@ -253,7 +266,25 @@ def main():
         },
     }
 
-    PACK_PATH.write_text(json.dumps({"tileset": tileset, "subtrees": subtrees}))
+    PACK_PATH.write_text(
+        json.dumps(
+            {
+                "tileset": tileset,
+                "subtrees": subtrees,
+                # Absolute WebMercatorQuad level-lod_level0 tile indices of every
+                # built HD tile, one array per axis, uint16 little-endian. This
+                # traces the real (non-square) LiDAR HD footprint, unlike the
+                # per-cell availableLevels flag a coarse cell exposes.
+                "hdLevel": GEO.lod_level0,
+                "x15": base64.b64encode(
+                    struct.pack(f"<{len(hd_x)}H", *hd_x)
+                ).decode(),
+                "y15": base64.b64encode(
+                    struct.pack(f"<{len(hd_y)}H", *hd_y)
+                ).decode(),
+            }
+        )
+    )
     size = PACK_PATH.stat().st_size
     print(
         "done,",
