@@ -31,17 +31,21 @@ export function getShadowLift() {
 export const MODE_FINAL = 0;
 export const MODE_DEPTH = 1;
 
+// Below this slope from vertical, the "no texture" mode (buildVerticalDiffuseMaterial(null)) paints snow.
+const SNOW_MAX_SLOPE_DEG = 55;
+
 export function buildVerticalDiffuseMaterial(texture) {
   const mat = new THREE.ShaderMaterial({
     defines: {
       MODE_FINAL,
       MODE_DEPTH,
       MODE: MODE_FINAL,
+      ...(texture ? {} : { NO_TEXTURE: 1 }),
     },
     uniforms: {
       ...THREE.UniformsLib.fog,
       ...THREE.UniformsLib.lights,
-      map: { value: texture },
+      ...(texture ? { map: { value: texture } } : {}),
       uShadowLift: { value: currentBrightness },
       uLit: { value: currentLit },
       uSunDir: { value: getSunDirection().clone() },
@@ -72,11 +76,14 @@ export function buildVerticalDiffuseMaterial(texture) {
       #include <shadowmap_pars_fragment>
       #include <fog_pars_fragment>
       #include <logdepthbuf_pars_fragment>
+      #ifndef NO_TEXTURE
       uniform sampler2D map;
+      #endif
       uniform float uShadowLift;
       uniform float uLit;
       uniform vec3 uSunDir;
-      const float AMBIENT = 0.15;
+      const float AMBIENT = 0.1;
+      const float SNOW_MAX_SLOPE = radians(${SNOW_MAX_SLOPE_DEG.toFixed(1)});
       varying vec2 vUv;
       varying vec3 vWorldNormal;
       void main() {
@@ -87,7 +94,12 @@ export function buildVerticalDiffuseMaterial(texture) {
         // itowns' depth picking (wheel zoom, smart travel).
         gl_FragColor = packDepthToRGBA(gl_FragDepthEXT);
         #else
+        #ifdef NO_TEXTURE
+        float slope = acos(clamp(dot(normalize(vWorldNormal), vec3(0.0, 0.0, 1.0)), -1.0, 1.0));
+        vec4 c = slope < SNOW_MAX_SLOPE ? vec4(0.95, 0.95, 0.97, 1.0) : vec4(0.5, 0.46, 0.41, 1.0);
+        #else
         vec4 c = texture2D(map, vUv);
+        #endif
         float direct = (1.0 - AMBIENT) * max(0.0, dot(vWorldNormal, uSunDir));
         #if defined( USE_SHADOWMAP ) && NUM_DIR_LIGHT_SHADOWS > 0
           direct *= getShadow(directionalShadowMap[0], directionalLightShadows[0].shadowMapSize,

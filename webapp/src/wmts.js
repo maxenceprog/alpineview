@@ -77,17 +77,6 @@ function cropTile(raw, ox, oy, scale) {
   return createImageBitmap(raw, ox * s, oy * s, s, s, { imageOrientation: "flipY" });
 }
 
-let _blankBitmapPromise = null;
-
-function blankBitmap() {
-  if (!_blankBitmapPromise) {
-    const canvas = new OffscreenCanvas(1, 1);
-    canvas.getContext("2d").fillRect(0, 0, 1, 1);
-    _blankBitmapPromise = createImageBitmap(canvas);
-  }
-  return _blankBitmapPromise;
-}
-
 const MAX_ZOOM = 17;
 
 function effectiveTile(sourceKey, x, y, z) {
@@ -99,7 +88,7 @@ function effectiveTile(sourceKey, x, y, z) {
 }
 
 export function fetchWmtsTile(x, y, z, sourceKey = currentMapSource) {
-  if (sourceKey === "none") return blankBitmap();
+  if (sourceKey === "none") return Promise.resolve(null);
   const eff = effectiveTile(sourceKey, x, y, z);
   const scale = 2 ** (z - eff.z);
   const url = tileUrl(sourceKey, eff.x, eff.y, eff.z);

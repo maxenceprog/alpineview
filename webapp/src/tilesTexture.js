@@ -69,6 +69,10 @@ function bakeUVs(mesh, x, y, z) {
 }
 
 function applyBitmap(mesh, bitmap) {
+  if (!bitmap) {
+    replaceMeshMaterial(mesh, buildVerticalDiffuseMaterial(null));
+    return;
+  }
   const texture = new THREE.Texture(bitmap);
   texture.needsUpdate = true;
   texture.flipY = false;
@@ -96,8 +100,8 @@ async function drapeMesh(mesh, tileKey, redraw) {
   }
 
   const bitmap = await fetchWmtsTile(tileKey.x, tileKey.y, tileKey.z);
-  if (!mesh.parent || !bitmap) return;
-  applyBitmap(mesh, await paintTraces(bitmap, tileKey));
+  if (!mesh.parent) return;
+  applyBitmap(mesh, bitmap ? await paintTraces(bitmap, tileKey) : null);
 }
 
 /**
