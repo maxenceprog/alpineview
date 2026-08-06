@@ -73,11 +73,6 @@ export function initEnvironment(view) {
   scene.add(sun);
   scene.add(sun.target);
 
-  const fill = new THREE.DirectionalLight(0xb0c8ff, 0.3);
-  fill.position.set(0, 0, 1);
-  scene.add(fill);
-  fill.updateMatrixWorld();
-
   const skyCanvas = document.createElement("canvas");
   skyCanvas.width = 4;
   skyCanvas.height = 512;
@@ -154,6 +149,7 @@ export function initEnvironment(view) {
   function setSunDate(date) {
     const old = sunDirectionAt(date);
     _sunDir.set(old.x, -old.z, old.y).normalize();
+    console.log(_sunDir)
     setSunDirection(_sunDir);
 
     sun.intensity = Math.max(0, _sunDir.z) * 1.2;
