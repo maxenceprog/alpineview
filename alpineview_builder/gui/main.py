@@ -38,14 +38,14 @@ REPO = os.path.dirname(ROOT)
 DEFAULT_BUILDER = os.path.join(ROOT, "build", "release", "src", "alpineview_builder")
 DEFAULT_COARSE = os.path.join(ROOT, "build", "release", "src", "alpineview_coarse")
 DEFAULT_DATA = os.path.join(REPO, "data")
-DEFAULT_OUT = os.path.join(REPO, "webapp", "public", "wm", "terrain")
+DEFAULT_OUT = os.path.join(REPO, "webapp", "public", "pm")
 DEFAULT_LOG = os.path.join(HERE, "build.log")
 TILER_DIR = os.path.join(REPO, "ogc3d_tiler")
 PACK_PATH = os.path.join(REPO, "webapp", "src", "terrainPack.json")
 MAX_RECT_CELLS = 5000
 S3_ENDPOINT = "https://s3.sbg.io.cloud.ovh.net"
-S3_BUCKET = "s3://lidalps3d/pm"
-S3_SYNC_PERIOD_S = 15
+S3_BUCKET = None  # "s3://lidalps3d/pm"
+S3_SYNC_PERIOD_S = 60
 
 
 class PostBuild(QObject):
@@ -86,6 +86,8 @@ class S3Sync(QObject):
         self.thread.join()
 
     def _run(self, out_dir, log_path):
+        if S3_BUCKET is None:
+            return
         while True:
             sync = subprocess.run(
                 [
