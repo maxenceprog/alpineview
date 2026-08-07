@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { capDragStep, dragStepCapFor, isTargetAllowed } from "./utils.js";
+import { capDragStep, dragStepCapFor, isTargetAllowed, teleportTo } from "./utils.js";
 
 const TAP_MAX_MS = 500;
 const TAP_MAX_MOVE = 20; // px
@@ -9,7 +9,7 @@ const TWIST_DEADZONE_RAD = 0.015; // filters incidental twist noise from a 2-fin
 const ZOOM_DEADZONE_PX = 2; // filters incidental spread noise from a 2-finger drag
 const VIRTUAL_ANCHOR_DISTANCE = 6000; // metres; used when no ground is picked (e.g. looking at the horizon)
 
-export function initTouchControls(view) {
+export function initTouchControls(view, tilesLayer) {
   const controls = view.controls;
   const dom = view.domElement;
   const coord = new THREE.Vector2();
@@ -32,7 +32,6 @@ export function initTouchControls(view) {
   const angle = (t) => Math.atan2(t[1].clientY - t[0].clientY, t[1].clientX - t[0].clientX);
   const midX = (t) => (t[0].clientX + t[1].clientX) / 2;
   const midY = (t) => (t[0].clientY + t[1].clientY) / 2;
-  const at = (x, y) => ({ touches: [{ clientX: x, clientY: y }] });
 
   const pickGround = (clientX, clientY) => {
     const br = dom.getBoundingClientRect();
@@ -134,17 +133,14 @@ export function initTouchControls(view) {
     #lastDist = 0;
     #smoothedDist = 0;
     #lastAngle = 0;
-    #lastMidX = 0;
     #lastMidY = 0;
     #smoothedTwist = 0;
     #smoothedPitch = 0;
-    #smoothedYaw = 0;
 
     start(touches) {
       this.anchorAt(midX(touches), midY(touches));
       this.#lastDist = this.#smoothedDist = spread(touches);
       this.#lastAngle = angle(touches);
-      this.#lastMidX = midX(touches);
       this.#lastMidY = midY(touches);
     }
 
@@ -160,14 +156,10 @@ export function initTouchControls(view) {
       }
       this.#lastDist = this.#smoothedDist;
 
-      const mx = midX(touches);
       const my = midY(touches);
       const pitchRaw = (-controls.rotateSpeed * (my - this.#lastMidY)) / view.mainLoop.gfxEngine.height;
-      const yawRaw = (-controls.rotateSpeed * (mx - this.#lastMidX)) / view.mainLoop.gfxEngine.width;
-      this.#lastMidX = mx;
       this.#lastMidY = my;
       this.#smoothedPitch += (pitchRaw - this.#smoothedPitch) * LOOK_SMOOTHING;
-      this.#smoothedYaw += (yawRaw - this.#smoothedYaw) * LOOK_SMOOTHING;
 
       const a = angle(touches);
       let da = a - this.#lastAngle;
@@ -177,7 +169,7 @@ export function initTouchControls(view) {
       if (Math.abs(da) < TWIST_DEADZONE_RAD) da = 0;
       this.#smoothedTwist += (da - this.#smoothedTwist) * LOOK_SMOOTHING;
 
-      applyRotation(this.#smoothedTwist, this.#smoothedPitch, this.#smoothedYaw);
+      applyRotation(this.#smoothedTwist, this.#smoothedPitch, 0);
     }
   }
 
@@ -191,7 +183,15 @@ export function initTouchControls(view) {
     gesture.start(e.touches);
   };
 
-  const teleportTo = (x, y) => controls.initiateSmartTravel(at(x, y));
+  const travelTo = (x, y) => {
+    const target = pickGround(x, y);
+    if (target) teleportTo(view, tilesLayer, target);
+  };
+
+  dom.addEventListener("dblclick", (e) => {
+    if (!controls.enabled || e.target.closest(".poi-label")) return;
+    travelTo(e.clientX, e.clientY);
+  });
 
   dom.addEventListener(
     "touchstart",
@@ -228,7 +228,7 @@ export function initTouchControls(view) {
   const onEnd = (e) => {
     if (tapStart && e.timeStamp - tapStart.t < TAP_MAX_MS) {
       if (lastTap && e.timeStamp - lastTap.t < TAP_MAX_MS && Math.hypot(tapStart.x - lastTap.x, tapStart.y - lastTap.y) < TAP_MAX_MOVE) {
-        teleportTo(tapStart.x, tapStart.y);
+        travelTo(tapStart.x, tapStart.y);
         lastTap = null;
       } else {
         lastTap = tapStart;

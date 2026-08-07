@@ -28,7 +28,7 @@ if (params.has("x") || params.has("y")) {
 
 const PLANAR_CONTROLS = {
   minZenithAngle: 5,
-  maxZenithAngle: 130,
+  maxZenithAngle: 80,
   maxAltitude: 10000,
   zoomFactor: 1.4,
 };
@@ -59,6 +59,9 @@ const restoredCamera = (() => {
 if (!restoredCamera) itownsPlacement(view, x, y);
 
 view.controls = new itowns.PlanarControls(view, PLANAR_CONTROLS);
+// touchControls.js's dblclick/double-tap teleport replaces PlanarControls' own
+// smart travel, so the middle-mouse-button trigger is disabled here.
+view.controls.enableSmartTravel = false;
 setInterval(() => {
   const { x: px, y: py, z: pz } = view.camera3D.position;
   const q = view.camera3D.quaternion;
@@ -66,8 +69,6 @@ setInterval(() => {
 }, 2000);
 
 window.view = view;
-
-initTouchControls(view);
 
 itowns.enableDracoLoader(`${import.meta.env.BASE_URL}draco/`);
 const tilesLayer = new itowns.OGC3DTilesLayer("terrain3d", {
@@ -89,6 +90,8 @@ view.addLayer(tilesLayer);
 
 window.tilesLayer = tilesLayer;
 
+initTouchControls(view, tilesLayer);
+
 // The tiles are the ground, so they answer every question the controls ask of
 // the terrain: depth picking, the drop test under a travel target, and the
 // occlusion test behind POI labels.
@@ -101,8 +104,6 @@ view.getPickingPositionFromDepth = (mouseCoords, target = new THREE.Vector3()) =
 };
 
 {
-  let lastMouseEvent = null;
-  window.addEventListener("mousedown", (e) => { lastMouseEvent = e; }, true);
   const pickIsUsable = (event) => {
     if (!event) return false;
     const picked = view.getPickingPositionFromDepth(view.eventToViewCoords(event));
@@ -142,37 +143,6 @@ view.getPickingPositionFromDepth = (mouseCoords, target = new THREE.Vector3()) =
     _ray.set(new THREE.Vector3(x, y, 5000), _down);
     const hits = _ray.intersectObject(tilesLayer.object3d, true);
     return hits.length ? hits[0].point.z : null;
-  };
-
-  view.controls.initiateSmartTravel = (event) => {
-    const e = event ?? lastMouseEvent;
-    if (!pickIsUsable(e)) return;
-    const controls = view.controls;
-    const target = view.getPickingPositionFromDepth(view.eventToViewCoords(e));
-
-    const dir = target.clone().sub(view.camera3D.position);
-    dir.z = 0;
-    dir.normalize();
-    const distance = view.camera3D.position.distanceTo(target);
-    const height = THREE.MathUtils.lerp(
-      controls.smartTravelHeightMin,
-      controls.smartTravelHeightMax,
-      Math.min(distance / 5000, 1),
-    );
-
-    const moveTarget = target.clone();
-    if (controls.enableRotation) moveTarget.add(dir.multiplyScalar(-height * 2));
-    moveTarget.z = target.z + height;
-
-    const terrainAtEnd = terrainZAt(moveTarget.x, moveTarget.y);
-    if (terrainAtEnd !== null) {
-      moveTarget.z = Math.max(moveTarget.z, terrainAtEnd + controls.smartTravelHeightMin);
-    }
-
-    view.camera3D.position.copy(moveTarget);
-    view.camera3D.lookAt(target);
-    view.camera3D.updateMatrixWorld(true);
-    view.notifyChange(view.camera3D);
   };
 }
 
