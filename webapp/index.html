@@ -65,6 +65,29 @@
       font-weight: 600;
     }
 
+    #fp-toggle {
+      position: fixed;
+      bottom: 10px;
+      left: 1ch;
+      z-index: 11;
+      width: 44px;
+      height: 44px;
+      border: none;
+      border-radius: 50%;
+      background: rgba(10, 20, 35, 0.75);
+      color: #dde6f0;
+      font-size: 22px;
+      line-height: 44px;
+      text-align: center;
+      cursor: grab;
+      touch-action: none;
+    }
+
+    #fp-toggle.dragging {
+      cursor: grabbing;
+      z-index: 20;
+    }
+
     #help-panel {
       position: fixed;
       top: 10px;
@@ -525,6 +548,7 @@
   <button id="env-toggle" title="Soleil, lumière et brume">☀️</button>
   <button id="layer-toggle" title="Fond de carte">🗺</button>
   <button id="help-toggle" title="Aide — commandes">?</button>
+  <button id="fp-toggle" title="Vue à la première personne — glisser puis relâcher">🧍</button>
 
   <div id="search-form">
     <input id="search-input" type="text" placeholder="Rechercher un lieu…" autocomplete="off" />

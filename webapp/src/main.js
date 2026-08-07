@@ -2,6 +2,7 @@ import { DebugTilesPlugin } from "3d-tiles-renderer/plugins";
 import * as itowns from "itowns";
 import * as THREE from "three";
 import { initEnvironment } from "./environment.js";
+import { initFirstPerson } from "./firstPerson.js";
 import { initBuildings } from "./overlays.js";
 import { initPoi } from "./poiLayer.js";
 import { wgs84ToWebMercator } from "./proj.js";
@@ -91,6 +92,7 @@ view.addLayer(tilesLayer);
 window.tilesLayer = tilesLayer;
 
 initTouchControls(view, tilesLayer);
+initFirstPerson(view);
 
 // The tiles are the ground, so they answer every question the controls ask of
 // the terrain: depth picking, the drop test under a travel target, and the
