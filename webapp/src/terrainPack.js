@@ -65,6 +65,7 @@ export function hdLevelTiles() {
     level: pack.hdLevel,
     x: new Uint16Array(toArrayBuffer(pack.x15)),
     y: new Uint16Array(toArrayBuffer(pack.y15)),
+    maxLevel: new Uint8Array(toArrayBuffer(pack.maxLevel15)),
   };
 }
 

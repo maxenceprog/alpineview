@@ -194,6 +194,18 @@ def build_cell_subtree(name, level_count):
     return base64.b64encode(subtree_bytes(subtree)).decode()
 
 
+def max_descendant_level(existing, level, x, y):
+    """Deepest local level reached by recursively refining (level, x, y),
+    following only children whose glb actually exists."""
+    best = level
+    for dx in (0, 1):
+        for dy in (0, 1):
+            child = (level + 1, 2 * x + dx, 2 * y + dy)
+            if child in existing:
+                best = max(best, max_descendant_level(existing, *child))
+    return best
+
+
 def is_cell_directory(path):
     if not path.is_dir():
         return False
@@ -210,6 +222,7 @@ def main():
     root_hi = [-1e30, -1e30, -1e30]
     hd_x = []
     hd_y = []
+    hd_max_level = []
 
     for cell_dir in cells:
         cx, cy = (int(v) for v in cell_dir.name.split("."))
@@ -235,10 +248,16 @@ def main():
             cell_dir.name, level_count
         )
 
+        existing = {(tl, tx, ty) for tl, tx, ty, _, _ in tiles}
         for level, x, y, _, _ in tiles:
             if level == LOD_LOCAL_LEVEL:
                 hd_x.append(cx * (1 << LOD_LOCAL_LEVEL) + x)
                 hd_y.append(cy * (1 << LOD_LOCAL_LEVEL) + y)
+                hd_max_level.append(
+                    GEO.lod_level0
+                    + max_descendant_level(existing, level, x, y)
+                    - LOD_LOCAL_LEVEL
+                )
 
         x0, y0, _, _ = cell_bounds(cx, cy)
         for i, v in enumerate((x0, y0, 0.0)):
@@ -282,6 +301,9 @@ def main():
                 "y15": base64.b64encode(
                     struct.pack(f"<{len(hd_y)}H", *hd_y)
                 ).decode(),
+                # Deepest global level actually reached below each x15/y15
+                # tile, one uint8 per tile, same order.
+                "maxLevel15": base64.b64encode(bytes(hd_max_level)).decode(),
             }
         )
     )
@@ -297,5 +319,13 @@ def main():
     )
 
 
+def _test_max_descendant_level():
+    existing = {(0, 0, 0), (1, 0, 0), (1, 1, 0), (2, 2, 0)}
+    assert max_descendant_level(existing, 0, 0, 0) == 2
+    assert max_descendant_level(existing, 1, 1, 0) == 2
+    assert max_descendant_level(set(), 3, 5, 5) == 3
+
+
 if __name__ == "__main__":
+    _test_max_descendant_level()
     main()

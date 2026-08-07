@@ -82,10 +82,25 @@ function latLng(x, y) {
   return [lat, lng];
 }
 
+function shadeForLevel(level, minLevel, maxLevel) {
+  if (maxLevel === minLevel) {
+    return "#654ade";
+  }
+  const t = (level - minLevel) / (maxLevel - minLevel);
+  const lightness = 70 - t * 45;
+  return `hsl(255, 60%, ${lightness}%)`;
+}
+
 function drawMap(mapEl, container, view) {
-  const { level, x: xs, y: ys } = hdLevelTiles();
+  const { level, x: xs, y: ys, maxLevel: levels } = hdLevelTiles();
   if (!xs.length) {
     return;
+  }
+  let minLv = Infinity;
+  let maxLv = -Infinity;
+  for (const lv of levels) {
+    if (lv < minLv) minLv = lv;
+    if (lv > maxLv) maxLv = lv;
   }
 
   const bbox = computeBbox(level, xs, ys);
@@ -131,13 +146,14 @@ function drawMap(mapEl, container, view) {
   const renderer = L.canvas();
   for (let i = 0; i < xs.length; i++) {
     const { x0, y0, s } = mercBounds(level, xs[i], ys[i]);
+    const fillColor = shadeForLevel(levels[i], minLv, maxLv);
     L.rectangle(
       L.latLngBounds(latLng(x0, y0), latLng(x0 + s, y0 + s)),
       {
         renderer,
-        color: "#654ade",
+        color: fillColor,
         weight: 0,
-        fillColor: "#654ade",
+        fillColor,
         fillOpacity: 0.35,
       },
     ).addTo(map);

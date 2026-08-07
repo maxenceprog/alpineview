@@ -149,7 +149,6 @@ export function initEnvironment(view) {
   function setSunDate(date) {
     const old = sunDirectionAt(date);
     _sunDir.set(old.x, -old.z, old.y).normalize();
-    console.log(_sunDir)
     setSunDirection(_sunDir);
 
     sun.intensity = Math.max(0, _sunDir.z) * 1.2;
