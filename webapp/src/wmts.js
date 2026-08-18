@@ -1,5 +1,5 @@
-import { IS_MOBILE } from "./deviceInfo.js";
 import geoConstants from "../../geo_constants.json";
+import { IS_MOBILE } from "./deviceInfo.js";
 
 const WMQ_EXTENT = geoConstants.wmq_extent.value;
 
@@ -53,7 +53,6 @@ function fetchRaw(url) {
 
   const promise = (async () => {
     const res = await fetch(url, { signal: AbortSignal.timeout(IMAGE_TIMEOUT_MS) });
-    if (res.status === 404) return null;
     if (!res.ok) throw new Error(`Failed to load tile: ${url} (${res.status})`);
     return createImageBitmap(await res.blob());
   })();
