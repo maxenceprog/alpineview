@@ -167,7 +167,6 @@ export function initEnvironment(view) {
     _enabled = on;
     ambient.visible = on;
     sun.visible = on;
-    fill.visible = on;
     skySphere.visible = on;
     if (on) {
       scene.fog.density = savedFogDensity;
