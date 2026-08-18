@@ -93,7 +93,7 @@ view.addLayer(tilesLayer);
 
 window.tilesLayer = tilesLayer;
 
-initSplash(view, tilesLayer, x, y);
+initSplash(tilesLayer);
 
 initTouchControls(view, tilesLayer);
 initFirstPerson(view, tilesLayer);
