@@ -1,6 +1,6 @@
 import * as THREE from "three";
-const GOTO_TILT = 80;
-const GOTO_RANGE = 8000;
+const GOTO_TILT = 79;
+const GOTO_RANGE = 5000;
 
 const DRAG_STEP_CAP_RATIO = 0.25;
 const DRAG_STEP_CAP_MIN = 10;
@@ -12,6 +12,24 @@ export function dragStepCapFor(cameraZ, groundZ) {
 
 export function capDragStep(step, cap) {
     return step.length() > cap ? step.setLength(cap) : step;
+}
+
+export const PLANAR_MAX_ZENITH_DEG = 80;
+
+
+export function clampCameraZenith(camera, maxZenithDeg = PLANAR_MAX_ZENITH_DEG) {
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    const phi = Math.acos(THREE.MathUtils.clamp(-dir.z, -1, 1));
+    const maxPhi = THREE.MathUtils.degToRad(maxZenithDeg);
+    if (phi <= maxPhi) return;
+
+    const yaw = Math.atan2(-dir.x, dir.y);
+    const pitch = Math.PI / 2 - maxPhi;
+    const qYaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), yaw);
+    const qPitch = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), pitch);
+    camera.quaternion.copy(qYaw).multiply(qPitch);
+    camera.updateMatrixWorld(true);
 }
 
 

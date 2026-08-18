@@ -40,9 +40,10 @@ function toArrayBuffer(base64) {
   return bytes.buffer;
 }
 
+
 export const terrainPackPlugin = {
   name: "terrain-pack",
-  fetchData(url) {
+  fetchData(url, options) {
     if (url === TILESET_URL) {
       return Promise.resolve(pack.tileset);
     }
@@ -52,8 +53,27 @@ export const terrainPackPlugin = {
     }
 
     const subtree = pack.subtrees[url.slice(TERRAIN_BASE.length)];
+    if (subtree) {
+      return Promise.resolve(toArrayBuffer(subtree));
+    }
 
-    return subtree ? Promise.resolve(toArrayBuffer(subtree)) : null;
+    if (!url.endsWith(".glb")) {
+      return null;
+    }
+
+    // downloadQueue frees its concurrency slot as soon as fetch()'s promise
+    // resolves, i.e. once headers arrive -- it never sees body-read time. On
+    // a throttled connection that lets far more than maxJobs bodies stream at
+    // once, starving each other. Reading the body here, before resolving,
+    // makes the slot correctly stay held for the full download.
+    return fetch(url, options).then(async (res) => {
+      if (!res.ok) {
+        return res;
+      }
+
+      const buffer = await res.arrayBuffer();
+      return new Response(buffer, { status: res.status, statusText: res.statusText });
+    });
   },
 };
 

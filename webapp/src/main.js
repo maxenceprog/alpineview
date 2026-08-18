@@ -5,12 +5,13 @@ import { initEnvironment } from "./environment.js";
 import { initFirstPerson } from "./firstPerson.js";
 import { initBuildings } from "./overlays.js";
 import { initPoi } from "./poiLayer.js";
+import { initSplash } from "./splash.js";
 import { wgs84ToWebMercator } from "./proj.js";
 import { TILESET_URL, terrainPackPlugin } from "./terrainPack.js";
 import { installWmtsDraping } from "./tilesTexture.js";
 import { initTouchControls } from "./touchControls.js";
 import { initUi } from "./ui.js";
-import { capDragStep, dragStepCapFor, isTargetAllowed, itownsPlacement } from "./utils.js";
+import { capDragStep, clampCameraZenith, dragStepCapFor, isTargetAllowed, itownsPlacement } from "./utils.js";
 import { mercToLocal } from "./workFrame.js";
 
 // Barre des Ecrins, used when the URL carries no ?x/?y.
@@ -30,7 +31,7 @@ if (params.has("x") || params.has("y")) {
 const PLANAR_CONTROLS = {
   minZenithAngle: 5,
   maxZenithAngle: 80,
-  maxAltitude: 10000,
+  maxAltitude: 7000,
   zoomFactor: 1.4,
 };
 
@@ -52,6 +53,7 @@ const restoredCamera = (() => {
     view.camera3D.position.set(...p);
     view.camera3D.quaternion.set(...q);
     view.camera3D.updateMatrixWorld(true);
+    clampCameraZenith(view.camera3D)
     return true;
   } catch {
     return false;
@@ -74,7 +76,7 @@ window.view = view;
 itowns.enableDracoLoader(`${import.meta.env.BASE_URL}draco/`);
 const tilesLayer = new itowns.OGC3DTilesLayer("terrain3d", {
   source: new itowns.OGC3DTilesSource({ url: TILESET_URL }),
-  sseThreshold: 10,
+  sseThreshold: 12,
 });
 // itowns' OGC3DTilesLayer already registers the stock plugin under this same
 // name; invokeOnePlugin stops at the first match, so it must go before ours
@@ -91,8 +93,10 @@ view.addLayer(tilesLayer);
 
 window.tilesLayer = tilesLayer;
 
+initSplash(view, tilesLayer, x, y);
+
 initTouchControls(view, tilesLayer);
-initFirstPerson(view);
+initFirstPerson(view, tilesLayer);
 
 // The tiles are the ground, so they answer every question the controls ask of
 // the terrain: depth picking, the drop test under a travel target, and the
@@ -151,11 +155,8 @@ view.getPickingPositionFromDepth = (mouseCoords, target = new THREE.Vector3()) =
 const { setSunDate, setEnabled, setShadowsEnabled } = initEnvironment(view);
 const { refreshTextures } = installWmtsDraping(view, tilesLayer);
 
-view.addFrameRequester(itowns.MAIN_LOOP_EVENTS.BEFORE_RENDER, () => {
-  const { downloadQueue, parseQueue, processNodeQueue } = tilesLayer.tilesRenderer;
-  if (downloadQueue?.running || parseQueue?.running || processNodeQueue?.running) {
-    view.notifyChange(tilesLayer);
-  }
+tilesLayer.tilesRenderer.addEventListener("needs-update", () => {
+  view.notifyChange(tilesLayer);
 });
 
 initBuildings(view);

@@ -130,18 +130,20 @@ function boundaryEdges(index) {
   return out;
 }
 
-function addNormalsAndSkirtToGeometry(position, index) {
+function addNormalsAndSkirtToGeometry(position, index, addSkirt) {
 
   if (!position || !index || index.length === 0) return null;
 
   const normal = computeNormals(position, index);
+
+  if (!addSkirt) return { position, index, normal, skirtQuads: 0 };
 
   const edges = boundaryEdges(index);
   const edgeCount = edges.length / 2;
   if (edgeCount === 0) return { position, index, normal, skirtQuads: 0 };
 
 
-  const height = 10;
+  const height = 100;
 
   const vertexCount = position.length / 3;
   const bottomOf = new Int32Array(vertexCount).fill(-1);
@@ -183,13 +185,13 @@ function addNormalsAndSkirtToGeometry(position, index) {
 }
 
 
-export async function applySkirtAndNormals(geometry) {
+export async function applySkirtAndNormals(geometry, addSkirt) {
   const posAttr = geometry.attributes.position;
   const indexAttr = geometry.index;
   if (!posAttr || !indexAttr || geometry.userData.skirted) return false;
   geometry.userData.skirted = true;
 
-  const result = addNormalsAndSkirtToGeometry(posAttr.array, indexAttr.array);
+  const result = addNormalsAndSkirtToGeometry(posAttr.array, indexAttr.array, addSkirt);
 
   if (!result) return false;
 

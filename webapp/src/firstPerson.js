@@ -10,7 +10,7 @@ export function initFirstPerson(view, tilesLayer) {
   const ghost = document.createElement("div");
   ghost.textContent = FP_EMOJI;
   ghost.style.cssText = "position:fixed;z-index:21;font-size:50px;pointer-events:none;display:none;"
-    + "transform:translate(-50%,-50%);";
+    + "transform:translate(-50%,-100%);";
   document.body.append(ghost);
 
   const moveDrag = (event) => {

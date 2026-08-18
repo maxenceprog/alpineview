@@ -1,18 +1,18 @@
 import * as itowns from "itowns";
 import * as THREE from "three";
-import { clampCameraZenith } from "./utils.js";
 import { IS_MOBILE } from "./deviceInfo.js";
+import { clampCameraZenith } from "./utils.js";
 
 const EYE_HEIGHT = 1.7;
-const HEIGHTMAP_TILE_GRID_SIZE = 8;
+const HEIGHTMAP_TILE_GRID_SIZE = 16;
 const ADJACENCY_MARGIN_M = 1;
 const MOVE_SPEED = 8;
-const SPRINT_MULTIPLIER = 2;
+const SPRINT_MULTIPLIER = 4;
 const LOOK_SENSITIVITY = 0.0025;
 const MAX_PITCH = THREE.MathUtils.degToRad(150);
 const UP = new THREE.Vector3(0, 0, 1);
 const JOYSTICK_RADIUS = 50;
-const TOUCH_LOOK_SPEED = 0.5;
+const TOUCH_LOOK_SPEED = 0.8;
 
 function createStaticJoystick(side) {
   const base = document.createElement("div");
@@ -220,6 +220,36 @@ export async function enterFirstPerson(view, tilesLayer, spawnPoint) {
   const onKeyDown = (e) => {
     keys.add(e.code);
     if (e.code === "Escape") exitFirstPerson();
+    if (e.code === "F9") {
+      const dir = new THREE.Vector3();
+      camera.getWorldDirection(dir);
+      console.log("camera pos", camera.position.toArray(), "dir", dir.toArray(), "near", camera.near, "far", camera.far);
+      const rows = [];
+      let visits = 0;
+      const RADIUS = 300;
+      const visit = (t) => {
+        if (++visits > 5000) return;
+        const obb = t.engineData?.boundingVolume?.obb;
+        const dist = obb ? obb.distanceToPoint(camera.position) : 0;
+        if (dist > RADIUS) return;
+        if (t.internal?.hasContent) {
+          const min = obb.box.min.clone().applyMatrix4(obb.transform);
+          const max = obb.box.max.clone().applyMatrix4(obb.transform);
+          rows.push({
+            depth: t.internal.depth,
+            dist: dist.toFixed(1),
+            inFrustum: t.traversal?.inFrustum,
+            used: t.traversal?.used,
+            min: min.toArray().map((v) => v.toFixed(0)).join(","),
+            max: max.toArray().map((v) => v.toFixed(0)).join(","),
+          });
+        }
+        (t.children || []).forEach(visit);
+      };
+      tilesLayer.tilesRenderer.getRoots?.().forEach(visit) ?? visit(tilesLayer.tilesRenderer.root);
+      console.log("visited", visits);
+      console.table(rows);
+    }
   };
   const onKeyUp = (e) => keys.delete(e.code);
   const onMouseMove = (e) => {
@@ -230,11 +260,13 @@ export async function enterFirstPerson(view, tilesLayer, spawnPoint) {
   const onPointerLockChange = () => {
     if (document.pointerLockElement !== view.domElement) exitFirstPerson();
   };
+  const onWheel = () => exitFirstPerson();
 
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
   window.addEventListener("mousemove", onMouseMove);
   document.addEventListener("pointerlockchange", onPointerLockChange);
+  window.addEventListener("wheel", onWheel);
 
   const moveJoystick = IS_MOBILE ? createStaticJoystick("left") : null;
   const lookJoystick = IS_MOBILE ? createStaticJoystick("right") : null;
@@ -243,7 +275,7 @@ export async function enterFirstPerson(view, tilesLayer, spawnPoint) {
   exitButton.textContent = "Sortir du mode marche";
   exitButton.style.cssText = `position:fixed;top:12px;right:12px;padding:10px 16px;border-radius:8px;
     background:rgba(0,0,0,0.4);color:#fff;border:2px solid rgba(255,255,255,0.4);font-size:16px;
-    z-index:1000;`;
+    z-index:1000;${IS_MOBILE ? "" : "display:none;"}`;
   exitButton.addEventListener("click", () => exitFirstPerson());
   document.body.appendChild(exitButton);
 
@@ -312,6 +344,7 @@ export async function enterFirstPerson(view, tilesLayer, spawnPoint) {
     window.removeEventListener("keyup", onKeyUp);
     window.removeEventListener("mousemove", onMouseMove);
     document.removeEventListener("pointerlockchange", onPointerLockChange);
+    window.removeEventListener("wheel", onWheel);
     moveJoystick?.destroy();
     lookJoystick?.destroy();
     exitButton.remove();

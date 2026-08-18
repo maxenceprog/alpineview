@@ -39,6 +39,52 @@
       touch-action: none;
     }
 
+    #splash {
+      position: fixed;
+      inset: 0;
+      z-index: 5;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1.5em;
+      background: #0b1116;
+      color: #eee;
+      text-align: center;
+      padding: 2em;
+      box-sizing: border-box;
+      font-family: system-ui, sans-serif;
+    }
+
+    #splash.hidden {
+      display: none;
+    }
+
+    #splash-spinner {
+      width: 3em;
+      height: 3em;
+      border: 0.3em solid #345;
+      border-top-color: #9cf;
+      border-radius: 50%;
+      animation: splash-spin 1s linear infinite;
+    }
+
+    @keyframes splash-spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    #splash-quote {
+      max-width: 40em;
+      font-size: 1.3em;
+      font-style: italic;
+    }
+
+    #splash-author {
+      color: #9ab;
+    }
+
     #env-toggle,
     #layer-toggle,
     #help-toggle {
@@ -545,6 +591,11 @@
 
 <body>
   <div id="viewerDiv"></div>
+  <div id="splash">
+    <div id="splash-spinner"></div>
+    <div id="splash-quote"></div>
+    <div id="splash-author"></div>
+  </div>
   <button id="env-toggle" title="Soleil, lumière et brume">☀️</button>
   <button id="layer-toggle" title="Fond de carte">🗺</button>
   <button id="help-toggle" title="Aide — commandes">?</button>

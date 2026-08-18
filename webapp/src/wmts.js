@@ -76,12 +76,14 @@ function cropTile(raw, ox, oy, scale) {
   return createImageBitmap(raw, ox * s, oy * s, s, s, { imageOrientation: "flipY" });
 }
 
-const MAX_ZOOM = 17;
+export const WMTS_SOURCE_MAX_ZOOM_ORTHO = 18;
+export const WMTS_SOURCE_MAX_ZOOM = 17;
 
 function effectiveTile(sourceKey, x, y, z) {
-  if (z > MAX_ZOOM) {
-    const scale = 2 ** (z - MAX_ZOOM);
-    return { z: MAX_ZOOM, x: Math.floor(x / scale), y: Math.floor(y / scale) };
+  const wmts_max_zoom = (sourceKey == "ortho") ? WMTS_SOURCE_MAX_ZOOM_ORTHO : WMTS_SOURCE_MAX_ZOOM;
+  if (z > wmts_max_zoom) {
+    const scale = 2 ** (z - wmts_max_zoom);
+    return { z: wmts_max_zoom, x: Math.floor(x / scale), y: Math.floor(y / scale) };
   }
   return { z, x, y };
 }
