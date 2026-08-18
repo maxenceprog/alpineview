@@ -13,7 +13,9 @@ export const ALPINIST_QUOTES = [
   { text: "Les montagnes sont des êtres vivants, des créatures pleines d'âme. Vous ne les domptez pas, vous entrez en relation avec elles.", author: "George Mallory" },
   { text: "Si la montagne semble inaccessible aujourd'hui, escaladez-la demain.", author: "Walter Bonatti" },
   { text: "La montagne est le miroir de l'âme.", author: "Reinhold Messner" },
+  { text: "Un programme sans bug c'est comme un refuge sans Génépi.", author: "Le développeur." },
   { text: "L'alpinisme, c'est un art de vivre, un engagement envers soi-même et envers la nature.", author: "Gaston Rébuffat" },
   { text: "L'alpinisme ne consiste pas seulement à conquérir des sommets, mais aussi à découvrir des parties inconnues de soi-même.", author: "Andy Kerr" },
   { text: "La montagne ne triche pas, elle est toujours elle-même.", author: "Reinhold Messner" },
+  { text: "Pourtaaaant que la montaaagne est bellleuuuh.", author: "Jean Ferrat" },
 ];
