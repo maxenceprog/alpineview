@@ -1,49 +1,58 @@
-import * as THREE from "three";
+import { enterFirstPerson } from "./firstPersonView.js";
 
-const EYE_HEIGHT = 1.7;
+const FP_EMOJI = "🧍";
 
-// Step 1: drag the 🧍 button anywhere on screen; on release, raycast the
-// terrain under the pointer (same picking path as depth-based controls) and
-// teleport the camera down to eye height at that point.
-export function initFirstPerson(view) {
+export function initFirstPerson(view, tilesLayer) {
   const btn = document.getElementById("fp-toggle");
   let dragging = false;
+  let exitFn = null;
+
+  const ghost = document.createElement("div");
+  ghost.textContent = FP_EMOJI;
+  ghost.style.cssText = "position:fixed;z-index:21;font-size:50px;pointer-events:none;display:none;"
+    + "transform:translate(-50%,-50%);";
+  document.body.append(ghost);
 
   const moveDrag = (event) => {
     if (!dragging) return;
-    btn.style.left = `${event.clientX - btn.offsetWidth / 2}px`;
-    btn.style.top = `${event.clientY - btn.offsetHeight / 2}px`;
-    btn.style.bottom = "auto";
+    ghost.style.left = `${event.clientX}px`;
+    ghost.style.top = `${event.clientY}px`;
   };
 
   const endDrag = (event) => {
     if (!dragging) return;
     dragging = false;
     btn.classList.remove("dragging");
-    btn.style.left = "";
-    btn.style.top = "";
-    btn.style.bottom = "";
+    btn.textContent = FP_EMOJI;
+    ghost.style.display = "none";
 
     const picked = view.getPickingPositionFromDepth(view.eventToViewCoords(event));
     if (!picked) return;
 
-    const camera = view.camera3D;
-    const dir = new THREE.Vector3();
-    camera.getWorldDirection(dir);
-    dir.z = 0;
-    if (dir.lengthSq() < 1e-6) dir.set(0, 1, 0);
-    dir.normalize();
+    if (exitFn) {
+      exitFn();
+      exitFn = null;
+    }
 
-    camera.position.set(picked.x, picked.y, picked.z + EYE_HEIGHT);
-    camera.lookAt(camera.position.clone().add(dir));
-    camera.updateMatrixWorld(true);
-    view.notifyChange(camera);
+    // Must be requested synchronously from this input event — by the time
+    // enterFirstPerson's async physics/WASM setup finishes, the browser no
+    // longer considers this a user gesture and silently refuses the lock.
+    // Also throws if requested too soon after a previous lock was released
+    // (browser cooldown) — harmless here, mouse-look just won't work yet.
+    // Touch drags must not lock the pointer: it freezes clientX/Y, which the
+    // mobile joystick reads directly.
+    if (event.pointerType !== "touch") view.domElement.requestPointerLock()?.catch(() => { });
+    enterFirstPerson(view, tilesLayer, picked).then((exit) => { exitFn = exit; });
   };
 
   btn.addEventListener("pointerdown", (event) => {
     dragging = true;
     btn.setPointerCapture(event.pointerId);
     btn.classList.add("dragging");
+    btn.textContent = "";
+    ghost.style.left = `${event.clientX}px`;
+    ghost.style.top = `${event.clientY}px`;
+    ghost.style.display = "block";
   });
   btn.addEventListener("pointermove", moveDrag);
   btn.addEventListener("pointerup", endDrag);
