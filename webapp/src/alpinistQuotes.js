@@ -5,6 +5,7 @@ export const ALPINIST_QUOTES = [
   { text: "La montagne est le maître et nous sommes ses élèves.", author: "Reinhold Messner" },
   { text: "L'altitude, c'est la liberté.", author: "Ed Viesturs" },
   { text: "Le sommet n'est que la moitié du voyage.", author: "Edmund Hillary" },
+  { text: "Monte ton pied gauche !", author: "Ton assureur" },
   { text: "La montagne est un enseignant silencieux, dont les leçons de modestie, de persévérance et de préparation sont éternelles.", author: "Michael Kennedy" },
   { text: "Les montagnes ne sont pas des stades où je satisfais ma curiosité pour savoir si je peux gravir telle ou telle paroi. Les montagnes sont des lieux où je pratique ma religion.", author: "Anatoli Boukreev" },
   { text: "Lorsque vous vous trouvez en montagne, les règles du jeu changent. Vous faites partie de la montagne. Vous ne la grimpez pas pour y laisser votre marque.", author: "Lou Whittaker" },
@@ -18,4 +19,5 @@ export const ALPINIST_QUOTES = [
   { text: "L'alpinisme ne consiste pas seulement à conquérir des sommets, mais aussi à découvrir des parties inconnues de soi-même.", author: "Andy Kerr" },
   { text: "La montagne ne triche pas, elle est toujours elle-même.", author: "Reinhold Messner" },
   { text: "Pourtaaaant que la montaaagne est bellleuuuh.", author: "Jean Ferrat" },
+
 ];
