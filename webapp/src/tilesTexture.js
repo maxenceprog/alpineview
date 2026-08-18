@@ -79,7 +79,7 @@ const meshPrepPlugin = {
     const tileKey = tileKeyFromUrl(tile.content?.uri ?? "");
     if (!tileKey) return;
 
-    const transform = new THREE.Matrix4().multiplyMatrices(tile.cached.transform, this.tiles._upRotationMatrix);
+    const transform = new THREE.Matrix4().multiplyMatrices(tile.engineData.transform, this.tiles._upRotationMatrix);
     const meshesToPrep = [];
     scene.traverse((o) => {
       if (o.isMesh) meshesToPrep.push(o);
