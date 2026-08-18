@@ -3,6 +3,7 @@
 // (proxying, cache-header simulation, tile-reconstruction routes) belong
 // here — see vite.serve.js and vite.reconstruction_serve.js.
 import { defineConfig } from "vite";
+import { viteStaticCopy } from "vite-plugin-static-copy";
 
 import { baseConfig, OVH_ASSET_URL, servePlugins } from "./vite.common.js";
 
@@ -13,7 +14,14 @@ const PROD_API_URL = OVH_ASSET_URL;
 export default defineConfig({
   ...baseConfig,
   base: process.env.GITHUB_PAGES ? "/alpineview/" : "/",
-  plugins: servePlugins(),
+  plugins: [
+    ...servePlugins(),
+    viteStaticCopy({ targets: [{ src: "public/credits/*", dest: "credits" }] }),
+  ],
+  build: {
+    ...baseConfig.build,
+    copyPublicDir: false,
+  },
   define: {
     __TEST_CONTROLS__: "false",
     __API_BASE_URL__: JSON.stringify(PROD_API_URL),
