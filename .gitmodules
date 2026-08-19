@@ -1,5 +1,5 @@
 [submodule "third-parties/PoissonRecon"]
-	path = third-parties/PoissonRecon
+	path = alpineview_builder/third-parties/PoissonRecon
 	url = https://github.com/mkazhdan/PoissonRecon
 [submodule "alpineview_builder/extern/copc-lib"]
 	path = alpineview_builder/extern/copc-lib
