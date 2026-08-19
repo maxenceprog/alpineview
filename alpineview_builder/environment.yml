@@ -8,10 +8,16 @@ dependencies:
   - cxx-compiler
   - make
 
-  # Minimal Python runtime (no GUI deps)
+  # Minimal Python runtime
   - python=3.11
-  - numpy
   - pip
+
+  # GUI
+  - qtpy
+  - pyqt
+  - requests
+  - laspy
+  - tqdm
 
   # Proj (for coordinate transforms)
   - proj
@@ -26,11 +32,5 @@ dependencies:
   # CGAL point-cloud normal estimation (find_package(CGAL)/Eigen3)
   - draco
   - cgal-cpp
-
-  # Python package itself (pyproject.toml), editable install so lidalp_tools
-  # changes are picked up without reinstalling. [cosia] pulls in the
-  # rasterio/shapely land-cover texture deps on top of the core dependencies.
-  - pip:
-      - "-e ."
 
 prefix: ~/miniconda3/envs/lidalp
