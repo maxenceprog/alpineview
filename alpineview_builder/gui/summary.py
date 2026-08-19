@@ -15,6 +15,7 @@ def run_tiler(tiler_dir, python="python"):
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        check=False,
     )
     return p.returncode, p.stdout
 
@@ -73,7 +74,7 @@ def format_summary(rows):
     lines = ["level  tiles  no content   median      p5     p95   (kB)"]
     for r in rows:
         lines.append(
-            "%5d  %5d  %10d  %7.1f %7.1f %7.1f"
-            % (r["level"], r["total"], r["missing"], r["median"], r["p5"], r["p95"])
+            f"{r['level']:5d}  {r['total']:5d}  {r['missing']:10d}  "
+            f"{r['median']:7.1f} {r['p5']:7.1f} {r['p95']:7.1f}"
         )
     return "\n".join(lines)

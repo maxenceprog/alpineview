@@ -4,7 +4,6 @@ tasks early-return without ever calling into the (network-bound) build step."""
 import laspy
 import numpy as np
 import pytest
-
 from alpineview_ewoks.core.buildings import has_building_points
 from alpineview_ewoks.core.vegetation import has_vegetation_points
 from alpineview_ewoks.tasks.buildings import BuildBuildings
@@ -40,7 +39,7 @@ def test_vegetation_no_class5_early_returns(ground_only_laz, tmp_path, monkeypat
     )
 
     out = tmp_path / "veg"
-    task = BuildVegetation(inputs=dict(laz_path=str(ground_only_laz), out_dir=str(out)))
+    task = BuildVegetation(inputs={"laz_path": str(ground_only_laz), "out_dir": str(out)})
     task.execute()
     assert task.outputs.veg_tiles == []
 
@@ -56,6 +55,6 @@ def test_buildings_no_class6_early_returns(ground_only_laz, tmp_path, monkeypatc
     )
 
     out = tmp_path / "buildings"
-    task = BuildBuildings(inputs=dict(laz_path=str(ground_only_laz), out_dir=str(out)))
+    task = BuildBuildings(inputs={"laz_path": str(ground_only_laz), "out_dir": str(out)})
     task.execute()
     assert task.outputs.city_path is None

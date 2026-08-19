@@ -32,10 +32,10 @@ def tiles_in_rect(lon0, lat0, lon1, lat1, level):
     n = 1 << level
     x0, y0 = lonlat_to_tile(west, north, level)
     x1, y1 = lonlat_to_tile(east, south, level)
-    cx0 = max(0, min(n - 1, int(math.floor(x0))))
-    cx1 = max(0, min(n - 1, int(math.ceil(x1)) - 1))
-    ry0 = max(0, min(n - 1, int(math.floor(y0))))
-    ry1 = max(0, min(n - 1, int(math.ceil(y1)) - 1))
+    cx0 = max(0, min(n - 1, math.floor(x0)))
+    cx1 = max(0, min(n - 1, math.ceil(x1) - 1))
+    ry0 = max(0, min(n - 1, math.floor(y0)))
+    ry1 = max(0, min(n - 1, math.ceil(y1) - 1))
     return [(x, y) for x in range(cx0, cx1 + 1) for y in range(ry0, ry1 + 1)]
 
 
@@ -75,8 +75,9 @@ def tile_output_path(out_dir, x, y, level):
     shift = level - CELL_LEVEL
     n = 1 << shift
     cell = cell_of(x, y, level)
+    cx, cy = cell
     return os.path.join(
-        out_dir, "%d.%d" % cell, str(shift), "%d.%d.glb" % (x % n, y % n)
+        out_dir, f"{cx}.{cy}", str(shift), f"{x % n}.{y % n}.glb"
     )
 
 

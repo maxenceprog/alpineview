@@ -25,8 +25,8 @@ class Constants:
 
         if self.cell_level >= self.lod_level0:
             raise ValueError(
-                "cell_level (%d) must be coarser than lod_level0 (%d)"
-                % (self.cell_level, self.lod_level0)
+                f"cell_level ({self.cell_level}) must be coarser than "
+                f"lod_level0 ({self.lod_level0})"
             )
 
         self.grs80_f = 1.0 / self.grs80_inv_f

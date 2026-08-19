@@ -3,11 +3,12 @@
 Network-free: CopcReader, download_tile and find_tile_lamb are faked.
 """
 
-import numpy as np
-import laspy
-import pytest
+from typing import ClassVar
 
-import alpineview_ewoks.core.tiles as tiles
+import laspy
+import numpy as np
+import pytest
+from alpineview_ewoks.core import tiles
 from alpineview_ewoks.core.lidar_hd import TileInfo
 from alpineview_ewoks.core.tiles import (
     ElevationUnderThreshold,
@@ -36,7 +37,7 @@ def make_las(z_min=1000.0, z_max=1400.0, n=100):
 
 class FakeCopcReader:
     las = make_las()
-    queried_resolutions: list[int] = []
+    queried_resolutions: ClassVar[list[int]] = []
 
     def __init__(self, las):
         self.header = las.header

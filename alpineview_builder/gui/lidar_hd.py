@@ -20,7 +20,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import requests
-
 from geocode import l93_to_latlon
 
 logger = logging.getLogger(__name__)
@@ -151,8 +150,7 @@ def download_tile(
     tmp_dest = dest.with_suffix(".tmp")
     try:
         with open(tmp_dest, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=512 * 1024):
-                f.write(chunk)
+            f.writelines(resp.iter_content(chunk_size=512 * 1024))
         tmp_dest.rename(dest)
     except Exception:
         tmp_dest.unlink(missing_ok=True)

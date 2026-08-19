@@ -60,16 +60,16 @@ class PostBuild(QObject):
         code, out = run_tiler(TILER_DIR, sys.executable)
         try:
             with open(log_path, "a") as f:
-                f.write("=== build_tileset.py exit %d\n%s\n" % (code, out))
+                f.write(f"=== build_tileset.py exit {code}\n{out}\n")
         except OSError:
             pass
         if code != 0:
-            self.done.emit("build_tileset.py failed (exit %d), see the log" % code)
+            self.done.emit(f"build_tileset.py failed (exit {code}), see the log")
             return
         try:
             text = format_summary(summarize(out_dir, PACK_PATH, rect))
         except Exception as e:
-            text = "summary failed: %s" % e
+            text = f"summary failed: {e}"
         self.done.emit(text)
 
 
@@ -107,12 +107,13 @@ class S3Sync(QObject):
                 ],
                 capture_output=True,
                 text=True,
+                check=False,
             )
             try:
                 with open(log_path, "a") as f:
                     f.write(
-                        "=== s3 sync exit %d\n%s\n%s\n"
-                        % (sync.returncode, sync.stdout, sync.stderr)
+                        f"=== s3 sync exit {sync.returncode}\n"
+                        f"{sync.stdout}\n{sync.stderr}\n"
                     )
             except OSError:
                 pass
@@ -175,9 +176,9 @@ class Window(QWidget):
         form.addLayout(self._path_row("log file", self.log_edit, False))
 
         args = QHBoxLayout()
-        args.addWidget(QLabel("level %d args" % CELL_LEVEL))
+        args.addWidget(QLabel(f"level {CELL_LEVEL} args"))
         args.addWidget(self.coarse_args_edit, 1)
-        args.addWidget(QLabel("level %d args" % LOD_LEVEL0))
+        args.addWidget(QLabel(f"level {LOD_LEVEL0} args"))
         args.addWidget(self.fine_args_edit, 1)
         form.addLayout(args)
 
@@ -226,8 +227,7 @@ class Window(QWidget):
         new_cells = tiles_in_rect(west, south, east, north, CELL_LEVEL)
         if len(new_cells) > MAX_RECT_CELLS:
             self.info.setText(
-                "rect too big: %d cells (max %d), not added"
-                % (len(new_cells), MAX_RECT_CELLS)
+                f"rect too big: {len(new_cells)} cells (max {MAX_RECT_CELLS}), not added"
             )
             return
         new_fine = tiles_in_rect_aligned(
@@ -267,22 +267,10 @@ class Window(QWidget):
         built_coarse = sum(1 for c in self.cells if coarse_is_built(out, *c))
         built_fine = sum(1 for t in self.fine if is_built(out, *t, LOD_LEVEL0))
         self.info.setText(
-            "level %d: %d x %d = %d cells (col %d..%d, row %d..%d), %d built"
-            "   |   level %d: %d tiles, %d built"
-            % (
-                CELL_LEVEL,
-                max(xs) - min(xs) + 1,
-                max(ys) - min(ys) + 1,
-                len(self.cells),
-                min(xs),
-                max(xs),
-                min(ys),
-                max(ys),
-                built_coarse,
-                LOD_LEVEL0,
-                len(self.fine),
-                built_fine,
-            )
+            f"level {CELL_LEVEL}: {max(xs) - min(xs) + 1} x {max(ys) - min(ys) + 1} "
+            f"= {len(self.cells)} cells (col {min(xs)}..{max(xs)}, "
+            f"row {min(ys)}..{max(ys)}), {built_coarse} built"
+            f"   |   level {LOD_LEVEL0}: {len(self.fine)} tiles, {built_fine} built"
         )
 
     def busy(self):
@@ -313,10 +301,11 @@ class Window(QWidget):
     def on_progress(self, done, total, phase, dtime):
         self.bar.setMaximum(max(1, total))
         self.bar.setValue(done)
-        label = {"coarse": "level %d" % CELL_LEVEL, "fine": "level %d" % LOD_LEVEL0}
+        label = {"coarse": f"level {CELL_LEVEL}", "fine": f"level {LOD_LEVEL0}"}
+        mean = dtime / (done + 0.000000001)
         self.bar.setFormat(
-            "%d / %d jobs  %s (total time %.2f / mean per tile %.2f)"
-            % (done, total, label.get(phase, ""), dtime, dtime / (done + 0.000000001))
+            f"{done} / {total} jobs  {label.get(phase, '')} "
+            f"(total time {dtime:.2f} / mean per tile {mean:.2f})"
         )
 
     def on_finished(self, done, ok, failed):
@@ -325,7 +314,7 @@ class Window(QWidget):
         self.update_info()
         self.draw_built_tiles()
         self.info.setText(
-            self.info.text() + "   |   ran %d, ok %d, failed %d" % (done, ok, failed)
+            self.info.text() + f"   |   ran {done}, ok {ok}, failed {failed}"
         )
         if self.rects:
             self.summary.setPlainText("running build_tileset.py ...")

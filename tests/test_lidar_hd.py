@@ -6,7 +6,6 @@ Tests hitting data.geopf.fr are skipped unless ALPINEVIEW_NETWORK_TESTS=1.
 import os
 
 import pytest
-
 from alpineview_ewoks.core.lidar_hd import _make_session, find_tile_lamb, find_tiles
 
 network = pytest.mark.skipif(

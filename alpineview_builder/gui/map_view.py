@@ -176,9 +176,9 @@ class MapView(QGraphicsView):
         os.makedirs(CACHE_DIR, exist_ok=True)
         zoom = keys[0][0]
         for z, tx, ty in tqdm(
-            keys, desc="basemap tiles z=%d" % zoom, disable=len(keys) < 2
+            keys, desc=f"basemap tiles z={zoom}", disable=len(keys) < 2
         ):
-            path = os.path.join(CACHE_DIR, "%d_%d_%d.png" % (z, tx, ty))
+            path = os.path.join(CACHE_DIR, f"{z}_{tx}_{ty}.png")
             if os.path.exists(path):
                 with open(path, "rb") as f:
                     self._tile_ready.emit(z, tx, ty, f.read())

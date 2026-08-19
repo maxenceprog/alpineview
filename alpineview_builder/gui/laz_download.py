@@ -65,7 +65,6 @@ def _query_and_cache(
             return dest
         except laspy.errors.LaspyException:
             log.info("las read exception", exc_info=True)
-            pass
     local_copc = Path(cache_dir) / tile.name
     if local_copc.exists():
         log.info("COPC query %s at %d m resolution …", tile.name, resolution)

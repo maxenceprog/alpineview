@@ -236,9 +236,9 @@ def main():
         print(
             "building",
             cell_dir.name,
-            "levels %d..%d" % (CELL_LEVEL, CELL_LEVEL + level_count - 1),
-            "z %.0f..%.0f" % (lo[2], hi[2]),
-            "%d tiles" % len(tiles),
+            f"levels {CELL_LEVEL}..{CELL_LEVEL + level_count - 1}",
+            f"z {lo[2]:.0f}..{hi[2]:.0f}",
+            f"{len(tiles)} tiles",
         )
 
         children.append(

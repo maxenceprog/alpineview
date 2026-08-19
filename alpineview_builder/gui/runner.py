@@ -135,7 +135,11 @@ class BuildRunner(QObject):
         cmd = self._command(x, y)
         try:
             p = subprocess.run(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                check=False,
             )
             out, code = p.stdout, p.returncode
         except OSError as e:
@@ -163,4 +167,4 @@ class BuildRunner(QObject):
                 self._failed += 1
             done, total = self._done, self._total
         self.progress.emit(done, total, phase, time.time() - self._t0)
-        self.message.emit("%s %d/%d/%d exit %d" % (phase, level, x, y, code))
+        self.message.emit(f"{phase} {level}/{x}/{y} exit {code}")
