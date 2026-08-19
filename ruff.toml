@@ -1,0 +1,4 @@
+extend-exclude = [
+    "alpineview_builder/extern",
+    "alpineview_builder/third-parties",
+]
