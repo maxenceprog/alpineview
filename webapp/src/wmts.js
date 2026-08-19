@@ -81,11 +81,9 @@ export const WMTS_SOURCE_MAX_ZOOM = 17;
 
 function effectiveTile(sourceKey, x, y, z) {
   const wmts_max_zoom = (sourceKey == "ortho") ? WMTS_SOURCE_MAX_ZOOM_ORTHO : WMTS_SOURCE_MAX_ZOOM;
-  if (z > wmts_max_zoom) {
-    const scale = 2 ** (z - wmts_max_zoom);
-    return { z: wmts_max_zoom, x: Math.floor(x / scale), y: Math.floor(y / scale) };
-  }
-  return { z, x, y };
+  const eff_z = Math.min(z - 1, wmts_max_zoom);
+  const scale = 2 ** (z - eff_z);
+  return { z: eff_z, x: Math.floor(x / scale), y: Math.floor(y / scale) };
 }
 
 export function fetchWmtsTile(x, y, z, sourceKey = currentMapSource) {
