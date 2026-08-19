@@ -12,7 +12,7 @@ export function cellLazStem(x0, y0) {
   return `LHD_FXX_${pad(x0)}_${pad(y0 + 1)}_PTS_LAMB93_IGN69`;
 }
 
-const BUILDING_RADIUS_KM = 1;
+const BUILDING_RADIUS_KM = 2;
 
 function disposeMesh(mesh) {
   mesh.geometry.dispose();
