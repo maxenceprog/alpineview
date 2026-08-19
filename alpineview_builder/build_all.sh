@@ -18,6 +18,6 @@ ln -sf "$HERE/build/release/src/alpineview_builder" "$CONDA_PREFIX/bin/alpinevie
 
 # PoissonRecon
 cd "$HERE/third-parties/PoissonRecon"
-make Bin/Linux/PoissonRecon -j"$(nproc)" \
+make poissonrecon -j"$(nproc)" \
   CFLAGS="-I$CONDA_PREFIX/include" LFLAGS="-L$CONDA_PREFIX/lib"
 ln -sf "$HERE/third-parties/PoissonRecon/Bin/Linux/PoissonRecon" "$CONDA_PREFIX/bin/poissonrecon"
