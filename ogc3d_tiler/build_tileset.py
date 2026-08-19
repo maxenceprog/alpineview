@@ -295,12 +295,8 @@ def main():
                 # traces the real (non-square) LiDAR HD footprint, unlike the
                 # per-cell availableLevels flag a coarse cell exposes.
                 "hdLevel": GEO.lod_level0,
-                "x15": base64.b64encode(
-                    struct.pack(f"<{len(hd_x)}H", *hd_x)
-                ).decode(),
-                "y15": base64.b64encode(
-                    struct.pack(f"<{len(hd_y)}H", *hd_y)
-                ).decode(),
+                "x15": base64.b64encode(struct.pack(f"<{len(hd_x)}H", *hd_x)).decode(),
+                "y15": base64.b64encode(struct.pack(f"<{len(hd_y)}H", *hd_y)).decode(),
                 # Deepest global level actually reached below each x15/y15
                 # tile, one uint8 per tile, same order.
                 "maxLevel15": base64.b64encode(bytes(hd_max_level)).decode(),
