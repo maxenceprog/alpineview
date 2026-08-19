@@ -12,12 +12,13 @@ import { webMercatorToWgs84, wgs84ToWebMercator } from "./proj.js";
 import { hdLevelTiles } from "./terrainPack.js";
 import { itownsPlacement } from "./utils.js";
 import { mercBounds } from "./wmts.js";
-import { mercToLocal } from "./workFrame.js";
+import { localToMerc, mercToLocal } from "./workFrame.js";
 
 const MARGIN_M = 20_000;
 const DISPLAY_WIDTH = 300;
 const DISPLAY_HEIGHT = 260;
 const MAX_ZOOM = 12;
+const CAMERA_MARKER_INTERVAL_MS = 200;
 
 const WMS_URL = "https://data.geopf.fr/wms-r/wms";
 const WMS_LAYER = "GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2";
@@ -112,7 +113,7 @@ function drawMap(mapEl, container, view) {
   const map = L.map(mapEl, {
     attributionControl: false,
     zoomControl: false,
-    scrollWheelZoom: false,
+    scrollWheelZoom: true,
   });
   // padding so edge cells aren't flush against the panel border, maxZoom so
   // a small/sparse coverage doesn't zoom in past what the WMS layer usefully renders.
@@ -143,6 +144,21 @@ function drawMap(mapEl, container, view) {
     container.classList.add("hidden");
   });
 
+  const cameraMarker = L.circleMarker(bounds.getCenter(), {
+    radius: 5,
+    color: "#fff",
+    weight: 2,
+    fillColor: "#e63946",
+    fillOpacity: 1,
+  }).addTo(map);
+  const updateCameraMarker = () => {
+    const { x, y } = view.camera.camera3D.position;
+    const merc = localToMerc(x, y);
+    cameraMarker.setLatLng(latLng(merc[0], merc[1]));
+  };
+  updateCameraMarker();
+  setInterval(updateCameraMarker, CAMERA_MARKER_INTERVAL_MS);
+
   const renderer = L.canvas();
   for (let i = 0; i < xs.length; i++) {
     const { x0, y0, s } = mercBounds(level, xs[i], ys[i]);
@@ -169,7 +185,7 @@ export function initHdAvailability(container, view) {
   Object.assign(title.style, { marginBottom: "2px" });
 
   const subtitle = document.createElement("p");
-  subtitle.textContent = "Nuage LiDAR HD reconstruit — zones en violet. Cliquer pour s'y rendre.";
+  subtitle.textContent = "Nuage LiDAR HD reconstruit — zones en violet. Cliquer pour s'y rendre. Zones plus foncées = plus haute résolution.";
 
   const mapEl = document.createElement("div");
   Object.assign(mapEl.style, {
