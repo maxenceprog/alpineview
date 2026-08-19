@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { searchWaypoints } from "./camptocampApi.js";
+import { initCompass } from "./compass.js";
 import { IS_MOBILE } from "./deviceInfo.js";
 import { initHdAvailability } from "./hdAvailability.js";
 import { setShadowLift } from "./layers.js";
@@ -196,6 +197,7 @@ export function initUi(view, { setSunDate, setEnabled, setShadowsEnabled, refres
   initEnvPanel(view, { setSunDate, setEnabled, setShadowsEnabled });
   initHelpPanel(view);
   initSearch(view);
+  initCompass(view);
 
   import("./consoleControls.js").then(({ initConsoleControls }) => initConsoleControls(view));
   if (__TEST_CONTROLS__) {
