@@ -46,6 +46,12 @@ installed from conda/PyPI, not redistributed here (`environment.yml`,
 
 Big thanks to the author !
 
+## Roofer
+
+Building reconstruction uses [Roofer](https://github.com/3DBAG/roofer)
+(3DBAG / 3DGI, TU Delft) — **GPLv3**, invoked as a subprocess, not
+redistributed.
+
 ## CGAL
 
 `alpineview_builder` links CGAL's `estimate_scale`, `scanline_orient_normals`
