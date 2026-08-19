@@ -37,8 +37,8 @@ jobs:
           miniforge-version: latest
       - uses: actions/cache@v4
         with:
-          path: ${{ env.CONDA }}/envs/lidalp
-          key: conda-lidalp-${{ hashFiles('alpineview_builder/environment.yml') }}
+          path: ${{ env.CONDA }}/envs/lidalps3d
+          key: conda-lidalps3d-${{ hashFiles('alpineview_builder/environment.yml') }}
       - uses: actions/cache@v4
         with:
           path: |
