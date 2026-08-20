@@ -1,0 +1,7 @@
+name: lidalp-gui
+dependencies:
+  # gui/ tile-selection GUI, optional on top of environment.yml:
+  #   conda create -n lidalp-gui --clone lidalp
+  #   conda env update -n lidalp-gui -f environment-gui.yml
+  - qtpy
+  - pyqt6

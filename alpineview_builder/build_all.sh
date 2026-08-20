@@ -19,5 +19,6 @@ ln -sf "$HERE/build/release/src/alpineview_builder" "$CONDA_PREFIX/bin/alpinevie
 # PoissonRecon
 cd "$HERE/third-parties/PoissonRecon"
 make poissonrecon -j"$(nproc)" \
-  CFLAGS="-I$CONDA_PREFIX/include" LFLAGS="-L$CONDA_PREFIX/lib"
+  CFLAGS="-fopenmp -Wno-deprecated -std=c++17 -pthread -Wno-invalid-offsetof -I$CONDA_PREFIX/include" \
+  LFLAGS="-lgomp -lstdc++ -lpthread -L$CONDA_PREFIX/lib"
 ln -sf "$HERE/third-parties/PoissonRecon/Bin/Linux/PoissonRecon" "$CONDA_PREFIX/bin/poissonrecon"

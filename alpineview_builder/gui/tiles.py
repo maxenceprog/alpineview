@@ -76,9 +76,7 @@ def tile_output_path(out_dir, x, y, level):
     n = 1 << shift
     cell = cell_of(x, y, level)
     cx, cy = cell
-    return os.path.join(
-        out_dir, f"{cx}.{cy}", str(shift), f"{x % n}.{y % n}.glb"
-    )
+    return os.path.join(out_dir, f"{cx}.{cy}", str(shift), f"{x % n}.{y % n}.glb")
 
 
 def is_built(out_dir, x, y, level):

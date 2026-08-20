@@ -48,6 +48,12 @@ jobs:
           restore-keys: build-
       - run: alpineview_builder/build_all.sh
         shell: bash -l {0}
+      - run: |
+          source "$(conda info --base)/etc/profile.d/conda.sh"
+          conda activate lidalps3d
+          python gui/test_runner.py
+        shell: bash -l {0}
+        working-directory: alpineview_builder
 
   npm-audit:
     runs-on: ubuntu-latest

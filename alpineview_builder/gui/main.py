@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import subprocess
@@ -40,6 +41,7 @@ DEFAULT_COARSE = os.path.join(ROOT, "build", "release", "src", "alpineview_coars
 DEFAULT_DATA = os.path.join(REPO, "data")
 DEFAULT_OUT = os.path.join(REPO, "webapp", "public", "pm")
 DEFAULT_LOG = os.path.join(HERE, "build.log")
+DEFAULT_PARAMS_FILE = os.path.join(HERE, "runner_parameters.json")
 TILER_DIR = os.path.join(REPO, "ogc3d_tiler")
 PACK_PATH = os.path.join(REPO, "webapp", "src", "terrainPack.json")
 MAX_RECT_CELLS = 5000
@@ -157,6 +159,10 @@ class Window(QWidget):
         self.reset_btn.clicked.connect(self.on_reset)
         self.info = QLabel("drag a rectangle on the map")
         self.bar = QProgressBar()
+        self.params_file_edit = QLineEdit(DEFAULT_PARAMS_FILE)
+        self.list_btn = QPushButton("Create build list")
+        self.list_btn.setEnabled(False)
+        self.list_btn.clicked.connect(self.on_create_list)
         self.build_btn = QPushButton("Build")
         self.build_btn.setEnabled(False)
         self.build_btn.clicked.connect(self.on_build)
@@ -174,6 +180,7 @@ class Window(QWidget):
         form.addLayout(self._path_row("RGE ALTI", self.data_edit, True))
         form.addLayout(self._path_row("out dir", self.out_edit, True))
         form.addLayout(self._path_row("log file", self.log_edit, False))
+        form.addLayout(self._path_row("params file", self.params_file_edit, False))
 
         args = QHBoxLayout()
         args.addWidget(QLabel(f"level {CELL_LEVEL} args"))
@@ -193,6 +200,7 @@ class Window(QWidget):
         actions.addWidget(self.select_btn)
         actions.addWidget(self.reset_btn)
         actions.addWidget(self.info, 1)
+        actions.addWidget(self.list_btn)
         actions.addWidget(self.build_btn)
 
         layout = QVBoxLayout(self)
@@ -239,6 +247,7 @@ class Window(QWidget):
         self.map.draw_rects(self.rects)
         self.map.draw_tiles([tile_bounds(x, y, CELL_LEVEL) for x, y in self.cells])
         self.update_info()
+        self.list_btn.setEnabled(bool(self.cells) and not self.busy())
         self.build_btn.setEnabled(bool(self.cells) and not self.busy())
 
     def on_reset(self):
@@ -248,6 +257,7 @@ class Window(QWidget):
         self.map.draw_rects([])
         self.map.draw_tiles([])
         self.update_info()
+        self.list_btn.setEnabled(False)
         self.build_btn.setEnabled(False)
 
     def draw_built_tiles(self):
@@ -275,6 +285,29 @@ class Window(QWidget):
 
     def busy(self):
         return self.runner is not None and self.runner.running()
+
+    def _params(self):
+        return {
+            "coarse_jobs": self.cells,
+            "fine_jobs": self.fine,
+            "coarse": self.coarse_edit.text(),
+            "builder": self.builder_edit.text(),
+            "data_dir": self.data_edit.text(),
+            "out_dir": self.out_edit.text(),
+            "log": self.log_edit.text(),
+            "coarse_args": self.coarse_args_edit.text().split(),
+            "fine_args": self.fine_args_edit.text().split(),
+            "nproc": self.nproc.value(),
+            "force": self.force.isChecked(),
+        }
+
+    def on_create_list(self):
+        if not self.cells:
+            return
+        params_file = self.params_file_edit.text()
+        with open(params_file, "w") as f:
+            json.dump(self._params(), f, indent=2)
+        self.info.setText(self.info.text() + f"   |   wrote {params_file}")
 
     def on_build(self):
         if self.busy() or not self.cells:
@@ -310,6 +343,7 @@ class Window(QWidget):
 
     def on_finished(self, done, ok, failed):
         self.s3sync.stop()
+        self.list_btn.setEnabled(bool(self.cells))
         self.build_btn.setEnabled(bool(self.cells))
         self.update_info()
         self.draw_built_tiles()
