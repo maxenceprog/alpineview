@@ -1,12 +1,15 @@
+import json
 import logging
 import os
 import subprocess
 import threading
 import time
 from multiprocessing.pool import ThreadPool
+from pathlib import Path
 
+from build_local_tileset import LOCAL_TILESET_NAME, compute_cell
 from laz_download import DEFAULT_CACHE_DIR, download_for_pm_tile
-from tiles import CELL_LEVEL, LOD_LEVEL0, is_built
+from tiles import CELL_LEVEL, LOD_LEVEL0, cell_of, is_built
 
 COARSE = "coarse"
 FINE = "fine"
@@ -69,6 +72,11 @@ def run_build(
 ):
     """Build coarse jobs then fine jobs (coarse first: it is what a viewer
     shows while the fine levels are still being built). Returns (done, ok, failed).
+
+    Every cell touched by a successful job gets its local_tileset.json
+    recomputed once all jobs are done (see build_local_tileset.compute_cell)
+    -- covers both a brand-new cell directory and an existing one gaining
+    more tiles.
     """
     on_progress = on_progress or (lambda *a: None)
     on_message = on_message or (lambda *a: None)
@@ -87,6 +95,7 @@ def run_build(
     log.addHandler(log_handler)
     lock = threading.Lock()
     state = {"done": 0, "ok": 0, "failed": 0}
+    touched_cells = set()
 
     def build_one(phase, job):
         x, y = job
@@ -122,6 +131,8 @@ def run_build(
             state["done"] += 1
             state["ok" if code == 0 else "failed"] += 1
             done = state["done"]
+            if code == 0:
+                touched_cells.add(cell_of(x, y, level))
         on_progress(done, total, phase, time.time() - t0)
         on_message(f"{phase} {level}/{x}/{y} exit {code}")
 
@@ -135,6 +146,14 @@ def run_build(
                 _tiles_to_build_iterator(phase, jobs),
             ):
                 pass
+
+    for cx, cy in sorted(touched_cells):
+        cell_dir = Path(out) / f"{cx}.{cy}"
+        cell = compute_cell(cell_dir)
+        if cell is None:
+            continue
+        (cell_dir / LOCAL_TILESET_NAME).write_text(json.dumps(cell))
+        log.info("updated %s/%s", cell_dir.name, LOCAL_TILESET_NAME)
 
     log.removeHandler(log_handler)
     log_handler.close()

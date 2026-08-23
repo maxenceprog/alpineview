@@ -32,4 +32,11 @@ dependencies:
   - draco
   - cgal-cpp
 
+  - pip:
+      # scripts/buildings.py
+      - fiona
+      - numpy
+      # build_local_tileset.py sync
+      - awscli
+
 prefix: ~/miniconda3/envs/lidalp

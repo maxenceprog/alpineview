@@ -18,10 +18,15 @@ import laspy
 import numpy as np
 import requests
 from fiona.crs import from_epsg
+from tqdm import tqdm
 
 _REPO = Path(__file__).resolve().parents[2]
 DEFAULT_OUT = str(_REPO / "webapp" / "public" / "buildings")
 DEFAULT_ROOFER = str(Path.home() / ".local" / "bin" / "roofer")
+DEFAULT_CACHE_DIR = str(Path.home() / ".cache" / "poissonrecon-ign")
+S3_ENDPOINT = "https://s3.sbg.io.cloud.ovh.net"
+S3_BUCKET = "lidalps3d"
+S3_PREFIX = "buildings/"
 _WFS_URL = "https://data.geopf.fr/wfs"
 _LAYER = "BDTOPO_V3:batiment"
 _PAGE_SIZE = 2000
@@ -168,3 +173,54 @@ def build_buildings(
             return None
         shutil.move(str(produced[0]), final)
     return str(final)
+
+
+def exists_remote(stem: str) -> bool:
+    proc = subprocess.run(
+        [
+            "aws",
+            "s3api",
+            "head-object",
+            "--bucket",
+            S3_BUCKET,
+            "--key",
+            f"{S3_PREFIX}{stem}.city.jsonl",
+            "--endpoint-url",
+            S3_ENDPOINT,
+        ],
+        capture_output=True,
+    )
+    return proc.returncode == 0
+
+
+def upload_remote(path: str) -> None:
+    subprocess.run(
+        [
+            "aws",
+            "s3",
+            "cp",
+            path,
+            f"s3://{S3_BUCKET}/{S3_PREFIX}{Path(path).name}",
+            "--acl",
+            "public-read",
+            "--endpoint-url",
+            S3_ENDPOINT,
+        ],
+        check=True,
+    )
+
+
+def main() -> None:
+    logging.basicConfig(level=logging.INFO)
+    laz_files = sorted(Path(DEFAULT_CACHE_DIR).glob("*.laz"))
+    for laz_path in tqdm(laz_files, unit="cell"):
+        stem = laz_path.name.replace(".copc.laz", "").replace(".laz", "")
+        if exists_remote(stem):
+            continue
+        built = build_buildings(str(laz_path), DEFAULT_OUT)
+        if built is not None:
+            upload_remote(built)
+
+
+if __name__ == "__main__":
+    main()
