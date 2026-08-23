@@ -212,9 +212,11 @@ def upload_remote(path: str) -> None:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
-    laz_files = sorted(Path(DEFAULT_CACHE_DIR).glob("*.laz"))
+    laz_files = sorted(
+        p for p in Path(DEFAULT_CACHE_DIR).glob("*.laz") if not p.name.endswith(".copc.laz")
+    )
     for laz_path in tqdm(laz_files, unit="cell"):
-        stem = laz_path.name.replace(".copc.laz", "").replace(".laz", "")
+        stem = laz_path.stem
         if exists_remote(stem):
             continue
         built = build_buildings(str(laz_path), DEFAULT_OUT)
