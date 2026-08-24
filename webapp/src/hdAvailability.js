@@ -88,7 +88,7 @@ function shadeForLevel(level, minLevel, maxLevel) {
     return "#654ade";
   }
   const t = (level - minLevel) / (maxLevel - minLevel);
-  const lightness = 70 - t * 45;
+  const lightness = 60 - t * 30;
   return `hsl(255, 60%, ${lightness}%)`;
 }
 
@@ -97,12 +97,9 @@ function drawMap(mapEl, container, view) {
   if (!xs.length) {
     return;
   }
-  let minLv = Infinity;
-  let maxLv = -Infinity;
-  for (const lv of levels) {
-    if (lv < minLv) minLv = lv;
-    if (lv > maxLv) maxLv = lv;
-  }
+  let minLv = 18;
+  let maxLv = 19;
+
 
   const bbox = computeBbox(level, xs, ys);
   const bounds = L.latLngBounds(
@@ -159,21 +156,40 @@ function drawMap(mapEl, container, view) {
   updateCameraMarker();
   setInterval(updateCameraMarker, CAMERA_MARKER_INTERVAL_MS);
 
+  const MIN_TILE_RADIUS_PX = 2;
   const renderer = L.canvas();
+  const tileMarkers = [];
   for (let i = 0; i < xs.length; i++) {
     const { x0, y0, s } = mercBounds(level, xs[i], ys[i]);
     const fillColor = shadeForLevel(levels[i], minLv, maxLv);
-    L.rectangle(
+    const marker = L.rectangle(
       L.latLngBounds(latLng(x0, y0), latLng(x0 + s, y0 + s)),
       {
         renderer,
         color: fillColor,
         weight: 0,
         fillColor,
-        fillOpacity: 0.35,
+        fillOpacity: 0.6,
       },
     ).addTo(map);
+    tileMarkers.push({ marker, x0, y0, s });
   }
+
+  const updateTileBounds = () => {
+    for (const { marker, x0, y0, s } of tileMarkers) {
+      const p0 = map.latLngToLayerPoint(latLng(x0, y0));
+      const p1 = map.latLngToLayerPoint(latLng(x0 + s, y0));
+      const metersPerPx = s / (Math.abs(p1.x - p0.x) || 1e-6);
+      const half = Math.max(s / 2, MIN_TILE_RADIUS_PX * metersPerPx);
+      const cx = x0 + s / 2;
+      const cy = y0 + s / 2;
+      marker.setBounds(
+        L.latLngBounds(latLng(cx - half, cy - half), latLng(cx + half, cy + half)),
+      );
+    }
+  };
+  updateTileBounds();
+  map.on("zoomend", updateTileBounds);
 }
 
 export function initHdAvailability(container, view) {

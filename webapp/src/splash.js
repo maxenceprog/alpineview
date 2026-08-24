@@ -9,6 +9,9 @@ export function initSplash(tilesLayer) {
   document.getElementById("splash-author").textContent = `— ${quote.author}`;
 
   const hide = () => splash.classList.add("hidden");
-  tilesLayer.tilesRenderer.addEventListener("load-model", hide, { once: true });
+  const checkProgress = () => {
+    if (tilesLayer.tilesRenderer.stats.visible > 0) hide();
+  };
+  tilesLayer.tilesRenderer.addEventListener("needs-update", checkProgress);
   setTimeout(hide, TIMEOUT_MS);
 }

@@ -32,7 +32,7 @@ if (params.has("x") || params.has("y")) {
 const PLANAR_CONTROLS = {
   minZenithAngle: 5,
   maxZenithAngle: 80,
-  maxAltitude: 7000,
+  maxAltitude: 10000,
   zoomFactor: 1.4,
 };
 

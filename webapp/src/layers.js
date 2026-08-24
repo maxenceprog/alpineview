@@ -82,7 +82,8 @@ export function buildVerticalDiffuseMaterial(texture) {
       uniform float uShadowLift;
       uniform float uLit;
       uniform vec3 uSunDir;
-      const float AMBIENT = 0.1;
+      const float AMBIENT = 0.02;
+      const float TOP_LIGHT = 0.2;
       const float SNOW_MAX_SLOPE = radians(${SNOW_MAX_SLOPE_DEG.toFixed(1)});
       varying vec2 vUv;
       varying vec3 vWorldNormal;
@@ -107,7 +108,7 @@ export function buildVerticalDiffuseMaterial(texture) {
             directionalLightShadows[0].shadowIntensity, directionalLightShadows[0].shadowBias,
             directionalLightShadows[0].shadowRadius, vDirectionalShadowCoord[0]);
         #endif
-        float d = mix(1.0, AMBIENT + direct, uLit);
+        float d = mix(1.0, AMBIENT + direct, uLit) + TOP_LIGHT * max(0.0, vWorldNormal.z);
         // Shadow lift: brightens dark pixels more than bright
         // ones (reduces contrast) instead of a flat multiply, which would blow out highlights.
         float liftAmount = uShadowLift - 1.0;
