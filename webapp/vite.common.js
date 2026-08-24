@@ -18,6 +18,7 @@ const staticCopyPlugin = () =>
         src: "node_modules/three/examples/jsm/libs/draco/{draco_decoder.js,draco_decoder.wasm,draco_wasm_wrapper.js}",
         dest: "draco",
       },
+      { src: "node_modules/laz-perf/lib/laz-perf.wasm", dest: "laz-perf" },
       { src: resolve(repoRoot, "NOTICE.md"), dest: "." },
     ],
   });

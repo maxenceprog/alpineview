@@ -14,8 +14,10 @@
   },
   "dependencies": {
     "colorthief": "^3.3.1",
+    "copc": "^0.0.8",
     "dompurify": "^3.4.11",
     "itowns": "^2.46.0",
+    "laz-perf": "^0.0.7",
     "leaflet": "^1.9.4",
     "markdown-it": "^14.3.0",
     "proj4": "^2.20.9",

@@ -5,8 +5,9 @@ import { initEnvironment } from "./environment.js";
 import { initFirstPerson } from "./firstPerson.js";
 import { initBuildings } from "./overlays.js";
 import { initPoi } from "./poiLayer.js";
-import { initSplash } from "./splash.js";
+import { initPointCloudPicker } from "./pointCloud.js";
 import { wgs84ToWebMercator } from "./proj.js";
+import { initSplash } from "./splash.js";
 import { TILESET_URL, terrainPackPlugin } from "./terrainPack.js";
 import { installWmtsDraping } from "./tilesTexture.js";
 import { initTouchControls } from "./touchControls.js";
@@ -97,6 +98,7 @@ initSplash(tilesLayer);
 
 initTouchControls(view, tilesLayer);
 initFirstPerson(view, tilesLayer);
+initPointCloudPicker(view);
 
 // The tiles are the ground, so they answer every question the controls ask of
 // the terrain: depth picking, the drop test under a travel target, and the
