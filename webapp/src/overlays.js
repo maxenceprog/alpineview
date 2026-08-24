@@ -1,10 +1,9 @@
 import * as itowns from "itowns";
 import * as THREE from "three";
 import { API_BASE_URL } from "./apiConfig.js";
-import { bomHas, loadBom } from "./bom.js";
+import { BUILDINGS_BOM } from "./buildingsBom.js";
 import { loadCityBuildings } from "./buildings.js";
 import { webMercatorToL93 } from "./proj.js";
-import { unregisterLitMaterial } from "./sunLighting.js";
 import { localToMerc } from "./workFrame.js";
 
 export function cellLazStem(x0, y0) {
@@ -14,12 +13,6 @@ export function cellLazStem(x0, y0) {
 
 const BUILDING_RADIUS_KM = 2;
 
-function disposeMesh(mesh) {
-  mesh.geometry.dispose();
-  unregisterLitMaterial(mesh.material);
-  mesh.material.dispose();
-}
-
 export function initBuildings(view) {
   const root = new THREE.Group();
   root.name = "buildings";
@@ -27,18 +20,11 @@ export function initBuildings(view) {
 
   const camera = view.camera3D;
   const cells = new Map();
-  let bom = null;
-  let bomReady = false;
-  loadBom(`${API_BASE_URL}/buildings/bom_buildings.txt`).then((set) => {
-    bom = set;
-    bomReady = true;
-    view.notifyChange(camera);
-  });
 
   const load = (ox, oy, cell) => {
     // A cell absent from the bom was built with no buildings (or never built):
     // skip the .city.jsonl fetch, since loadCityBuildings would just discard it.
-    if (!bomHas(bom, ox, oy)) {
+    if (!BUILDINGS_BOM.has(`${ox}.${oy}`)) {
       cell.status = "empty";
       return;
     }
@@ -50,6 +36,7 @@ export function initBuildings(view) {
       mesh.receiveShadow = true;
       cell.mesh = mesh;
       cell.status = "done";
+      cell.inScene = true;
       root.add(mesh);
       view.notifyChange(camera);
     }).catch((err) => {
@@ -68,28 +55,35 @@ export function initBuildings(view) {
   };
 
   const refresh = () => {
-    if (!bomReady) return;
     const [cx, cy] = cameraCellL93Km();
+    const wanted = new Set();
 
     for (let ox = Math.floor(cx - BUILDING_RADIUS_KM); ox <= cx + BUILDING_RADIUS_KM; ox++) {
       for (let oy = Math.floor(cy - BUILDING_RADIUS_KM); oy <= cy + BUILDING_RADIUS_KM; oy++) {
         const key = `${ox}|${oy}`;
-        if (cells.has(key)) continue;
-        const cell = { status: "pending", mesh: null };
-        cells.set(key, cell);
-        load(ox, oy, cell);
+        wanted.add(key);
+        let cell = cells.get(key);
+        if (!cell) {
+          cell = { status: "pending", mesh: null, inScene: false };
+          cells.set(key, cell);
+          load(ox, oy, cell);
+        }
+        if (cell.mesh && !cell.inScene) {
+          root.add(cell.mesh);
+          cell.inScene = true;
+        }
       }
     }
 
-    for (const [key, cell] of [...cells]) {
-      const [ox, oy] = key.split("|").map(Number);
-      const dist = Math.hypot(ox + 0.5 - cx, oy + 0.5 - cy);
-      if (dist <= BUILDING_RADIUS_KM) continue;
-      if (cell.mesh) {
+    // Cells stay cached in `cells` once loaded -- only detached from the
+    // scene, never disposed -- so re-entering a cell (e.g. a camera parked
+    // near a grid boundary) reuses the mesh instead of refetching.
+    for (const [key, cell] of cells) {
+      if (wanted.has(key)) continue;
+      if (cell.mesh && cell.inScene) {
         root.remove(cell.mesh);
-        disposeMesh(cell.mesh);
+        cell.inScene = false;
       }
-      cells.delete(key);
     }
   };
 
