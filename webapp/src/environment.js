@@ -94,7 +94,7 @@ export function initEnvironment(view) {
     return new THREE.Color(horizon[0] / 255, horizon[1] / 255, horizon[2] / 255);
   }
 
-  const skyGeo = new THREE.SphereGeometry(400000, 32, 16);
+  const skyGeo = new THREE.SphereGeometry(150000, 32, 16);
   skyGeo.rotateX(Math.PI / 2);
   const skySphere = new THREE.Mesh(
     skyGeo,
@@ -124,7 +124,7 @@ export function initEnvironment(view) {
     sunMesh.visible = aboveHorizon;
     sunGlow.visible = aboveHorizon;
     if (aboveHorizon) {
-      sunMesh.position.copy(cam).addScaledVector(_sunDir, 350000);
+      sunMesh.position.copy(cam).addScaledVector(_sunDir, 140000);
       sunGlow.position.copy(sunMesh.position);
     }
 
