@@ -88,7 +88,7 @@ tilesLayer.tilesRenderer.registerPlugin(terrainPackPlugin);
 tilesLayer.tilesRenderer.registerPlugin(terrainZBoundsPlugin);
 const debugTiles = new DebugTilesPlugin({ displayBoxBounds: params.has("boxes") });
 tilesLayer.tilesRenderer.registerPlugin(debugTiles);
-tilesLayer.tilesRenderer.addEventListener("tile-load-error", (e) => {
+tilesLayer.tilesRenderer.addEventListener("load-error", (e) => {
   console.warn("tile-load-error", e.url, e.error?.message ?? e.error);
 });
 view.addLayer(tilesLayer);
@@ -160,6 +160,27 @@ const { refreshTextures } = installWmtsDraping(view, tilesLayer);
 
 tilesLayer.tilesRenderer.addEventListener("needs-update", () => {
   view.notifyChange(tilesLayer);
+});
+
+// itowns' OGC3DTilesLayer reroutes 3d-tiles-renderer's download/parse queues
+// through a per-layer task list that only drains inside preUpdate(), which
+// itself only runs on a scheduled render step -- so once the very first
+// batch of downloads is queued, nothing pumps the queues further unless
+// something else keeps calling notifyChange (e.g. camera movement). Without
+// this, tiles silently stall forever with a static camera.
+let pumpingTileLoad = false;
+const pumpTileLoad = () => {
+  if (!pumpingTileLoad) return;
+  view.notifyChange(tilesLayer);
+  requestAnimationFrame(pumpTileLoad);
+};
+tilesLayer.tilesRenderer.addEventListener("tiles-load-start", () => {
+  if (pumpingTileLoad) return;
+  pumpingTileLoad = true;
+  pumpTileLoad();
+});
+tilesLayer.tilesRenderer.addEventListener("tiles-load-end", () => {
+  pumpingTileLoad = false;
 });
 
 initBuildings(view);
