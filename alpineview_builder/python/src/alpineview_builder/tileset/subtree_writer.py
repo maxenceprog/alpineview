@@ -1,7 +1,7 @@
 import json
 import struct
 
-from tiler_io import (
+from .tiler_io import (
     BitStream,
     ImplicitTilingSubtree,
     demorton,
@@ -49,29 +49,42 @@ def build_availability_buffers(subtree: ImplicitTilingSubtree):
     return tile_availability.content, content_availability.content
 
 
-def subtree_bytes(subtree) -> bytes:
-
-    tile_bytes, content_bytes = build_availability_buffers(subtree)
-
+def pack_subtree(tile_bytes: bytes, content_bytes: bytes, child_availability=False) -> bytes:
     tile_view = align8(tile_bytes)
     buffer_bytes = tile_view + content_bytes
+
+    buffer_views = [
+        {"buffer": 0, "byteOffset": 0, "byteLength": len(tile_bytes)},
+        {
+            "buffer": 0,
+            "byteOffset": len(tile_view),
+            "byteLength": len(content_bytes),
+        },
+    ]
+
+    if isinstance(child_availability, (bytes, bytearray)):
+        content_view = align8(buffer_bytes)
+        buffer_views.append(
+            {
+                "buffer": 0,
+                "byteOffset": len(content_view),
+                "byteLength": len(child_availability),
+            }
+        )
+        buffer_bytes = content_view + child_availability
+        child_json = {"bitstream": 2}
+    else:
+        child_json = {"constant": int(bool(child_availability))}
 
     #
     # subtree JSON
     #
     subtree_json = {
         "buffers": [{"byteLength": len(buffer_bytes)}],
-        "bufferViews": [
-            {"buffer": 0, "byteOffset": 0, "byteLength": len(tile_bytes)},
-            {
-                "buffer": 0,
-                "byteOffset": len(tile_view),
-                "byteLength": len(content_bytes),
-            },
-        ],
+        "bufferViews": buffer_views,
         "tileAvailability": {"bitstream": 0},
         "contentAvailability": [{"bitstream": 1}],
-        "childSubtreeAvailability": {"constant": 0},
+        "childSubtreeAvailability": child_json,
     }
 
     json_chunk = json.dumps(
@@ -99,3 +112,8 @@ def subtree_bytes(subtree) -> bytes:
             binary_chunk,
         ]
     )
+
+
+def subtree_bytes(subtree) -> bytes:
+    tile_bytes, content_bytes = build_availability_buffers(subtree)
+    return pack_subtree(tile_bytes, content_bytes)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from geo_convert import convert
+from .geo_convert import convert
 
 logger = logging.getLogger(__name__)
 

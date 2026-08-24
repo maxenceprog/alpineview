@@ -5,8 +5,7 @@ import subprocess
 import sys
 import threading
 
-from map_view import MapView
-from qtpy.QtCore import QObject, Qt, Signal
+from qtpy.QtCore import QObject, Qt
 from qtpy.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -14,65 +13,40 @@ from qtpy.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QPlainTextEdit,
     QProgressBar,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
     QWidget,
 )
-from runner import BuildRunner, coarse_is_built
-from summary import format_summary, run_tiler, summarize
-from tiles import (
+
+from ..core.tiles import (
     CELL_LEVEL,
     LOD_LEVEL0,
-    built_tiles,
-    is_built,
     tile_bounds,
     tiles_in_rect,
     tiles_in_rect_aligned,
 )
+from ..runner.runner import BuildRunner
+from ..scripts.summary import hd_tiles, pack_cells
+from .map_view import MapView
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
+_PKG = os.path.dirname(HERE)
+_SRC = os.path.dirname(_PKG)
+_PROJECT = os.path.dirname(_SRC)
+ROOT = os.path.dirname(_PROJECT)
 REPO = os.path.dirname(ROOT)
 DEFAULT_BUILDER = os.path.join(ROOT, "build", "release", "src", "alpineview_builder")
 DEFAULT_COARSE = os.path.join(ROOT, "build", "release", "src", "alpineview_coarse")
-DEFAULT_DATA = os.path.join(REPO, "data")
 DEFAULT_OUT = os.path.join(REPO, "webapp", "public", "pm")
 DEFAULT_LOG = os.path.join(HERE, "build.log")
 DEFAULT_PARAMS_FILE = os.path.join(HERE, "runner_parameters.json")
-TILER_DIR = os.path.join(REPO, "ogc3d_tiler")
 PACK_PATH = os.path.join(REPO, "webapp", "src", "terrainPack.json")
 MAX_RECT_CELLS = 5000
 S3_ENDPOINT = "https://s3.sbg.io.cloud.ovh.net"
 S3_BUCKET = None  # "s3://lidalps3d/pm"
 S3_SYNC_PERIOD_S = 60
-
-
-class PostBuild(QObject):
-    done = Signal(str)
-
-    def start(self, out_dir, rect, log_path):
-        threading.Thread(
-            target=self._run, args=(out_dir, rect, log_path), daemon=True
-        ).start()
-
-    def _run(self, out_dir, rect, log_path):
-        code, out = run_tiler(TILER_DIR, sys.executable)
-        try:
-            with open(log_path, "a") as f:
-                f.write(f"=== build_tileset.py exit {code}\n{out}\n")
-        except OSError:
-            pass
-        if code != 0:
-            self.done.emit(f"build_tileset.py failed (exit {code}), see the log")
-            return
-        try:
-            text = format_summary(summarize(out_dir, PACK_PATH, rect))
-        except Exception as e:
-            text = f"summary failed: {e}"
-        self.done.emit(text)
 
 
 class S3Sync(QObject):
@@ -133,17 +107,12 @@ class Window(QWidget):
         self.fine = []
         self.runner = None
 
-        initial_built = [
-            tile_bounds(x, y, LOD_LEVEL0)
-            for x, y in built_tiles(DEFAULT_OUT, LOD_LEVEL0)
-        ]
         self.map = MapView()
         self.map.rect_selected.connect(self.on_rect)
-        self.map.draw_built(initial_built)
+        self.draw_built_tiles()
 
         self.builder_edit = QLineEdit(DEFAULT_BUILDER)
         self.coarse_edit = QLineEdit(DEFAULT_COARSE)
-        self.data_edit = QLineEdit(DEFAULT_DATA)
         self.out_edit = QLineEdit(DEFAULT_OUT)
         self.log_edit = QLineEdit(DEFAULT_LOG)
         self.coarse_args_edit = QLineEdit("")
@@ -152,6 +121,10 @@ class Window(QWidget):
         self.nproc.setRange(1, 64)
         self.nproc.setValue(max(1, (os.cpu_count() or 4)))
         self.force = QCheckBox("force rebuild")
+        self.build_coarse = QCheckBox(f"build level {CELL_LEVEL}")
+        self.build_coarse.setChecked(True)
+        self.build_fine = QCheckBox(f"build level {LOD_LEVEL0}")
+        self.build_fine.setChecked(True)
         self.select_btn = QPushButton("Select rect")
         self.select_btn.setCheckable(True)
         self.select_btn.toggled.connect(self.map.set_select_mode)
@@ -166,18 +139,11 @@ class Window(QWidget):
         self.build_btn = QPushButton("Build")
         self.build_btn.setEnabled(False)
         self.build_btn.clicked.connect(self.on_build)
-        self.summary = QPlainTextEdit()
-        self.summary.setReadOnly(True)
-        self.summary.setMaximumHeight(160)
-        self.summary.setPlaceholderText("per-level summary, after build_tileset.py")
-        self.post = PostBuild()
         self.s3sync = S3Sync()
-        self.post.done.connect(self.on_summary, Qt.QueuedConnection)
 
         form = QVBoxLayout()
         form.addLayout(self._path_row("coarse", self.coarse_edit, False))
         form.addLayout(self._path_row("builder", self.builder_edit, False))
-        form.addLayout(self._path_row("RGE ALTI", self.data_edit, True))
         form.addLayout(self._path_row("out dir", self.out_edit, True))
         form.addLayout(self._path_row("log file", self.log_edit, False))
         form.addLayout(self._path_row("params file", self.params_file_edit, False))
@@ -193,6 +159,8 @@ class Window(QWidget):
         opts.addWidget(QLabel("processes"))
         opts.addWidget(self.nproc)
         opts.addWidget(self.force)
+        opts.addWidget(self.build_coarse)
+        opts.addWidget(self.build_fine)
         opts.addStretch(1)
         form.addLayout(opts)
 
@@ -208,7 +176,6 @@ class Window(QWidget):
         layout.addLayout(form)
         layout.addLayout(actions)
         layout.addWidget(self.bar)
-        layout.addWidget(self.summary)
 
     def _path_row(self, label, edit, is_dir):
         row = QHBoxLayout()
@@ -260,22 +227,41 @@ class Window(QWidget):
         self.list_btn.setEnabled(False)
         self.build_btn.setEnabled(False)
 
+    def _pack_cells(self):
+        try:
+            return pack_cells(PACK_PATH)
+        except (OSError, ValueError):
+            return {}
+
+    def _hd_tiles(self):
+        try:
+            level, tiles = hd_tiles(PACK_PATH)
+            return level, set(tiles)
+        except (OSError, ValueError, KeyError):
+            return LOD_LEVEL0, set()
+
+    def _built_cell_boxes(self):
+        cells = self._pack_cells()
+        level, tiles = self._hd_tiles()
+        hd = [tile_bounds(x, y, level) for x, y in tiles]
+        coarse = [tile_bounds(cx, cy, CELL_LEVEL) for cx, cy in cells]
+        return hd, coarse
+
     def draw_built_tiles(self):
-        boxes = [
-            tile_bounds(x, y, LOD_LEVEL0)
-            for x, y in built_tiles(self.out_edit.text(), LOD_LEVEL0)
-        ]
-        self.map.draw_built(boxes)
+        hd, coarse = self._built_cell_boxes()
+        self.map.draw_built(hd)
+        self.map.draw_built_coarse(coarse)
 
     def update_info(self):
         if not self.cells:
             self.info.setText("drag a rectangle on the map")
             return
-        out = self.out_edit.text()
+        cells = self._pack_cells()
+        level, tiles = self._hd_tiles()
         xs = [c[0] for c in self.cells]
         ys = [c[1] for c in self.cells]
-        built_coarse = sum(1 for c in self.cells if coarse_is_built(out, *c))
-        built_fine = sum(1 for t in self.fine if is_built(out, *t, LOD_LEVEL0))
+        built_coarse = sum(1 for c in self.cells if c in cells)
+        built_fine = sum(1 for t in self.fine if t in tiles) if level == LOD_LEVEL0 else 0
         self.info.setText(
             f"level {CELL_LEVEL}: {max(xs) - min(xs) + 1} x {max(ys) - min(ys) + 1} "
             f"= {len(self.cells)} cells (col {min(xs)}..{max(xs)}, "
@@ -288,11 +274,10 @@ class Window(QWidget):
 
     def _params(self):
         return {
-            "coarse_jobs": self.cells,
-            "fine_jobs": self.fine,
+            "coarse_jobs": self.cells if self.build_coarse.isChecked() else [],
+            "fine_jobs": self.fine if self.build_fine.isChecked() else [],
             "coarse": self.coarse_edit.text(),
             "builder": self.builder_edit.text(),
-            "data_dir": self.data_edit.text(),
             "out_dir": self.out_edit.text(),
             "log": self.log_edit.text(),
             "coarse_args": self.coarse_args_edit.text().split(),
@@ -317,7 +302,6 @@ class Window(QWidget):
         paths = {
             "coarse": self.coarse_edit.text(),
             "builder": self.builder_edit.text(),
-            "data_dir": self.data_edit.text(),
             "out_dir": out,
             "log": self.log_edit.text(),
             "coarse_args": self.coarse_args_edit.text().split(),
@@ -328,8 +312,9 @@ class Window(QWidget):
         self.runner.finished.connect(self.on_finished, Qt.QueuedConnection)
         self.s3sync.start(out, self.log_edit.text())
         self.build_btn.setEnabled(False)
-        self.summary.setPlainText("")
-        self.runner.start(self.cells, self.fine, self.force.isChecked())
+        coarse_jobs = self.cells if self.build_coarse.isChecked() else []
+        fine_jobs = self.fine if self.build_fine.isChecked() else []
+        self.runner.start(coarse_jobs, fine_jobs, self.force.isChecked())
 
     def on_progress(self, done, total, phase, dtime):
         self.bar.setMaximum(max(1, total))
@@ -350,15 +335,6 @@ class Window(QWidget):
         self.info.setText(
             self.info.text() + f"   |   ran {done}, ok {ok}, failed {failed}"
         )
-        if self.rects:
-            self.summary.setPlainText("running build_tileset.py ...")
-            xs = [c for r in self.rects for c in (r[0], r[2])]
-            ys = [c for r in self.rects for c in (r[1], r[3])]
-            union_rect = (min(xs), min(ys), max(xs), max(ys))
-            self.post.start(self.out_edit.text(), union_rect, self.log_edit.text())
-
-    def on_summary(self, text):
-        self.summary.setPlainText(text)
 
 
 def main():

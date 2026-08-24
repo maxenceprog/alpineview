@@ -1,8 +1,8 @@
 extend-exclude = [
     "alpineview_builder/extern",
     "alpineview_builder/third-parties",
-     "scripts",
+    "scripts/",
 ]
 
 [lint.per-file-ignores]
-"alpineview_builder/gui/main.py" = ["BLE001"]
+"alpineview_builder/python/src/alpineview_builder/gui/main.py" = ["BLE001"]

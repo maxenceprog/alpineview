@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "alpineview-builder"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "requests",
+    "laspy",
+    "tqdm",
+    "qtpy",
+    "fiona",
+    "numpy",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

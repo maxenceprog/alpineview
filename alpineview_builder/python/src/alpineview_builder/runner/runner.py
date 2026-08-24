@@ -1,15 +1,12 @@
-import json
 import logging
 import os
 import subprocess
 import threading
 import time
 from multiprocessing.pool import ThreadPool
-from pathlib import Path
 
-from build_local_tileset import LOCAL_TILESET_NAME, compute_cell
-from laz_download import DEFAULT_CACHE_DIR, download_for_pm_tile
-from tiles import CELL_LEVEL, LOD_LEVEL0, cell_of, is_built
+from ..core.laz_download import DEFAULT_CACHE_DIR, download_for_pm_tile
+from ..core.tiles import CELL_LEVEL, LOD_LEVEL0, is_built
 
 COARSE = "coarse"
 FINE = "fine"
@@ -17,11 +14,13 @@ FINE = "fine"
 log = logging.getLogger("runner")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
+_PKG = os.path.dirname(HERE)
+_SRC = os.path.dirname(_PKG)
+_PROJECT = os.path.dirname(_SRC)
+ROOT = os.path.dirname(_PROJECT)
 REPO = os.path.dirname(ROOT)
 DEFAULT_BUILDER = "alpineview_builder"
 DEFAULT_COARSE = "alpineview_coarse"
-DEFAULT_DATA = os.path.join(REPO, "data")
 DEFAULT_OUT = os.path.join(REPO, "webapp", "public", "pm")
 DEFAULT_LOG = os.path.join(HERE, "build.log")
 
@@ -36,8 +35,8 @@ def coarse_is_built(out_dir, cell_x, cell_y):
 def _tiles_to_build_iterator(phase, jobs):
     """Yield each job to build after downloading the LAZ it needs.
 
-    Only fine (PM-tile) jobs need LiDAR HD LAZ; coarse jobs read from
-    the pre-fetched RGE ALTI data_dir instead.
+    Only fine (PM-tile) jobs need LiDAR HD LAZ; coarse jobs fetch their own
+    elevation WMTS tiles inside alpineview_coarse itself.
     """
     for job in jobs:
         if phase == FINE:
@@ -53,8 +52,6 @@ def _command(paths, phase, x, y):
             paths["coarse"],
             str(x),
             str(y),
-            "--data-dir",
-            paths["data_dir"],
             "--out-dir",
             paths["out_dir"],
         ] + paths["coarse_args"]
@@ -72,11 +69,6 @@ def run_build(
 ):
     """Build coarse jobs then fine jobs (coarse first: it is what a viewer
     shows while the fine levels are still being built). Returns (done, ok, failed).
-
-    Every cell touched by a successful job gets its local_tileset.json
-    recomputed once all jobs are done (see build_local_tileset.compute_cell)
-    -- covers both a brand-new cell directory and an existing one gaining
-    more tiles.
     """
     on_progress = on_progress or (lambda *a: None)
     on_message = on_message or (lambda *a: None)
@@ -95,7 +87,6 @@ def run_build(
     log.addHandler(log_handler)
     lock = threading.Lock()
     state = {"done": 0, "ok": 0, "failed": 0}
-    touched_cells = set()
 
     def build_one(phase, job):
         x, y = job
@@ -131,8 +122,6 @@ def run_build(
             state["done"] += 1
             state["ok" if code == 0 else "failed"] += 1
             done = state["done"]
-            if code == 0:
-                touched_cells.add(cell_of(x, y, level))
         on_progress(done, total, phase, time.time() - t0)
         on_message(f"{phase} {level}/{x}/{y} exit {code}")
 
@@ -146,14 +135,6 @@ def run_build(
                 _tiles_to_build_iterator(phase, jobs),
             ):
                 pass
-
-    for cx, cy in sorted(touched_cells):
-        cell_dir = Path(out) / f"{cx}.{cy}"
-        cell = compute_cell(cell_dir)
-        if cell is None:
-            continue
-        (cell_dir / LOCAL_TILESET_NAME).write_text(json.dumps(cell))
-        log.info("updated %s/%s", cell_dir.name, LOCAL_TILESET_NAME)
 
     log.removeHandler(log_handler)
     log_handler.close()
@@ -208,12 +189,12 @@ def _cli(argv=None):
     parameters JSON file written by the GUI's "create build list" button (or
     by hand), with no GUI involved.
 
-        python runner.py --params runner_parameters.json
+        python -m alpineview_builder.runner.runner --params runner_parameters.json
 
     The JSON holds: coarse_jobs, fine_jobs (lists of [x, y] pairs), builder,
-    coarse, data_dir, out_dir, log, coarse_args (list), fine_args (list),
-    nproc, force. Every key but coarse_jobs/fine_jobs is optional and falls
-    back to the GUI's own default.
+    coarse, out_dir, log, coarse_args (list), fine_args (list), nproc, force.
+    Every key but coarse_jobs/fine_jobs is optional and falls back to the
+    GUI's own default.
     """
     import argparse
     import json
@@ -232,7 +213,6 @@ def _cli(argv=None):
     paths = {
         "coarse": params.get("coarse", DEFAULT_COARSE),
         "builder": params.get("builder", DEFAULT_BUILDER),
-        "data_dir": params.get("data_dir", DEFAULT_DATA),
         "out_dir": params.get("out_dir", DEFAULT_OUT),
         "log": params.get("log", DEFAULT_LOG),
         "coarse_args": params.get("coarse_args", []),

@@ -123,6 +123,7 @@ class MapView(QGraphicsView):
         self._rect_overlay_items = []
         self._tiles_overlay_items = []
         self._built_overlay_items = []
+        self._coarse_overlay_items = []
 
     # -- basemap tiles --------------------------------------------------
 
@@ -302,6 +303,10 @@ class MapView(QGraphicsView):
             self._built_overlay_items, self._built_boxes, "#54a24b", fill="#54a24b73"
         )
 
+    def draw_built_coarse(self, boxes):
+        self._coarse_boxes = list(boxes)
+        self._redraw_box_group(self._coarse_overlay_items, self._coarse_boxes, "#eeca3b")
+
     def _redraw_box_group(self, items, boxes, color, fill=None):
         for item in items:
             self.scene().removeItem(item)
@@ -327,4 +332,7 @@ class MapView(QGraphicsView):
             getattr(self, "_built_boxes", []),
             "#54a24b",
             fill="#54a24b73",
+        )
+        self._redraw_box_group(
+            self._coarse_overlay_items, getattr(self, "_coarse_boxes", []), "#eeca3b"
         )

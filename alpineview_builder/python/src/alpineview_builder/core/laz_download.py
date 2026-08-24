@@ -5,18 +5,15 @@ from __future__ import annotations
 import logging
 import math
 import os
-import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import laspy
 from laspy import CopcReader
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "ogc3d_tiler"))
-
-from geo_constants import GEO
-from geo_convert import convert
-from lidar_hd import TileInfo, download_tile, find_tile_lamb, tile_size
+from .geo_constants import GEO
+from .geo_convert import convert
+from .lidar_hd import TileInfo, download_tile, find_tile_lamb, tile_size
 
 DEFAULT_CACHE_DIR = str(Path.home() / ".cache" / "poissonrecon-ign")
 DEFAULT_RESOLUTION = 1

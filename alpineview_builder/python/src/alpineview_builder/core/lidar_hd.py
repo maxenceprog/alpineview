@@ -20,7 +20,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import requests
-from geocode import l93_to_latlon
+
+from .geocode import l93_to_latlon
 
 logger = logging.getLogger(__name__)
 

@@ -1,11 +1,7 @@
 import math
 import os
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "ogc3d_tiler"))
-
-from geo_constants import GEO
+from .geo_constants import GEO
 
 CELL_LEVEL = GEO.cell_level
 LOD_LEVEL0 = GEO.lod_level0

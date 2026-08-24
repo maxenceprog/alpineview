@@ -1,4 +1,4 @@
-"""Python wrapper around the geo_convert CLI (../src/geo_convert.cpp), so
+"""Python wrapper around the geo_convert CLI (../../src/geo_convert.cpp), so
 coordinate conversions reuse the exact same PROJ pipelines and work-frame
 formula as the C++ builders, instead of a second, hand-ported implementation
 that could drift from it.
@@ -10,7 +10,7 @@ import os
 import subprocess
 from pathlib import Path
 
-_BUILDER_ROOT = Path(__file__).resolve().parents[1]
+_BUILDER_ROOT = Path(__file__).resolve().parents[4]
 
 
 def _binary() -> str:

@@ -1,23 +1,12 @@
+import base64
 import json
 import os
-import subprocess
+import struct
 
-from tiles import CELL_LEVEL, tile_output_path, tiles_in_rect
+from ..core.tiles import CELL_LEVEL, tile_output_path, tiles_in_rect
 
 FIRST_LEVEL = CELL_LEVEL + 1
 LAST_LEVEL = 18
-
-
-def run_tiler(tiler_dir, python="python"):
-    p = subprocess.run(
-        [python, "build_tileset.py"],
-        cwd=tiler_dir,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        check=False,
-    )
-    return p.returncode, p.stdout
 
 
 def pack_cells(pack_path):
@@ -31,6 +20,15 @@ def pack_cells(pack_path):
         levels = child["implicitTiling"]["availableLevels"]
         cells[cell] = CELL_LEVEL + levels - 1
     return cells
+
+
+def hd_tiles(pack_path):
+    with open(pack_path) as f:
+        pack = json.load(f)
+    xb, yb = base64.b64decode(pack["x15"]), base64.b64decode(pack["y15"])
+    x = struct.unpack(f"<{len(xb) // 2}H", xb)
+    y = struct.unpack(f"<{len(yb) // 2}H", yb)
+    return pack["hdLevel"], list(zip(x, y))
 
 
 def percentile(values, q):

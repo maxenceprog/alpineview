@@ -2,7 +2,7 @@
 globe. The C++ builders read the same file at run time; nothing anywhere keeps
 a second copy of a value.
 
-    from geo_constants import GEO          # from inside ogc3d_tiler
+    from alpineview_builder.core.geo_constants import GEO
 
 GEO exposes every entry's value as an attribute of the same name, plus the few
 quantities derived from them. GEO.why(key) returns the entry's description, so
@@ -13,7 +13,7 @@ import json
 import math
 from pathlib import Path
 
-PATH = Path(__file__).resolve().parents[1] / "geo_constants.json"
+PATH = Path(__file__).resolve().parents[5] / "geo_constants.json"
 
 
 class Constants:
