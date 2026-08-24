@@ -6,17 +6,17 @@
 #include <string>
 #include <vector>
 
-#include "asc_grid.h"
 #include "chrono.h"
 #include "geo.h"
 #include "mesh.h"
 #include "mesh_lod.h"
 #include "mesh_ply.h"
 #include "poisson_common.h"
+#include "wms_elevation.h"
 
-/* Coarse pyramid from RGE ALTI 5 m, the counterpart of alpineview_builder for
- * the levels above lod_level0, where LiDAR HD is both unnecessary and
- * absent outside its own footprint.
+/* Coarse pyramid from IGN's elevation WMS, the counterpart of
+ * alpineview_builder for the levels above lod_level0, where LiDAR HD is both
+ * unnecessary and absent outside its own footprint.
  *
  * The job unit is one cell_level tile -- the same cell that owns the ENU
  * frame and the subtree -- so a job never straddles two cells and its output
@@ -33,14 +33,13 @@
  * edge and neighbours agree along it. recut_mesh drops the buffer again. */
 static const float CUBE_N = 6.f;
 
-static const double L93_MARGIN_M = 500.0;
+static const int WMS_RESOLUTION = 1024;
 
 struct Cfg {
 	int x0 = 0;
 	int y0 = 0;
-	int min_z = 1;
+	int min_z = 0;
 	int max_z = 3;
-	std::string data_dir = "data";
 	std::string out_dir = ".";
 	float weight = 4.f;
 	bool parallel = false;
@@ -54,7 +53,6 @@ static void printUsage(const char *prog) {
 		   "  X, Y                 WebMercatorQuad tile column and row at\n"
 		   "                       level %d (required).\n"
 		   "\n"
-		   "  --data-dir DIR       RGE ALTI .asc tree (default: data)\n"
 		   "  --out-dir DIR        output directory (default: .)\n"
 		   "  --min-z N            coarsest output level offset (default: 1)\n"
 		   "  --max-z N            finest output level offset (default: 3)\n"
@@ -62,8 +60,12 @@ static void printUsage(const char *prog) {
 		   "  --weight F           Poisson point weight (default: 4)\n"
 		   "  --clean N            0 keeps the intermediate .ply (default: 2)\n"
 		   "  --no-verbose         quieter\n"
-		   "  -h, --help           show this help and exit\n",
-		   prog, geo().cell_level, geo().cell_level);
+		   "  -h, --help           show this help and exit\n"
+		   "\n"
+		   "Elevation is fetched from IGN's elevation WMS as needed and\n"
+		   "cached in %s.\n",
+		   prog, geo().cell_level, geo().cell_level,
+		   wms_elevation_cache_dir().c_str());
 }
 
 static int processArgs(int argc, const char **argv, Cfg &cfg) {
@@ -88,11 +90,7 @@ static int processArgs(int argc, const char **argv, Cfg &cfg) {
 			++positional;
 			continue;
 		}
-		if (strcmp(arg, "--data-dir") == 0) {
-			if (!(val = flag_value(argc, argv, &i)))
-				return (-1);
-			cfg.data_dir = val;
-		} else if (strcmp(arg, "--out-dir") == 0) {
+		if (strcmp(arg, "--out-dir") == 0) {
 			if (!(val = flag_value(argc, argv, &i)))
 				return (-1);
 			cfg.out_dir = val;
@@ -141,63 +139,22 @@ static std::string outFile(const Cfg &cfg, const char *ext) {
 	return name + suffix;
 }
 
-/* L93 bounding box of the cube, by sampling the work-frame boundary: the two
- * grids are not affine to each other, so the corners alone are not safe. */
-static void cubeL93Bbox(double wx0, double wy0, double wx1, double wy1,
-						double &x0, double &y0, double &x1, double &y1) {
-	const int steps = 8;
-	std::vector<Vec3d> pts;
-	for (int i = 0; i <= steps; ++i) {
-		double t = (double)i / steps;
-		double wx = wx0 + t * (wx1 - wx0);
-		double wy = wy0 + t * (wy1 - wy0);
-		pts.push_back(geo_work_to_geodetic(Vec3d{wx, wy0, 0.0}));
-		pts.push_back(geo_work_to_geodetic(Vec3d{wx, wy1, 0.0}));
-		pts.push_back(geo_work_to_geodetic(Vec3d{wx0, wy, 0.0}));
-		pts.push_back(geo_work_to_geodetic(Vec3d{wx1, wy, 0.0}));
-	}
-	geo_geodetic_to_l93(pts.data(), pts.size());
-
-	x0 = y0 = 1e30;
-	x1 = y1 = -1e30;
-	for (const Vec3d &p : pts) {
-		x0 = fmin(x0, p.x);
-		x1 = fmax(x1, p.x);
-		y0 = fmin(y0, p.y);
-		y1 = fmax(y1, p.y);
-	}
-	x0 -= L93_MARGIN_M;
-	y0 -= L93_MARGIN_M;
-	x1 += L93_MARGIN_M;
-	y1 += L93_MARGIN_M;
-}
-
 /* Sample the heightfield on a regular grid over the cube, in the work frame.
- * Fills z with NGF69 altitude (NAN where the source has no data). */
-static int sampleGrid(const Cfg &cfg, std::vector<AscTile> &tiles, int n,
-					  double wx0, double wy0, double step,
-					  std::vector<double> &z) {
-	std::vector<Vec3d> geo((size_t)n * n);
+ * Fills z with NGF69 altitude (NAN where the WMS source has no data). */
+static int sampleGrid(const Cfg &cfg, const WmsElevationGrid &grid, int n, double wx0,
+					  double wy0, double step, std::vector<double> &z) {
+	z.assign((size_t)n * n, NAN);
+	size_t found = 0;
 	for (int j = 0; j < n; ++j) {
 		for (int i = 0; i < n; ++i) {
 			double wx = wx0 + (i + 0.5) * step;
 			double wy = wy0 + (j + 0.5) * step;
-			geo[(size_t)j * n + i] = geo_work_to_geodetic(Vec3d{wx, wy, 0.0});
+			float h = wms_elevation_sample(grid, wx, wy);
+			if (isnan(h))
+				continue;
+			z[(size_t)j * n + i] = (double)h;
+			found++;
 		}
-	}
-
-	std::vector<Vec3d> l93 = geo;
-	if (geo_geodetic_to_l93(l93.data(), l93.size()))
-		return (-1);
-
-	z.assign((size_t)n * n, NAN);
-	size_t found = 0;
-	for (size_t k = 0; k < z.size(); ++k) {
-		float h = asc_sample(tiles, l93[k].x, l93[k].y);
-		if (isnan(h))
-			continue;
-		z[k] = (double)h;
-		found++;
 	}
 	if (cfg.verbose)
 		printf("Sampled %zu/%zu grid nodes with data (%.1f%%)\n", found,
@@ -304,31 +261,33 @@ int main(int argc, char **argv) {
 	printf("Levels      : %d..%d (z=%d..%d)\n", geo().cell_level + cfg.min_z,
 		   geo().cell_level + cfg.max_z, cfg.min_z, cfg.max_z);
 
-	std::vector<AscTile> tiles;
-	if (asc_index(cfg.data_dir.c_str(), tiles) == 0) {
-		printf("Error: no .asc under %s\n", cfg.data_dir.c_str());
-		return (-1);
+	int n = 1 << (geo().coarse_base_depth + cfg.max_z);
+	if (2 * n > WMS_RESOLUTION) {
+		printf("Warning: sample grid (%d) is not comfortably below "
+			   "WMS_RESOLUTION (%d) -- bump WMS_RESOLUTION.\n",
+			   n, WMS_RESOLUTION);
 	}
 
-	double bx0, by0, bx1, by1;
-	cubeL93Bbox(wx0, wy0, wx0 + cube, wy0 + cube, bx0, by0, bx1, by1);
-	int loaded = asc_load_overlapping(tiles, bx0, by0, bx1, by1);
-	printf("Source      : %zu .asc indexed, %d loaded for L93 "
-		   "%.0f..%.0f x %.0f..%.0f\n",
-		   tiles.size(), loaded, bx0, bx1, by0, by1);
-	if (!loaded) {
+	std::string cacheDir = wms_elevation_cache_dir();
+	char cellName[32];
+	snprintf(cellName, sizeof(cellName), "%d.%d", cfg.x0, cfg.y0);
+
+	WmsElevationGrid grid;
+	bool fetched = wms_elevation_fetch(wx0, wy0, wx0 + cube, wy0 + cube, WMS_RESOLUTION,
+									   cacheDir.c_str(), cellName, grid);
+	printf("Source      : WMS elevation %s (cache: %s)\n",
+		   fetched ? "fetched" : "unavailable", cacheDir.c_str());
+	if (!fetched) {
 		printf("No source data covers this tile.\n");
 		return (0);
 	}
 
-	int n = 1 << (geo().coarse_base_depth + cfg.max_z);
 	double step = cube / n;
 	printf("Grid        : %d x %d, %.2f m spacing\n", n, n, step);
 
 	std::vector<double> z;
-	if (sampleGrid(cfg, tiles, n, wx0, wy0, step, z))
+	if (sampleGrid(cfg, grid, n, wx0, wy0, step, z))
 		return (-1);
-	tiles.clear();
 
 	TriMesh cloud;
 	Transform transf;

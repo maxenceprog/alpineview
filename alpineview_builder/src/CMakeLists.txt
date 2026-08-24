@@ -14,6 +14,7 @@ find_package(Eigen3 REQUIRED NO_MODULE) # force Config mode: CGAL's bundled
                                          # eigen3 version string.
 
 find_package(PROJ REQUIRED)
+find_package(CURL REQUIRED)
 
 # The projection constants are read at run time from geo_constants.json at the
 # repository root -- the same file the Python tiler and the GUI read. Only its
@@ -52,7 +53,7 @@ add_executable(alpineview_coarse
 	chrono.cpp
 	geo.cpp
 	geo_constants.cpp
-	asc_grid.cpp
+	wms_elevation.cpp
 	mesh.cpp
 	mesh_clip.cpp
 	mesh_ply.cpp
@@ -66,7 +67,7 @@ target_compile_definitions(alpineview_coarse PRIVATE
 	GEO_CONSTANTS_PATH="${GEO_CONSTANTS_JSON}")
 target_compile_features(alpineview_coarse PRIVATE cxx_std_17)
 target_compile_options(alpineview_coarse PRIVATE -Wall)
-target_link_libraries(alpineview_coarse miniply meshoptimizer draco::draco PROJ::proj)
+target_link_libraries(alpineview_coarse miniply meshoptimizer draco::draco PROJ::proj CURL::libcurl)
 
 add_executable(geo_convert
 	geo.cpp
