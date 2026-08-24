@@ -1,6 +1,9 @@
 import * as THREE from "three";
+import geoConstants from "../../geo_constants.json";
 import { API_BASE_URL } from "./apiConfig.js";
 import pack from "./terrainPack.json";
+
+const LOD_LOCAL_LEVEL = geoConstants.lod_level0.value - geoConstants.cell_level.value;
 
 export const TILESET_URL = `${API_BASE_URL}/pm/tileset.json`;
 
@@ -52,9 +55,16 @@ export const terrainPackPlugin = {
       return null;
     }
 
-    const subtree = pack.subtrees[url.slice(TERRAIN_BASE.length)];
+    const path = url.slice(TERRAIN_BASE.length);
+
+    const subtree = pack.subtrees[path];
     if (subtree) {
       return Promise.resolve(toArrayBuffer(subtree));
+    }
+
+    const hdSubtree = hdSubtreeBuffer(path);
+    if (hdSubtree) {
+      return Promise.resolve(hdSubtree);
     }
 
     if (!url.endsWith(".glb")) {
@@ -86,8 +96,94 @@ export function hdLevelTiles() {
     x: new Uint16Array(toArrayBuffer(pack.x15)),
     y: new Uint16Array(toArrayBuffer(pack.y15)),
     maxLevel: new Uint8Array(toArrayBuffer(pack.maxLevel15)),
+    zHi: new Uint16Array(toArrayBuffer(pack.zHi15)),
   };
 }
+
+let hdTileByKey = null;
+
+function hdTileIndex() {
+  if (!hdTileByKey) {
+    const { x, y, maxLevel, zHi } = hdLevelTiles();
+    hdTileByKey = new Map();
+    for (let i = 0; i < x.length; i++) {
+      hdTileByKey.set(x[i] * 65536 + y[i], { maxLevel: maxLevel[i], zHi: zHi[i] });
+    }
+  }
+  return hdTileByKey;
+}
+
+let hdSubtreeBuffers = null;
+let leafSubtreeBuffer = null;
+
+const LEAF_TIER_LEVEL = LOD_LOCAL_LEVEL + LOD_LOCAL_LEVEL;
+
+const SUBTREE_PATH_RE = /^(\d+)\.(\d+)\/subtrees\/(\d+)\.(\d+)\.(\d+)\.subtree$/;
+
+function hdSubtreeBuffer(path) {
+  const m = SUBTREE_PATH_RE.exec(path);
+  if (!m) {
+    return null;
+  }
+  const [, cx, cy, level, x, y] = m.map(Number);
+
+  if (level === LOD_LOCAL_LEVEL) {
+    const n = 1 << LOD_LOCAL_LEVEL;
+    const tile = hdTileIndex().get((cx * n + x) * 65536 + (cy * n + y));
+    if (!tile) {
+      return null;
+    }
+
+    if (!hdSubtreeBuffers) {
+      hdSubtreeBuffers = pack.hdSubtreeBlobs.map(toArrayBuffer);
+    }
+    return hdSubtreeBuffers[tile.maxLevel - pack.hdLevel];
+  }
+
+  if (level === LEAF_TIER_LEVEL) {
+    const n = 1 << LEAF_TIER_LEVEL;
+    const ancestorShift = LOD_LOCAL_LEVEL;
+    const gx = (cx * n + x) >> ancestorShift;
+    const gy = (cy * n + y) >> ancestorShift;
+    const tile = hdTileIndex().get(gx * 65536 + gy);
+    if (!tile || tile.maxLevel - pack.hdLevel !== pack.hdSubtreeBlobs.length - 1) {
+      return null;
+    }
+
+    if (!leafSubtreeBuffer) {
+      leafSubtreeBuffer = toArrayBuffer(pack.leafSubtreeBlob);
+    }
+    return leafSubtreeBuffer;
+  }
+
+  return null;
+}
+
+export const terrainZBoundsPlugin = {
+  name: "terrain-z-bounds",
+  preprocessNode(tile) {
+    const data = tile.implicitTilingData;
+    const box = tile.boundingVolume?.box;
+    if (!data || !box || data.level < LOD_LOCAL_LEVEL) {
+      return;
+    }
+
+    const cellName = data.root.content.uri.split("/")[0];
+    const [cx, cy] = cellName.split(".").map(Number);
+    const shift = data.level - LOD_LOCAL_LEVEL;
+    const gx = cx * (1 << LOD_LOCAL_LEVEL) + (data.x >> shift);
+    const gy = cy * (1 << LOD_LOCAL_LEVEL) + (data.y >> shift);
+
+    const hdTile = hdTileIndex().get(gx * 65536 + gy);
+    if (!hdTile) {
+      return;
+    }
+
+    const loZ = box[2] - box[11];
+    box[11] = (hdTile.zHi - loZ) / 2;
+    box[2] = loZ + box[11];
+  },
+};
 
 export function cellLevels() {
   const levels = new Map();

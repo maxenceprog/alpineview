@@ -8,7 +8,7 @@ import { initPoi } from "./poiLayer.js";
 import { initPointCloudPicker } from "./pointCloud.js";
 import { wgs84ToWebMercator } from "./proj.js";
 import { initSplash } from "./splash.js";
-import { TILESET_URL, terrainPackPlugin } from "./terrainPack.js";
+import { TILESET_URL, terrainPackPlugin, terrainZBoundsPlugin } from "./terrainPack.js";
 import { installWmtsDraping } from "./tilesTexture.js";
 import { initTouchControls } from "./touchControls.js";
 import { initUi } from "./ui.js";
@@ -85,6 +85,7 @@ const tilesLayer = new itowns.OGC3DTilesLayer("terrain3d", {
 // tilesLayer.tilesRenderer.unregisterPlugin("IMPLICIT_TILING_PLUGIN");
 // tilesLayer.tilesRenderer.registerPlugin(new ImplicitTilingPlugin());
 tilesLayer.tilesRenderer.registerPlugin(terrainPackPlugin);
+tilesLayer.tilesRenderer.registerPlugin(terrainZBoundsPlugin);
 const debugTiles = new DebugTilesPlugin({ displayBoxBounds: params.has("boxes") });
 tilesLayer.tilesRenderer.registerPlugin(debugTiles);
 tilesLayer.tilesRenderer.addEventListener("tile-load-error", (e) => {
