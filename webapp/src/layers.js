@@ -65,6 +65,7 @@ export function buildVerticalDiffuseMaterial(texture) {
     `,
     fragmentShader: `
       #include <common>
+      #include <packing>
       #include <shadowmap_pars_fragment>
       #include <fog_pars_fragment>
       #include <logdepthbuf_pars_fragment>
