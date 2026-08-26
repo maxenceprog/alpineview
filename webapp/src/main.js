@@ -1,6 +1,7 @@
 import { DebugTilesPlugin } from "3d-tiles-renderer/plugins";
 import * as itowns from "itowns";
 import * as THREE from "three";
+import { initAutomaticSseThreshold } from "./automaticSseThreshold.js";
 import { initEnvironment } from "./environment.js";
 import { initFirstPerson } from "./firstPerson.js";
 import { initBuildings } from "./overlays.js";

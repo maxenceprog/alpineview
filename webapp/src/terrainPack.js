@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import geoConstants from "../../geo_constants.json";
 import { API_BASE_URL } from "./apiConfig.js";
+import { noteTileMs } from "./automaticSseThreshold.js";
 import pack from "./terrainPack.json";
 
 const LOD_LOCAL_LEVEL = geoConstants.lod_level0.value - geoConstants.cell_level.value;
@@ -76,12 +77,14 @@ export const terrainPackPlugin = {
     // a throttled connection that lets far more than maxJobs bodies stream at
     // once, starving each other. Reading the body here, before resolving,
     // makes the slot correctly stay held for the full download.
+    const startedAt = performance.now();
     return fetch(url, options).then(async (res) => {
       if (!res.ok) {
         return res;
       }
 
       const buffer = await res.arrayBuffer();
+      noteTileMs(performance.now() - startedAt);
       return new Response(buffer, { status: res.status, statusText: res.statusText });
     });
   },
