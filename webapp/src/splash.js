@@ -1,6 +1,6 @@
 import { ALPINIST_QUOTES } from "./alpinistQuotes.js";
 
-const TIMEOUT_MS = 10000;
+const TIMEOUT_MS = 15000;
 
 export function initSplash(tilesLayer) {
   const splash = document.getElementById("splash");
