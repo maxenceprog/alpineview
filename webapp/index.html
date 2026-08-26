@@ -87,7 +87,8 @@
 
     #env-toggle,
     #layer-toggle,
-    #help-toggle {
+    #help-toggle,
+    #settings-toggle {
       position: fixed;
       top: 10px;
       left: 1ch;
@@ -106,8 +107,12 @@
       left: 12ch;
     }
 
-    #help-toggle {
+    #settings-toggle {
       left: 23ch;
+    }
+
+    #help-toggle {
+      left: 34ch;
       font-weight: 600;
     }
 
@@ -239,7 +244,8 @@
       white-space: nowrap;
     }
 
-    #env-panel {
+    #env-panel,
+    #settings-panel {
       position: fixed;
       top: 52px;
       left: 1ch;
@@ -255,11 +261,17 @@
       align-items: center;
     }
 
-    #env-panel input[type="range"] {
+    #settings-panel {
+      left: 23ch;
+    }
+
+    #env-panel input[type="range"],
+    #settings-panel input[type="range"] {
       width: 110px;
     }
 
-    #env-panel.hidden {
+    #env-panel.hidden,
+    #settings-panel.hidden {
       display: none;
     }
 
@@ -551,7 +563,8 @@
 
       #env-toggle,
       #layer-toggle,
-      #help-toggle {
+      #help-toggle,
+      #settings-toggle {
         width: 40px;
         height: 40px;
         font-size: 20px;
@@ -561,8 +574,12 @@
         left: 58px;
       }
 
-      #help-toggle {
+      #settings-toggle {
         left: 106px;
+      }
+
+      #help-toggle {
+        left: 154px;
       }
 
       #search-form {
@@ -585,6 +602,7 @@
       }
 
       #env-panel,
+      #settings-panel,
       #layer-panel,
       #help-panel,
       #poi-panel,
@@ -618,6 +636,7 @@
   </div>
   <button id="env-toggle" title="Soleil, lumière et brume">☀️</button>
   <button id="layer-toggle" title="Fond de carte">🗺</button>
+  <button id="settings-toggle" title="Réglages — champ de vision, qualité">⚙️</button>
   <button id="help-toggle" title="Aide — commandes">?</button>
   <button id="fp-toggle" title="Vue à la première personne — glisser puis relâcher">🧍</button>
   <button id="compass" title="Nord — cliquer pour recentrer">
@@ -728,6 +747,14 @@
     <label for="fog-density">Brume</label>
     <input type="range" id="fog-density" min="0" max="0.5" step="0.01" value="0.05" />
     <span id="fog-density-value">0.05</span>
+  </div>
+  <div id="settings-panel" class="hidden">
+    <label for="fov">Champ de vision</label>
+    <input type="range" id="fov" min="50" max="100" step="1" value="60" />
+    <span id="fov-value">60°</span>
+    <label for="data-usage">Conso. des données</label>
+    <input type="range" id="data-usage" min="0" max="4" step="1" value="0" />
+    <span id="data-usage-value">auto</span>
   </div>
   <div id="credits-banner">
     <a href="https://github.com/maxenceprog/alpineview/blob/master/NOTICE.md" target="_blank" rel="noopener">

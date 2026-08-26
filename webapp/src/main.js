@@ -190,7 +190,7 @@ tilesLayer.tilesRenderer.addEventListener("tiles-load-end", () => {
 initBuildings(view);
 initPoi(view, tilesLayer);
 
-initUi(view, { setSunDate, setEnabled, setShadowsEnabled, refreshTextures });
+initUi(view, { setSunDate, setEnabled, setShadowsEnabled, refreshTextures, tilesLayer });
 
 // Debug helper: jump to wherever the tileset actually is, whatever the placement.
 window.frameTileset = () => {

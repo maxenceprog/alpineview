@@ -3,6 +3,7 @@ import { searchWaypoints } from "./camptocampApi.js";
 import { initCompass } from "./compass.js";
 import { IS_MOBILE } from "./deviceInfo.js";
 import { initHdAvailability } from "./hdAvailability.js";
+import { setAutomaticSse } from "./automaticSseThreshold.js";
 import { setShadowLift } from "./layers.js";
 import { showPoiPanel } from "./poiLayer.js";
 import { setMapSource } from "./wmts.js";
@@ -12,6 +13,14 @@ const SEARCH_DEBOUNCE_MS = 400;
 const SEARCH_MIN_CHARS = 3;
 const SEARCH_RANGE = 3000;
 const SEARCH_PITCH = Math.PI / 4;
+
+const DATA_USAGE_PRESETS = [
+  { label: "auto", sse: null },
+  { label: "très élevée", sse: 6 },
+  { label: "élevée", sse: 10 },
+  { label: "moyenne", sse: 14 },
+  { label: "basse", sse: 18 },
+];
 
 const _exclusivePanels = new Set();
 
@@ -192,9 +201,37 @@ function initSearch(view) {
  * view. `refreshTextures` re-drapes whatever carries the WMTS imagery in this
  * view, which differs between the Draco terrain and the 3D Tiles one.
  */
-export function initUi(view, { setSunDate, setEnabled, setShadowsEnabled, refreshTextures }) {
+function initSettingsPanel(view, tilesLayer) {
+  initTogglePanel("settings-toggle", "settings-panel");
+
+  const fovInput = document.getElementById("fov");
+  const fovValue = document.getElementById("fov-value");
+  fovInput.value = view.camera3D.fov;
+  fovValue.textContent = `${view.camera3D.fov}°`;
+  fovInput.addEventListener("input", () => {
+    view.camera3D.fov = Number(fovInput.value);
+    view.camera3D.updateProjectionMatrix();
+    fovValue.textContent = `${fovInput.value}°`;
+    view.notifyChange(view.camera3D);
+  });
+
+  const dataUsageInput = document.getElementById("data-usage");
+  const dataUsageValue = document.getElementById("data-usage-value");
+  dataUsageInput.addEventListener("input", () => {
+    const preset = DATA_USAGE_PRESETS[Number(dataUsageInput.value)];
+    dataUsageValue.textContent = preset.label;
+    setAutomaticSse(preset.sse === null);
+    if (preset.sse !== null) {
+      tilesLayer.sseThreshold = preset.sse;
+      view.notifyChange(tilesLayer);
+    }
+  });
+}
+
+export function initUi(view, { setSunDate, setEnabled, setShadowsEnabled, refreshTextures, tilesLayer }) {
   initLayerPanel(view, refreshTextures);
   initEnvPanel(view, { setSunDate, setEnabled, setShadowsEnabled });
+  initSettingsPanel(view, tilesLayer);
   initHelpPanel(view);
   initSearch(view);
   initCompass(view);

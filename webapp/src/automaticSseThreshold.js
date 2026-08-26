@@ -9,6 +9,11 @@ const SLOW_ERROR_TARGET = 16;
 const TARGET_STEP = 2;
 
 const samples = [];
+let automatic = true;
+
+export function setAutomaticSse(enabled) {
+  automatic = enabled;
+}
 
 export function noteTileMs(ms) {
   samples.push(ms);
@@ -30,6 +35,8 @@ export function errorTargetForTileMs(tileMs) {
 
 export function initAutomaticSseThreshold(view, tilesLayer) {
   setInterval(() => {
+    if (!automatic) return;
+
     const tileMs = medianTileMs();
     if (tileMs === null) return;
 
