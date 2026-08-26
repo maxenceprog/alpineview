@@ -27,19 +27,12 @@ export function getShadowLift() {
   return currentBrightness;
 }
 
-// itowns' RenderMode.MODES; readDepthBuffer only ever pushes DEPTH.
-export const MODE_FINAL = 0;
-export const MODE_DEPTH = 1;
-
 // Below this slope from vertical, the "no texture" mode (buildVerticalDiffuseMaterial(null)) paints snow.
 const SNOW_MAX_SLOPE_DEG = 55;
 
 export function buildVerticalDiffuseMaterial(texture) {
   const mat = new THREE.ShaderMaterial({
     defines: {
-      MODE_FINAL,
-      MODE_DEPTH,
-      MODE: MODE_FINAL,
       ...(texture ? {} : { NO_TEXTURE: 1 }),
     },
     uniforms: {
@@ -72,7 +65,6 @@ export function buildVerticalDiffuseMaterial(texture) {
     `,
     fragmentShader: `
       #include <common>
-      #include <packing>
       #include <shadowmap_pars_fragment>
       #include <fog_pars_fragment>
       #include <logdepthbuf_pars_fragment>
@@ -89,12 +81,6 @@ export function buildVerticalDiffuseMaterial(texture) {
       varying vec3 vWorldNormal;
       void main() {
         #include <logdepthbuf_fragment>
-        #if MODE == MODE_DEPTH
-        // logdepthbuf_fragment has just written gl_FragDepth; three aliases
-        // gl_FragDepthEXT to it. Encoding it is what makes this mesh visible to
-        // itowns' depth picking (wheel zoom, smart travel).
-        gl_FragColor = packDepthToRGBA(gl_FragDepthEXT);
-        #else
         #ifdef NO_TEXTURE
         float slope = acos(clamp(dot(normalize(vWorldNormal), vec3(0.0, 0.0, 1.0)), -1.0, 1.0));
         vec4 c = slope < SNOW_MAX_SLOPE ? vec4(0.95, 0.95, 0.97, 1.0) : vec4(0.5, 0.46, 0.41, 1.0);
@@ -115,24 +101,11 @@ export function buildVerticalDiffuseMaterial(texture) {
         vec3 lifted = clamp(c.rgb + liftAmount * (1.0 - c.rgb), 0.0, 1.0);
         gl_FragColor = vec4(lifted * d, c.a);
         #include <fog_fragment>
-        #endif
       }
     `,
     fog: true,
     lights: true,
     ...TILE_DRAW,
-  });
-  // Same contract as itowns' LayeredMaterial, which RenderMode.push drives.
-  Object.defineProperty(mat, "mode", {
-    get() {
-      return this.defines.MODE;
-    },
-    set(mode) {
-      if (this.defines.MODE !== mode) {
-        this.defines.MODE = mode;
-        this.needsUpdate = true;
-      }
-    },
   });
   verticalDiffuseMaterials.add(mat);
   registerLitMaterial(mat);
