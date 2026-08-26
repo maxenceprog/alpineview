@@ -38,7 +38,7 @@ Contact me if you'd like to reuse my work, help out, or report a bug.
 - Inspiration for terrain generation / normals computation + base architecture
   of the C++ builder:
   [OscarPilote/LidarTerrainMesh](https://github.com/oscarpilote/LidarTerrainMesh)
-- **OpenTOpoMap** Additional map layer
+- Additional map layer [OpenTopoMap](https://opentopomap.org)
 
 Full dependency details:
 [NOTICE.md](NOTICE.md).
@@ -50,8 +50,8 @@ Full dependency details:
 
 ## TODO
 
-- Better CI and tests
-- Update install scripts (`project.toml` / `environment.yml` are out of date.)
+- Better CI and tests and install env
+- better split part relative to my personal data structure (OVH hosting etc..) and the the reconstruction core code.
 - Enrich the database (LiDAR HD coverage)
 
 ## How to build tiles?
@@ -87,7 +87,7 @@ python alpineview_builder/gui/main.py
               .glb tiles (position only)
                         |
                         v
-              ogc3d_tiler/build_tileset.py
+              tileset.build_tileset_from_cloud
                         |
                         v
               a single file: tileset + subtrees
@@ -125,7 +125,7 @@ connected component → simplification ("Quadratic Error Metric simplification")
 using the point cloud's precision is pointless, it's faster to use the
 RGE ALTI 5m data.
 
-**The 3D Tiles tileset.** `ogc3d_tiler/build_tileset.py`
+**The 3D Tiles tileset.** `tileset.build_tileset_from_cloud`
 
 I more or less follow the standard:
 https://github.com/CesiumGS/3d-tiles/blob/main/specification/ImplicitTiling/README.adoc
