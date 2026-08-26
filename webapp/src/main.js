@@ -98,12 +98,13 @@ window.tilesLayer = tilesLayer;
 initSplash(tilesLayer);
 
 initTouchControls(view, tilesLayer);
+initAutomaticSseThreshold(view, tilesLayer);
 initFirstPerson(view, tilesLayer);
 initPointCloudPicker(view);
 
-// The tiles are the ground, so they answer every question the controls ask of
-// the terrain: depth picking, the drop test under a travel target, and the
-// occlusion test behind POI labels.
+// Monkey patch: the tiles are the ground, so they answer every question the
+// controls ask of the terrain: depth picking, the drop test under a travel
+// target, and the occlusion test behind POI labels.
 const _pickCoords = new THREE.Vector2();
 view.getPickingPositionFromDepth = (mouseCoords, target = new THREE.Vector3()) => {
   const coords = mouseCoords ?? _pickCoords.set(viewerDiv.clientWidth / 2, viewerDiv.clientHeight / 2);
@@ -118,16 +119,18 @@ view.getPickingPositionFromDepth = (mouseCoords, target = new THREE.Vector3()) =
     const picked = view.getPickingPositionFromDepth(view.eventToViewCoords(event));
     return picked !== undefined && picked.z > 1 && isTargetAllowed(view, picked);
   };
+  // Monkey patch: PlanarControls has no hook to veto a zoom, and zooming on an
+  // unusable pick (sky, grazing angle) sends the camera to the horizon.
   const { initiateZoom } = view.controls;
   view.controls.initiateZoom = (event) => {
     if (pickIsUsable(event)) initiateZoom.call(view.controls, event);
   };
 
-  // PlanarControls drags by unprojecting the mouse onto a horizontal plane at
-  // the grabbed point's altitude. Near-horizontal views make that ray almost
-  // parallel to the plane, so a few pixels become kilometres (and past the
-  // horizon the delta flips sign). Cap the per-frame step to a fraction of the
-  // camera's height above terrain.
+  // Monkey patch: PlanarControls drags by unprojecting the mouse onto a
+  // horizontal plane at the grabbed point's altitude. Near-horizontal views
+  // make that ray almost parallel to the plane, so a few pixels become
+  // kilometres (and past the horizon the delta flips sign). Cap the per-frame
+  // step to a fraction of the camera's height above terrain.
   const { initiateDrag, handleDragMovement } = view.controls;
   const _dragBefore = new THREE.Vector3();
   const _dragStep = new THREE.Vector3();

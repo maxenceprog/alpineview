@@ -71,7 +71,7 @@ export const terrainPackPlugin = {
       return null;
     }
 
-    // downloadQueue frees its concurrency slot as soon as fetch()'s promise
+    // Monkey patch: downloadQueue frees its concurrency slot as soon as fetch()'s promise
     // resolves, i.e. once headers arrive -- it never sees body-read time. On
     // a throttled connection that lets far more than maxJobs bodies stream at
     // once, starving each other. Reading the body here, before resolving,
