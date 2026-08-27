@@ -3,7 +3,6 @@ import { searchWaypoints } from "./camptocampApi.js";
 import { initCompass } from "./compass.js";
 import { IS_MOBILE } from "./deviceInfo.js";
 import { initHdAvailability } from "./hdAvailability.js";
-import { setAutomaticSse } from "./automaticSseThreshold.js";
 import { setShadowLift } from "./layers.js";
 import { showPoiPanel } from "./poiLayer.js";
 import { setMapSource } from "./wmts.js";
@@ -15,7 +14,6 @@ const SEARCH_RANGE = 3000;
 const SEARCH_PITCH = Math.PI / 4;
 
 const DATA_USAGE_PRESETS = [
-  { label: "auto", sse: null },
   { label: "très élevée", sse: 6 },
   { label: "élevée", sse: 10 },
   { label: "moyenne", sse: 14 },
@@ -220,11 +218,8 @@ function initSettingsPanel(view, tilesLayer) {
   dataUsageInput.addEventListener("input", () => {
     const preset = DATA_USAGE_PRESETS[Number(dataUsageInput.value)];
     dataUsageValue.textContent = preset.label;
-    setAutomaticSse(preset.sse === null);
-    if (preset.sse !== null) {
-      tilesLayer.sseThreshold = preset.sse;
-      view.notifyChange(tilesLayer);
-    }
+    tilesLayer.sseThreshold = preset.sse;
+    view.notifyChange(tilesLayer);
   });
 }
 

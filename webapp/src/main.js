@@ -1,7 +1,6 @@
 import { DebugTilesPlugin } from "3d-tiles-renderer/plugins";
 import * as itowns from "itowns";
 import * as THREE from "three";
-import { initAutomaticSseThreshold } from "./automaticSseThreshold.js";
 import { initEnvironment } from "./environment.js";
 import { initFirstPerson } from "./firstPerson.js";
 import { initBuildings } from "./overlays.js";
@@ -78,7 +77,7 @@ window.view = view;
 itowns.enableDracoLoader(`${import.meta.env.BASE_URL}draco/`);
 const tilesLayer = new itowns.OGC3DTilesLayer("terrain3d", {
   source: new itowns.OGC3DTilesSource({ url: TILESET_URL }),
-  sseThreshold: 12,
+  sseThreshold: 10,
 });
 // itowns' OGC3DTilesLayer already registers the stock plugin under this same
 // name; invokeOnePlugin stops at the first match, so it must go before ours
@@ -99,7 +98,6 @@ window.tilesLayer = tilesLayer;
 initSplash(tilesLayer);
 
 initTouchControls(view, tilesLayer);
-initAutomaticSseThreshold(view, tilesLayer);
 initFirstPerson(view, tilesLayer);
 initPointCloudPicker(view);
 

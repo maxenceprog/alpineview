@@ -1,7 +1,6 @@
 import * as THREE from "three";
 import geoConstants from "../../geo_constants.json";
 import { API_BASE_URL } from "./apiConfig.js";
-import { noteTileMs } from "./automaticSseThreshold.js";
 import pack from "./terrainPack.json";
 
 const LOD_LOCAL_LEVEL = geoConstants.lod_level0.value - geoConstants.cell_level.value;
