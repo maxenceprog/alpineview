@@ -44,6 +44,27 @@ function toArrayBuffer(base64) {
 }
 
 
+async function fetchTile(url, options) {
+  let res;
+  try {
+    res = await fetch(url, options);
+  } catch (err) {
+    if (options?.signal?.aborted) {
+      throw err;
+    }
+    return new Promise((_, reject) => {
+      options?.signal?.addEventListener("abort", () => reject(err));
+    });
+  }
+
+  if (!res.ok) {
+    return res;
+  }
+
+  const buffer = await res.arrayBuffer();
+  return new Response(buffer, { status: res.status, statusText: res.statusText });
+}
+
 export const terrainPackPlugin = {
   name: "terrain-pack",
   fetchData(url, options) {
@@ -76,16 +97,15 @@ export const terrainPackPlugin = {
     // a throttled connection that lets far more than maxJobs bodies stream at
     // once, starving each other. Reading the body here, before resolving,
     // makes the slot correctly stay held for the full download.
-    const startedAt = performance.now();
-    return fetch(url, options).then(async (res) => {
-      if (!res.ok) {
-        return res;
-      }
-
-      const buffer = await res.arrayBuffer();
-      noteTileMs(performance.now() - startedAt);
-      return new Response(buffer, { status: res.status, statusText: res.statusText });
-    });
+    //
+    // Workaround: a tile whose
+    // fetch rejects goes to FAILED, which traverseFunctions counts as
+    // "download finished" -- the parent stops rendering and the area becomes
+    // a hole. A network error (offline, DNS, timeout) therefore hangs here
+    // forever instead, leaving the tile LOADING so the parent LOD keeps
+    // covering it; the renderer's abort on LRU eviction is what finally
+    // settles it. HTTP errors (404) still fail normally.
+    return fetchTile(url, options);
   },
 };
 
