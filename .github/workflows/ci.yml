@@ -51,7 +51,8 @@ jobs:
       - run: |
           source "$(conda info --base)/etc/profile.d/conda.sh"
           conda activate lidalps3d
-          python gui/test_runner.py
+          pip install ./python
+          python python/tests/test_runner.py
         shell: bash -l {0}
         working-directory: alpineview_builder
 
