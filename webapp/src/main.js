@@ -93,6 +93,13 @@ tilesLayer.tilesRenderer.addEventListener("load-error", (e) => {
 });
 view.addLayer(tilesLayer);
 
+Object.assign(tilesLayer.tilesRenderer.lruCache, {
+  minSize: 12000,
+  maxSize: 16000,
+  minBytesSize: 0.75 * 1024 ** 3,
+  maxBytesSize: 1.0 * 1024 ** 3,
+});
+
 window.tilesLayer = tilesLayer;
 
 initSplash(tilesLayer);
