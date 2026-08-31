@@ -512,6 +512,22 @@
       color: #60a5fa;
     }
 
+    #poi-traces {
+      display: block;
+      margin: 8px 0;
+      padding: 6px 10px;
+      border: none;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.12);
+      color: #dde6f0;
+      font: 12px/1.2 system-ui, sans-serif;
+      cursor: pointer;
+    }
+
+    #poi-traces:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
     #poi-panel .poi-link-list {
       list-style: none;
       margin: 0;
@@ -719,6 +735,7 @@
     <div id="poi-meta" class="poi-meta"></div>
     <div id="poi-text" class="poi-text"></div>
     <a id="poi-link" href="#" target="_blank" rel="noopener">Ouvrir sur camptocamp.org →</a>
+    <button id="poi-traces" style="display: none">Montrer les traces récentes</button>
     <div id="poi-routes-section" style="display: none">
       <h3>Itinéraires</h3>
       <ul id="poi-routes" class="poi-link-list"></ul>

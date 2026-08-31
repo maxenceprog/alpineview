@@ -91,6 +91,10 @@ export function showPoiPanel(poi) {
   const meta = document.getElementById("poi-meta");
   const text = document.getElementById("poi-text");
   const link = document.getElementById("poi-link");
+  const tracesButton = document.getElementById("poi-traces");
+  tracesButton.style.display = "none";
+  poiTraces = [];
+  pushTraces();
 
   title.textContent = poi.title;
   meta.textContent = poiMeta({ waypoint_type: poi.wtyp, elevation: poi.elevation });
@@ -108,18 +112,40 @@ export function showPoiPanel(poi) {
 
     const routes = doc.associations?.all_routes?.documents ?? [];
     const outings = doc.associations?.recent_outings?.documents ?? [];
-    Promise.allSettled([
-      ...routes.map((r) => fetchDocDetail("routes", r.document_id)),
-      ...outings.map((o) => fetchDocDetail("outings", o.document_id)),
-    ]).then((results) => {
-      if (token !== poiRequestToken) return;
-      poiTraces = [];
-      for (const result of results) {
-        if (result.status === "fulfilled") drawTrace(result.value);
-        else console.warn("trace fetch failed", result.reason);
-      }
-      pushTraces();
-    });
+    if (routes.length || outings.length) {
+      tracesButton.style.display = "";
+      tracesButton.textContent = "Montrer les traces récentes";
+      let shown = [];
+      tracesButton.onclick = () => {
+        if (poiTraces.length) {
+          poiTraces = [];
+          pushTraces();
+          tracesButton.textContent = "Montrer les traces récentes";
+          return;
+        }
+        if (shown.length) {
+          poiTraces = shown;
+          pushTraces();
+          tracesButton.textContent = "Cacher les traces récentes";
+          return;
+        }
+        tracesButton.textContent = "Chargement…";
+        Promise.allSettled([
+          ...routes.map((r) => fetchDocDetail("routes", r.document_id)),
+          ...outings.map((o) => fetchDocDetail("outings", o.document_id)),
+        ]).then((results) => {
+          if (token !== poiRequestToken) return;
+          poiTraces = [];
+          for (const result of results) {
+            if (result.status === "fulfilled") drawTrace(result.value);
+            else console.warn("trace fetch failed", result.reason);
+          }
+          shown = poiTraces;
+          pushTraces();
+          tracesButton.textContent = "Cacher les traces récentes";
+        });
+      };
+    }
 
     const locale = doc.locales?.[0];
     const raw = [locale?.access, locale?.description].filter(Boolean).join("\n\n");
