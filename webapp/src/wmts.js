@@ -1,5 +1,4 @@
 import geoConstants from "../../geo_constants.json";
-import { IS_MOBILE } from "./deviceInfo.js";
 
 const WMQ_EXTENT = geoConstants.wmq_extent.value;
 
@@ -8,7 +7,7 @@ const WMTS_SOURCES = {
   plan: { layer: "GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2", format: "image%2Fpng" },
 };
 
-const tileUrl = (sourceKey, x, y, z) => {
+export const tileUrl = (sourceKey, x, y, z) => {
   if (sourceKey === "opentopomap") return `https://a.tile.opentopomap.org/${z}/${x}/${y}.png`;
   const { layer, format } = WMTS_SOURCES[sourceKey];
   return `https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0` +
@@ -29,82 +28,13 @@ export function mercTileAt(z, mx, my) {
   return { x: Math.floor((mx + WMQ_EXTENT) / s), y: Math.floor((WMQ_EXTENT - my) / s) };
 }
 
-let currentMapSource = "ortho";
-
-export function setMapSource(sourceKey) {
-  currentMapSource = sourceKey;
-  _rawCache.clear();
-  _rawResolved.clear();
-}
-
-const IMAGE_TIMEOUT_MS = 10_000;
-const IMAGE_CACHE_MAX = IS_MOBILE ? 200 : 800;
-
-const _rawCache = new Map();
-const _rawResolved = new Map();
-
-function fetchRaw(url) {
-  const cached = _rawCache.get(url);
-  if (cached) {
-    _rawCache.delete(url);
-    _rawCache.set(url, cached);
-    return cached;
-  }
-
-  const promise = (async () => {
-    const res = await fetch(url, { signal: AbortSignal.timeout(IMAGE_TIMEOUT_MS) });
-    if (!res.ok) throw new Error(`Failed to load tile: ${url} (${res.status})`);
-    return createImageBitmap(await res.blob());
-  })();
-
-  promise.then((bitmap) => _rawResolved.set(url, bitmap))
-    .catch(() => { _rawCache.delete(url); _rawResolved.delete(url); });
-
-  _rawCache.set(url, promise);
-  if (_rawCache.size > IMAGE_CACHE_MAX) {
-    const oldest = _rawCache.keys().next().value;
-    _rawCache.delete(oldest);
-    _rawResolved.delete(oldest);
-  }
-  return promise;
-}
-
-function cropTile(raw, ox, oy, scale) {
-  if (!raw) return Promise.resolve(null);
-  if (scale === 1) return createImageBitmap(raw, { imageOrientation: "flipY" });
-  const s = raw.width / scale;
-  return createImageBitmap(raw, ox * s, oy * s, s, s, { imageOrientation: "flipY" });
-}
-
 export const WMTS_SOURCE_MAX_ZOOM_ORTHO = 18;
 export const WMTS_SOURCE_MAX_ZOOM = 17;
 
-function effectiveTile(sourceKey, x, y, z) {
+/** The source tile actually fetched for (x, y, z): one level coarser, so it serves 4+ terrain tiles. */
+export function effectiveTile(sourceKey, x, y, z) {
   const wmts_max_zoom = (sourceKey == "ortho") ? WMTS_SOURCE_MAX_ZOOM_ORTHO : WMTS_SOURCE_MAX_ZOOM;
   const eff_z = Math.min(z - 1, wmts_max_zoom);
   const scale = 2 ** (z - eff_z);
   return { z: eff_z, x: Math.floor(x / scale), y: Math.floor(y / scale) };
-}
-
-export function fetchWmtsTile(x, y, z, sourceKey = currentMapSource) {
-  if (sourceKey === "none") return Promise.resolve(null);
-  const eff = effectiveTile(sourceKey, x, y, z);
-  const scale = 2 ** (z - eff.z);
-  const url = tileUrl(sourceKey, eff.x, eff.y, eff.z);
-  return fetchRaw(url).then((raw) => cropTile(raw, x - eff.x * scale, y - eff.y * scale, scale));
-}
-
-const PLACEHOLDER_MAX_LEVELS = 6;
-
-export function peekPlaceholderTile(x, y, z, sourceKey = currentMapSource) {
-  if (sourceKey === "none") return null;
-  for (let dz = 1; dz <= Math.min(PLACEHOLDER_MAX_LEVELS, z); dz++) {
-    const az = z - dz;
-    const eff = effectiveTile(sourceKey, x >> dz, y >> dz, az);
-    const raw = _rawResolved.get(tileUrl(sourceKey, eff.x, eff.y, eff.z));
-    if (!raw) continue;
-    const scale = 2 ** (z - eff.z);
-    return cropTile(raw, x - eff.x * scale, y - eff.y * scale, scale);
-  }
-  return null;
 }

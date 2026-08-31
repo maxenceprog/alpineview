@@ -127,8 +127,6 @@ export function bakeWorldUVs(geometry, meshPos, xMin, xMax, zMin, zMax) {
 
 function disposeMeshMaterial(mat) {
   if (!mat) return;
-  const tex = mat.uniforms?.map?.value;
-  if (tex) tex.dispose();
   verticalDiffuseMaterials.delete(mat);
   unregisterLitMaterial(mat);
   mat.dispose();

@@ -1,8 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../src/deviceInfo.js", () => ({ IS_MOBILE: false }));
 
-const { fetchWmtsTile, mercBounds } = await import("../src/wmts.js");
+const { mercBounds } = await import("../src/wmts.js");
+const { wmtsTexture } = await import("../src/wmtsTextures.js");
 
 function requestedTile(url) {
   const p = new URLSearchParams(url.split("?")[1]);
@@ -11,47 +12,57 @@ function requestedTile(url) {
 
 const OK = { ok: true, status: 200, blob: () => Promise.resolve({}) };
 const NOT_FOUND = { ok: false, status: 404 };
-const SERVER_ERROR = { ok: false, status: 500 };
 
 function stubFetch(urls, respond = () => OK) {
   vi.stubGlobal("fetch", (url) => {
     urls.push(url);
     return Promise.resolve(respond(url));
   });
-  vi.stubGlobal("createImageBitmap", () => Promise.resolve({}));
+  vi.stubGlobal("createImageBitmap", () => Promise.resolve({ width: 256, height: 256 }));
 }
 
-beforeEach(() => {});
 afterEach(() => { vi.unstubAllGlobals(); });
 
-describe("fetchWmtsTile", () => {
-  it("requests the exact (x, y, z) key it's given", async () => {
+describe("wmtsTexture", () => {
+  it("fetches one level coarser, so one source tile serves four terrain tiles", async () => {
     const urls = [];
     stubFetch(urls);
-    await fetchWmtsTile(1057, 736, 11, "ortho");
+    const source = wmtsTexture(1057, 736, 11, "ortho");
+    await source.texture;
     expect(urls.length).toBe(1);
-    expect(requestedTile(urls[0])).toEqual({ z: "11", x: "1057", y: "736", layer: "ORTHOIMAGERY.ORTHOPHOTOS" });
+    expect(requestedTile(urls[0])).toEqual({ z: "10", x: "528", y: "368", layer: "ORTHOIMAGERY.ORTHOPHOTOS" });
+    expect(source.key).toEqual({ z: 10, x: 528, y: 368 });
   });
 
-  it("returns null on a 404 instead of throwing", async () => {
+  it("gives the four terrain tiles of one source tile the same texture", async () => {
+    const urls = [];
+    stubFetch(urls);
+    const textures = await Promise.all([
+      wmtsTexture(2000, 1500, 11, "ortho").texture,
+      wmtsTexture(2001, 1500, 11, "ortho").texture,
+      wmtsTexture(2000, 1501, 11, "ortho").texture,
+      wmtsTexture(2001, 1501, 11, "ortho").texture,
+    ]);
+    expect(urls.length).toBe(1);
+    expect(new Set(textures).size).toBe(1);
+  });
+
+  it("returns the key of the source tile, not of the tile asked for", () => {
+    stubFetch([]);
+    expect(wmtsTexture(4000, 3000, 20, "plan").key).toEqual({ z: 17, x: 500, y: 375 });
+  });
+
+  it("rejects on a 404 and drops the entry, so a later call retries", async () => {
     const urls = [];
     stubFetch(urls, () => NOT_FOUND);
-    const bitmap = await fetchWmtsTile(1, 2, 3, "plan");
-    expect(bitmap).toBe(null);
+    await expect(wmtsTexture(1, 2, 3, "plan").texture).rejects.toThrow();
+    await expect(wmtsTexture(1, 2, 3, "plan").texture).rejects.toThrow();
+    expect(urls.length).toBe(2);
   });
 
-  it("throws on a real server error", async () => {
-    const urls = [];
-    stubFetch(urls, () => SERVER_ERROR);
-    await expect(fetchWmtsTile(4, 5, 6, "ortho")).rejects.toThrow();
-  });
-
-  it("caches by URL: a second call for the same tile doesn't refetch", async () => {
-    const urls = [];
-    stubFetch(urls);
-    await fetchWmtsTile(10, 20, 7, "ortho");
-    await fetchWmtsTile(10, 20, 7, "ortho");
-    expect(urls.length).toBe(1);
+  it("serves nothing when the map source is off", () => {
+    stubFetch([]);
+    expect(wmtsTexture(10, 20, 7, "none")).toBe(null);
   });
 });
 

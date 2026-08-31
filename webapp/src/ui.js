@@ -5,7 +5,7 @@ import { IS_MOBILE } from "./deviceInfo.js";
 import { initHdAvailability } from "./hdAvailability.js";
 import { setShadowLift } from "./layers.js";
 import { showPoiPanel } from "./poiLayer.js";
-import { setMapSource } from "./wmts.js";
+import { setMapSource } from "./wmtsTextures.js";
 
 const SEARCH_RESULT_LIMIT = 5;
 const SEARCH_DEBOUNCE_MS = 400;

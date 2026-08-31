@@ -3,16 +3,15 @@ import { mercBounds } from "./wmts.js";
 let activeTraces = [];
 let listener = null;
 
-/** Called once by tilesTexture.js to redrape tiles when the trace set changes. */
+/** Called once by tilesTexture.js to repaint tiles when the trace set changes. */
 export function onTracesChanged(fn) {
   listener = fn;
 }
 
 /** Replaces the set of mercator polylines drawn onto WMTS tiles. */
 export function setActiveTraces(traces) {
-  const prev = activeTraces;
   activeTraces = traces;
-  listener?.(prev, traces);
+  listener?.();
 }
 
 function tileMercBbox(tileKey) {
@@ -49,12 +48,6 @@ function tracesInBbox(traces, [x0, y0, x1, y1]) {
     }
     return false;
   });
-}
-
-/** True if tileKey gained or lost a trace between the previous and next active-trace sets. */
-export function tileNeedsRedrape(prev, next, tileKey) {
-  const bbox = tileMercBbox(tileKey);
-  return tracesInBbox(prev, bbox).length > 0 || tracesInBbox(next, bbox).length > 0;
 }
 
 /** Draws the active traces crossing tileKey onto a copy of bitmap; returns bitmap unchanged if none cross it. */

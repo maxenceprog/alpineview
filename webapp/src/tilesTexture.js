@@ -1,10 +1,11 @@
 import * as THREE from "three";
 import geoConstants from "../../geo_constants.json";
-import { onTracesChanged, paintTraces, tileNeedsRedrape } from "./gpxPainter.js";
+import { onTracesChanged } from "./gpxPainter.js";
 import { buildVerticalDiffuseMaterial, disposeLayerMaterials, replaceMeshMaterial } from "./layers.js";
 import { localToWork } from "./terrainPack.js";
 import { applySkirtAndNormals } from "./tileSkirtAndNormals.js";
-import { WMTS_SOURCE_MAX_ZOOM, fetchWmtsTile, mercBounds, peekPlaceholderTile } from "./wmts.js";
+import { WMTS_SOURCE_MAX_ZOOM, mercBounds } from "./wmts.js";
+import { peekWmtsTexture, repaintTraces, wmtsTexture } from "./wmtsTextures.js";
 import { WORK_TO_MERC } from "./workFrame.js";
 
 const CELL_LEVEL = geoConstants.cell_level.value;
@@ -19,20 +20,12 @@ function tileKeyFromUrl(url) {
 }
 
 const meshes = new Map();
-let redrawView = null;
-
-onTracesChanged((prev, next) => {
-  const pending = [];
-  for (const [mesh, tileKey] of meshes) {
-    if (tileNeedsRedrape(prev, next, tileKey)) pending.push(drapeMesh(mesh, tileKey));
-  }
-  Promise.all(pending).then(() => redrawView?.()).catch(() => redrawView?.());
-});
 
 const _vertex = new THREE.Vector3();
 
-function bakeUVs(mesh, x, y, z, transform) {
-  const { x0, y0, s } = mercBounds(z, x, y);
+function bakeUVs(mesh, key) {
+  const { x0, y0, s } = mercBounds(key.z, key.x, key.y);
+  const transform = mesh.userData.tileTransform;
   const pos = mesh.geometry.attributes.position;
   const uv = new Float32Array(pos.count * 2);
 
@@ -45,29 +38,21 @@ function bakeUVs(mesh, x, y, z, transform) {
   mesh.geometry.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
 }
 
-function applyBitmap(mesh, bitmap) {
-  if (!bitmap) {
-    replaceMeshMaterial(mesh, buildVerticalDiffuseMaterial(null));
-    return;
+function applyTexture(mesh, key, texture) {
+  const tag = key && `${key.z}/${key.x}/${key.y}`;
+  if (tag && mesh.userData.uvKey !== tag) {
+    bakeUVs(mesh, key);
+    mesh.userData.uvKey = tag;
   }
-  const texture = new THREE.Texture(bitmap);
-  texture.needsUpdate = true;
-  texture.flipY = false;
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 8;
-  texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
   replaceMeshMaterial(mesh, buildVerticalDiffuseMaterial(texture));
 }
 
 async function prepareMesh(mesh, tileKey, transform) {
+  mesh.userData.tileTransform = transform;
   await applySkirtAndNormals(mesh.geometry, tileKey.z <= WMTS_SOURCE_MAX_ZOOM);
-  bakeUVs(mesh, tileKey.x, tileKey.y, tileKey.z, transform);
 
-  const placeholder = peekPlaceholderTile(tileKey.x, tileKey.y, tileKey.z);
-  if (placeholder) {
-    const bitmap = await placeholder;
-    if (bitmap) applyBitmap(mesh, bitmap);
-  }
+  const placeholder = peekWmtsTexture(tileKey.x, tileKey.y, tileKey.z);
+  if (placeholder) applyTexture(mesh, placeholder.key, placeholder.texture);
 }
 
 const meshPrepPlugin = {
@@ -89,9 +74,13 @@ const meshPrepPlugin = {
 };
 
 async function drapeMesh(mesh, tileKey) {
-  const bitmap = await fetchWmtsTile(tileKey.x, tileKey.y, tileKey.z);
-  if (!mesh.parent) return;
-  applyBitmap(mesh, bitmap ? await paintTraces(bitmap, tileKey) : null);
+  const source = wmtsTexture(tileKey.x, tileKey.y, tileKey.z);
+  if (!source) {
+    applyTexture(mesh, null, null);
+    return;
+  }
+  const texture = await source.texture;
+  if (mesh.parent) applyTexture(mesh, source.key, texture);
 }
 
 /**
@@ -101,7 +90,8 @@ async function drapeMesh(mesh, tileKey) {
  */
 export function installWmtsDraping(view, tilesLayer) {
   const redraw = () => view.notifyChange(view.camera3D);
-  redrawView = redraw;
+
+  onTracesChanged(() => repaintTraces().then(redraw, redraw));
 
   tilesLayer.tilesRenderer.registerPlugin(meshPrepPlugin);
 
