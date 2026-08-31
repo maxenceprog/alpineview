@@ -85,14 +85,20 @@
       color: #9ab;
     }
 
-    #env-toggle,
-    #layer-toggle,
-    #help-toggle,
-    #settings-toggle {
+    #toolbar {
       position: fixed;
       top: 10px;
       left: 1ch;
       z-index: 11;
+      display: flex;
+      gap: 1ch;
+    }
+
+    #toolbar .tool {
+      position: relative;
+    }
+
+    #toolbar .tool > button {
       width: 10ch;
       height: 34px;
       border: none;
@@ -103,16 +109,12 @@
       cursor: pointer;
     }
 
-    #layer-toggle {
-      left: 12ch;
-    }
-
-    #settings-toggle {
-      left: 23ch;
+    #gpx-toggle {
+      font-size: 14px;
+      font-weight: 600;
     }
 
     #help-toggle {
-      left: 34ch;
       font-weight: 600;
     }
 
@@ -244,11 +246,10 @@
       white-space: nowrap;
     }
 
-    #env-panel,
-    #settings-panel {
-      position: fixed;
-      top: 52px;
-      left: 1ch;
+    .tool-panel {
+      position: absolute;
+      top: 42px;
+      left: 0;
       z-index: 10;
       background: rgba(10, 20, 35, 0.75);
       color: #dde6f0;
@@ -261,32 +262,41 @@
       align-items: center;
     }
 
-    #settings-panel {
-      left: 23ch;
-    }
-
-    #env-panel input[type="range"],
-    #settings-panel input[type="range"] {
-      width: 110px;
-    }
-
-    #env-panel.hidden,
-    #settings-panel.hidden {
+    .tool-panel.hidden {
       display: none;
     }
 
-    #layer-panel {
-      position: fixed;
-      top: 52px;
-      left: 12ch;
-      z-index: 10;
-      background: rgba(10, 20, 35, 0.75);
+    .tool-panel input[type="range"] {
+      width: 110px;
+    }
+
+    .tool-panel button {
+      border: none;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.14);
       color: #dde6f0;
-      font: 12px system-ui, sans-serif;
-      padding: 10px 12px;
-      border-radius: 8px;
-      display: grid;
-      gap: 6px;
+      padding: 3px 8px;
+      cursor: pointer;
+    }
+
+    #gpx-panel {
+      grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    #gpx-file,
+    #gpx-speed,
+    #gpx-pos,
+    #gpx-play {
+      width: 100%;
+      min-width: 0;
+    }
+
+    #gpx-status {
+      grid-column: 1 / -1;
+    }
+
+    #layer-panel {
+      grid-template-columns: auto;
     }
 
     #layer-panel label {
@@ -295,10 +305,6 @@
       gap: 6px;
       cursor: pointer;
       white-space: nowrap;
-    }
-
-    #layer-panel.hidden {
-      display: none;
     }
 
     #search-form {
@@ -577,25 +583,14 @@
          toggles, search bar and panels stop overlapping on narrow screens. */
     @media (max-width: 640px) {
 
-      #env-toggle,
-      #layer-toggle,
-      #help-toggle,
-      #settings-toggle {
+      #toolbar .tool > button {
         width: 40px;
         height: 40px;
         font-size: 20px;
       }
 
-      #layer-toggle {
-        left: 58px;
-      }
-
-      #settings-toggle {
-        left: 106px;
-      }
-
-      #help-toggle {
-        left: 154px;
+      #gpx-toggle {
+        font-size: 12px;
       }
 
       #search-form {
@@ -617,12 +612,11 @@
         max-width: none;
       }
 
-      #env-panel,
-      #settings-panel,
-      #layer-panel,
+      .tool-panel,
       #help-panel,
       #poi-panel,
       #poi-panel.maximized {
+        position: fixed;
         top: 104px;
         left: 10px;
         right: 10px;
@@ -630,6 +624,13 @@
         max-width: none;
         height: auto;
         max-height: calc(100vh - 114px);
+      }
+
+      #gpx-panel input,
+      #gpx-panel select,
+      #gpx-panel button {
+        min-height: 34px;
+        font-size: 14px;
       }
 
       #help-panel #help-desktop {
@@ -650,10 +651,74 @@
     <div id="splash-quote"></div>
     <div id="splash-author"></div>
   </div>
-  <button id="env-toggle" title="Soleil, lumière et brume">☀️</button>
-  <button id="layer-toggle" title="Fond de carte">🗺</button>
-  <button id="settings-toggle" title="Réglages — champ de vision, qualité">⚙️</button>
-  <button id="help-toggle" title="Aide — commandes">?</button>
+  <div id="toolbar">
+    <div class="tool">
+      <button id="env-toggle" title="Soleil, lumière et brume">☀️</button>
+      <div id="env-panel" class="tool-panel">
+        <label for="env-enabled">Éclairage</label>
+        <input type="checkbox" id="env-enabled" checked />
+        <span></span>
+        <label for="shadows-enabled">Ombres</label>
+        <input type="checkbox" id="shadows-enabled" />
+        <span></span>
+        <label for="sun-date">Date (Hauteur du soleil)</label>
+        <input type="date" id="sun-date" />
+        <span></span>
+        <label for="sun-time">Heure (Azimut du soleil)</label>
+        <input type="range" id="sun-time" min="0" max="1425" step="15" value="720" />
+        <span id="sun-time-value">12:00</span>
+        <label for="shadowLift">Eclaircir</label>
+        <input type="range" id="shadowLift" min="0.5" max="2" step="0.05" value="1.2" />
+        <span id="shadowLift-value">1.20</span>
+        <label for="fog-density">Brume</label>
+        <input type="range" id="fog-density" min="0" max="0.5" step="0.01" value="0.05" />
+        <span id="fog-density-value">0.05</span>
+      </div>
+    </div>
+    <div class="tool">
+      <button id="layer-toggle" title="Fond de carte">🗺</button>
+      <div id="layer-panel" class="tool-panel hidden">
+        <label><input type="radio" name="layer-source" value="ortho" checked /> Photo aérienne</label>
+        <label><input type="radio" name="layer-source" value="plan" /> Plan IGN</label>
+        <label><input type="radio" name="layer-source" value="opentopomap" /> OpenTopoMap</label>
+        <label><input type="radio" name="layer-source" value="none" /> Aucune (relief seul)</label>
+      </div>
+    </div>
+    <div class="tool">
+      <button id="gpx-toggle" title="Trace GPX">GPX</button>
+      <div id="gpx-panel" class="tool-panel hidden">
+        <label for="gpx-file">Fichier</label>
+        <input type="file" id="gpx-file" accept=".gpx,application/gpx+xml" />
+        <label for="gpx-follow-ground">Suivre le sol</label>
+        <input type="checkbox" id="gpx-follow-ground" checked />
+        <label for="gpx-pos">Position</label>
+        <input type="range" id="gpx-pos" min="0" max="1000" step="1" value="0" disabled />
+        <label for="gpx-speed">Vitesse</label>
+        <select id="gpx-speed">
+        <option value="1">x1</option>
+        <option value="3">x3</option>
+        <option value="10">x10</option>
+        </select>
+        <label for="gpx-play">Suivre la trace</label>
+        <button id="gpx-play" disabled>&#9654;</button>
+        <span id="gpx-status"></span>
+      </div>
+    </div>
+    <div class="tool">
+      <button id="settings-toggle" title="Réglages — champ de vision, qualité">⚙️</button>
+      <div id="settings-panel" class="tool-panel hidden">
+        <label for="fov">Champ de vision</label>
+        <input type="range" id="fov" min="50" max="100" step="1" value="60" />
+        <span id="fov-value">60°</span>
+        <label for="data-usage">Qualité</label>
+        <input type="range" id="data-usage" min="0" max="3" step="1" value="1" />
+        <span id="data-usage-value">élevée</span>
+      </div>
+    </div>
+    <div class="tool">
+      <button id="help-toggle" title="Aide — commandes">?</button>
+    </div>
+  </div>
   <button id="fp-toggle" title="Vue à la première personne — glisser puis relâcher">🧍</button>
   <button id="compass" title="Nord — cliquer pour recentrer">
     <svg viewBox="0 0 44 44">
@@ -670,12 +735,6 @@
     <div id="search-results"></div>
   </div>
 
-  <div id="layer-panel" class="hidden">
-    <label><input type="radio" name="layer-source" value="ortho" checked /> Photo aérienne</label>
-    <label><input type="radio" name="layer-source" value="plan" /> Plan IGN</label>
-    <label><input type="radio" name="layer-source" value="opentopomap" /> OpenTopoMap</label>
-    <label><input type="radio" name="layer-source" value="none" /> Aucune (relief seul)</label>
-  </div>
 
   <div id="help-panel">
     <button id="help-close" title="Fermer" aria-label="Fermer">×</button>
@@ -732,10 +791,10 @@
     <button id="poi-maximize" title="Agrandir" aria-label="Agrandir">⤢</button>
     <button id="poi-close" title="Fermer" aria-label="Fermer">×</button>
     <h3 id="poi-title"></h3>
+    <button id="poi-traces" style="display: none">Montrer les traces récentes</button>
     <div id="poi-meta" class="poi-meta"></div>
     <div id="poi-text" class="poi-text"></div>
     <a id="poi-link" href="#" target="_blank" rel="noopener">Ouvrir sur camptocamp.org →</a>
-    <button id="poi-traces" style="display: none">Montrer les traces récentes</button>
     <div id="poi-routes-section" style="display: none">
       <h3>Itinéraires</h3>
       <ul id="poi-routes" class="poi-link-list"></ul>
@@ -744,34 +803,6 @@
       <h3>Sorties récentes</h3>
       <ul id="poi-outings" class="poi-link-list"></ul>
     </div>
-  </div>
-  <div id="env-panel">
-    <label for="env-enabled">Éclairage</label>
-    <input type="checkbox" id="env-enabled" checked />
-    <span></span>
-    <label for="shadows-enabled">Ombres</label>
-    <input type="checkbox" id="shadows-enabled" />
-    <span></span>
-    <label for="sun-date">Date (Hauteur du soleil)</label>
-    <input type="date" id="sun-date" />
-    <span></span>
-    <label for="sun-time">Heure (Azimut du soleil)</label>
-    <input type="range" id="sun-time" min="0" max="1425" step="15" value="720" />
-    <span id="sun-time-value">12:00</span>
-    <label for="shadowLift">Eclaircir</label>
-    <input type="range" id="shadowLift" min="0.5" max="2" step="0.05" value="1.2" />
-    <span id="shadowLift-value">1.20</span>
-    <label for="fog-density">Brume</label>
-    <input type="range" id="fog-density" min="0" max="0.5" step="0.01" value="0.05" />
-    <span id="fog-density-value">0.05</span>
-  </div>
-  <div id="settings-panel" class="hidden">
-    <label for="fov">Champ de vision</label>
-    <input type="range" id="fov" min="50" max="100" step="1" value="60" />
-    <span id="fov-value">60°</span>
-    <label for="data-usage">Qualité</label>
-    <input type="range" id="data-usage" min="0" max="3" step="1" value="1" />
-    <span id="data-usage-value">élevée</span>
   </div>
   <div id="credits-banner">
     <a href="https://github.com/maxenceprog/alpineview/blob/master/NOTICE.md" target="_blank" rel="noopener">

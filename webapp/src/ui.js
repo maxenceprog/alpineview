@@ -3,6 +3,7 @@ import { searchWaypoints } from "./camptocampApi.js";
 import { initCompass } from "./compass.js";
 import { IS_MOBILE } from "./deviceInfo.js";
 import { initHdAvailability } from "./hdAvailability.js";
+import { initGpsCamera } from "./gpsCamera.js";
 import { setShadowLift } from "./layers.js";
 import { showPoiPanel } from "./poiLayer.js";
 import { setMapSource } from "./wmtsTextures.js";
@@ -223,13 +224,29 @@ function initSettingsPanel(view, tilesLayer) {
   });
 }
 
+// Browsers restore form-control values across a reload, so an input can come
+// back holding a value nothing in the app ever applied — the panel's label and
+// the view then disagree with the slider. Replaying each control's own handler
+// once at startup reconciles them. The layer panel applies its restored radio
+// itself, and re-firing it would re-drape every tile for nothing.
+function syncRestoredControls() {
+  for (const el of document.querySelectorAll(".tool-panel input, .tool-panel select")) {
+    if (el.type === "file" || el.type === "radio") continue;
+    el.dispatchEvent(new Event("input"));
+    el.dispatchEvent(new Event("change"));
+  }
+}
+
 export function initUi(view, { setSunDate, setEnabled, setShadowsEnabled, refreshTextures, tilesLayer }) {
   initLayerPanel(view, refreshTextures);
   initEnvPanel(view, { setSunDate, setEnabled, setShadowsEnabled });
   initSettingsPanel(view, tilesLayer);
+  initTogglePanel("gpx-toggle", "gpx-panel");
+  initGpsCamera(view, tilesLayer);
   initHelpPanel(view);
   initSearch(view);
   initCompass(view);
+  syncRestoredControls();
 
   import("./consoleControls.js").then(({ initConsoleControls }) => initConsoleControls(view));
   if (__TEST_CONTROLS__) {
