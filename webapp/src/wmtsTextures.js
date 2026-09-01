@@ -1,7 +1,7 @@
 import * as THREE from "three";
 
 import { IS_MOBILE } from "./deviceInfo.js";
-import { paintTraces } from "./gpxPainter.js";
+import { currentTraces, paintTraces } from "./gpxPainter.js";
 import { effectiveTile, tileUrl } from "./wmts.js";
 
 const CACHE_MAX = IS_MOBILE ? 200 : 800;
@@ -51,6 +51,9 @@ export function setMapSource(sourceKey) {
   cache.clear();
 }
 
+/** The source subsequent fetches use, to detect a switch across an await. */
+export const currentMapSource = () => currentSource;
+
 /**
  * The shared texture covering (x, y, z), plus the WMTS key it actually spans —
  * one source tile serves 4, 16 or 64 terrain tiles, so callers bake their UVs
@@ -75,9 +78,13 @@ export function peekWmtsTexture(x, y, z, sourceKey = currentSource) {
 
 /** Repaints every cached texture in place, so meshes pick the traces up without re-draping. */
 export async function repaintTraces() {
+  const traces = currentTraces();
   await Promise.all([...cache.values()].map(async (entry) => {
-    if (!entry.texture) return;
-    entry.texture.image = await paintTraces(entry.bitmap, entry.key);
-    entry.texture.needsUpdate = true;
+    const texture = await entry.promise.catch(() => null);
+    if (!texture) return;
+    const image = await paintTraces(entry.bitmap, entry.key);
+    if (currentTraces() !== traces) return;
+    texture.image = image;
+    texture.needsUpdate = true;
   }));
 }

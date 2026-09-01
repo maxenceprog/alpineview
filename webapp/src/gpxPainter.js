@@ -14,6 +14,9 @@ export function setActiveTraces(traces) {
   listener?.();
 }
 
+/** Identity of the current trace set, to detect a change across an await. */
+export const currentTraces = () => activeTraces;
+
 function tileMercBbox(tileKey) {
   const { x0, y0, s } = mercBounds(tileKey.z, tileKey.x, tileKey.y);
   return [x0, y0, x0 + s, y0 + s];

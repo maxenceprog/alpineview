@@ -5,7 +5,7 @@ import { buildVerticalDiffuseMaterial, disposeLayerMaterials, replaceMeshMateria
 import { localToWork } from "./terrainPack.js";
 import { applySkirtAndNormals } from "./tileSkirtAndNormals.js";
 import { WMTS_SOURCE_MAX_ZOOM, mercBounds } from "./wmts.js";
-import { peekWmtsTexture, repaintTraces, wmtsTexture } from "./wmtsTextures.js";
+import { currentMapSource, peekWmtsTexture, repaintTraces, wmtsTexture } from "./wmtsTextures.js";
 import { WORK_TO_MERC } from "./workFrame.js";
 
 const CELL_LEVEL = geoConstants.cell_level.value;
@@ -74,13 +74,14 @@ const meshPrepPlugin = {
 };
 
 async function drapeMesh(mesh, tileKey) {
-  const source = wmtsTexture(tileKey.x, tileKey.y, tileKey.z);
+  const sourceKey = currentMapSource();
+  const source = wmtsTexture(tileKey.x, tileKey.y, tileKey.z, sourceKey);
   if (!source) {
     applyTexture(mesh, null, null);
     return;
   }
   const texture = await source.texture;
-  if (mesh.parent) applyTexture(mesh, source.key, texture);
+  if (mesh.parent && currentMapSource() === sourceKey) applyTexture(mesh, source.key, texture);
 }
 
 /**
