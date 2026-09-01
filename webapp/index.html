@@ -98,7 +98,7 @@
       position: relative;
     }
 
-    #toolbar .tool > button {
+    #toolbar .tool>button {
       width: 10ch;
       height: 34px;
       border: none;
@@ -193,6 +193,10 @@
       margin: 0 0 12px;
       color: #9fb0c4;
       font-size: 12px;
+    }
+
+    #help-panel p a {
+      color: #dde6f0;
     }
 
     #help-close {
@@ -583,7 +587,7 @@
          toggles, search bar and panels stop overlapping on narrow screens. */
     @media (max-width: 640px) {
 
-      #toolbar .tool > button {
+      #toolbar .tool>button {
         width: 40px;
         height: 40px;
         font-size: 20px;
@@ -695,9 +699,9 @@
         <input type="range" id="gpx-pos" min="0" max="1000" step="1" value="0" disabled />
         <label for="gpx-speed">Vitesse</label>
         <select id="gpx-speed">
-        <option value="1">x1</option>
-        <option value="3">x3</option>
-        <option value="10">x10</option>
+          <option value="1">x1</option>
+          <option value="3">x3</option>
+          <option value="10">x10</option>
         </select>
         <label for="gpx-play">Suivre la trace</label>
         <button id="gpx-play" disabled>&#9654;</button>
@@ -739,9 +743,14 @@
   <div id="help-panel">
     <button id="help-close" title="Fermer" aria-label="Fermer">×</button>
     <h2>lidalps3d.fr 🏔️</h2>
+    <p>Projet encore en bêta et développé bénévolement. Il peut contenir des erreurs. Chacun est responsable de sa
+      propre sécurité en montagne. Des clubs comme la <a href="https://www.ffcam.fr" target="_blank"
+        rel="noopener">FFCAM</a> existent pour s'initier de manière encadrée. </p>
     <p>Relief 3D basé sur le nuage de points Lidar d'IGN.</p>
-    <p>Ce projet est open-source. Le code est disponible <a href="https://github.com/maxenceprog/alpineview"
-        target="_blank" rel="noopener">ici</a>.</p>
+    <p>Les topos et sorties viennent du site communautaire <a href="https://www.camptocamp.org" target="_blank"
+        rel="noopener">Camptocamp</a>.</p>
+    <p>Ce projet est open-source, <a href="https://github.com/maxenceprog/alpineview" target="_blank"
+        rel="noopener">disponible sur GitHub</a>.</p>
     <dl id="help-desktop">
       <dt><kbd>Clic gauche</kbd> + glisser</dt>
       <dd>Déplacer le terrain, comme une carte que l'on tire.</dd>
