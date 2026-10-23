@@ -13,31 +13,31 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "colorthief": "^3.3.1",
+    "colorthief": "^3.5.0",
     "copc": "^0.0.8",
-    "dompurify": "^3.4.11",
+    "dompurify": "^3.4.17",
     "itowns": "^2.46.0",
     "laz-perf": "^0.0.7",
     "leaflet": "^1.9.4",
-    "markdown-it": "^14.3.0",
-    "proj4": "^2.20.9",
-    "socket.io-client": "^4",
-    "suncalc": "^2.0.0",
+    "markdown-it": "^14.3.3",
+    "proj4": "^2.22.0",
+    "socket.io-client": "^4.8.4",
+    "suncalc": "^2.1.1",
     "three": "^0.174.0",
     "tilebelt": "^1.0.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@playwright/test": "^1.61.0",
+    "@playwright/test": "^1.64.1",
     "@vitejs/plugin-basic-ssl": "^2.3.0",
     "@vitest/browser": "^4.1.10",
     "@vitest/coverage-v8": "^4.1.10",
-    "eslint": "^10.7.0",
-    "globals": "^17.7.0",
-    "happy-dom": "^20.10.6",
-    "vite": "^6.0.0",
-    "vite-plugin-static-copy": "^3.1.6",
+    "eslint": "^10.13.0",
+    "globals": "^17.13.0",
+    "happy-dom": "^20.14.6",
+    "vite": "^6.4.5",
+    "vite-plugin-static-copy": "^3.4.0",
     "vitest": "^4.1.10",
-    "wrangler": "^4.124.0"
+    "wrangler": "^4.152.0"
   }
 }
