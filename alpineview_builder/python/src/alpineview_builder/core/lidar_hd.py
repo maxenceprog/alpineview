@@ -26,7 +26,7 @@ from .geocode import l93_to_latlon
 logger = logging.getLogger(__name__)
 
 _WFS_URL = "https://data.geopf.fr/wfs/ows"
-_WFS_LAYER = "IGNF_NUAGES-DE-POINTS-LIDAR-HD:dalle"
+_WFS_LAYER = "IGNF_LIDAR-HD_METADONNEE:metadata"
 
 
 @dataclass
