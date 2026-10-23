@@ -55,7 +55,7 @@ def _wfs_dalles(
 
     tiles = []
     for feat in features:
-        url = feat["properties"]["url"]
+        url = feat["properties"]["url_npl"]
         name = url.split("/")[-1]
         tiles.append(TileInfo(name=name, url=url))
     return tiles
