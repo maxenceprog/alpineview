@@ -241,8 +241,14 @@ function installPoiLabels(view, labelRoot, tilesLayer) {
     for (let bx = snap(cx - POI_RADIUS_KM); bx <= cx + POI_RADIUS_KM; bx += BLOCK_KM) {
       for (let by = snap(cy - POI_RADIUS_KM); by <= cy + POI_RADIUS_KM; by += BLOCK_KM) {
         const key = `${bx}/${by}`;
-        if (blocks.has(key)) continue;
-        const block = { labels: [] };
+        const existing = blocks.get(key);
+
+        // Skip cells already loaded or currently being fetched.
+        // Failed cells can be retried on the next camera-triggered refresh.
+        if (existing && !existing.failed) continue;
+
+        const block = { labels: [], failed: false };
+
         blocks.set(key, block);
         fetchCellPois(bx, by, BLOCK_KM).then((docs) => {
           if (blocks.get(key) !== block) return;
@@ -254,7 +260,10 @@ function installPoiLabels(view, labelRoot, tilesLayer) {
           }
           dirty = true;
           view.notifyChange(camera);
-        }).catch(() => { blocks.delete(key); });
+        }).catch(() => {
+          if (blocks.get(key) !== block) return;
+          block.failed = true;
+        });
       }
     }
 
@@ -265,7 +274,6 @@ function installPoiLabels(view, labelRoot, tilesLayer) {
       if (Math.hypot(dx, dy) > POI_DROP_KM) dropBlock(key);
     }
   };
-
   const ndc = new THREE.Vector3();
   const forward = new THREE.Vector3();
   const toLabel = new THREE.Vector3();
@@ -307,17 +315,40 @@ function installPoiLabels(view, labelRoot, tilesLayer) {
     }
   };
 
+
   let dirty = true;
   const lastCamMatrix = new THREE.Matrix4();
 
+  let lastBlockRefresh = 0;
+  let lastBlockX = NaN;
+  let lastBlockY = NaN;
+
+  const BLOCK_REFRESH_MS = 1000;
+
   view.addFrameRequester(itowns.MAIN_LOOP_EVENTS.AFTER_RENDER, () => {
-    if (!dirty && camera.matrixWorld.equals(lastCamMatrix)) return;
-    lastCamMatrix.copy(camera.matrixWorld);
-    dirty = false;
-    place();
-    refreshBlocks();
-    declutter();
+    const now = Date.now();
+
+    const moved =
+      camera.position.x !== lastBlockX ||
+      camera.position.y !== lastBlockY;
+
+    if (dirty || !camera.matrixWorld.equals(lastCamMatrix)) {
+      lastCamMatrix.copy(camera.matrixWorld);
+      dirty = false;
+      place();
+      declutter();
+    }
+
+    // Refresh POI blocks only after camera movement,
+    // and at most once per second.
+    if (moved && now - lastBlockRefresh >= BLOCK_REFRESH_MS) {
+      lastBlockRefresh = now;
+      lastBlockX = camera.position.x;
+      lastBlockY = camera.position.y;
+      refreshBlocks();
+    }
   });
+
 
   return labels;
 }
